@@ -1,0 +1,39 @@
+{
+  "mcpServers": {
+    "sequential-thinking": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "mcp/sequentialthinking"
+      ]
+    },
+    "puppeteer": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "--init",
+        "-e",
+        "DOCKER_CONTAINER=true",
+        "mcp/puppeteer"
+      ]
+    },
+    "memory": {
+      "command": "docker",
+      "args": ["run", "-i", "-v", "claude-memory:/app/dist", "--rm", "mcp/memory"]
+    },
+    "shadcn": {
+      "command": "npx",
+      "args": ["shadcn@latest", "mcp"]
+    },
+    "ui-layouts-mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["@ui-layouts/mcp"]
+    }
+    
+  }
+}
