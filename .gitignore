@@ -4,7 +4,7 @@ dist
 .env.local
 *.log
 .DS_Store
-.claude
+.claude/
 AGENTS.md
 CLAUDE.md
 GEMINI.md
