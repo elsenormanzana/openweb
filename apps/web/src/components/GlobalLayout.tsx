@@ -60,7 +60,7 @@ export function GlobalLayout({ children }: { children: React.ReactNode }) {
     let scripts: HTMLScriptElement[] = [];
     api.plugins.list().then((list) => {
       scripts = list
-        .filter((p) => p.enabled && p.clientCode)
+        .filter((p) => p.enabled && p.hasClient)
         .map((p) => {
           const el = document.createElement("script");
           el.src = `/api/plugins/${p.slug}/client.js`;

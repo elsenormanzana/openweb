@@ -105,6 +105,7 @@ export function PageSettings() {
   const [slugTouched, setSlugTouched] = useState(false);
   const [isHomepage, setIsHomepage] = useState(false);
   const [ignoreGlobalLayout, setIgnoreGlobalLayout] = useState(false);
+  const [disableElevatedNavSpacing, setDisableElevatedNavSpacing] = useState(false);
 
   // SEO fields
   const [seoTitle, setSeoTitle] = useState("");
@@ -134,6 +135,7 @@ export function PageSettings() {
         setSlug(data.slug);
         setIsHomepage(data.isHomepage);
         setIgnoreGlobalLayout(data.ignoreGlobalLayout ?? false);
+        setDisableElevatedNavSpacing(data.disableElevatedNavSpacing ?? false);
         setSeoTitle(data.seoTitle ?? "");
         setSeoDescription(data.seoDescription ?? "");
         setSeoKeywords(data.seoKeywords ?? "");
@@ -173,7 +175,7 @@ export function PageSettings() {
     setError(null);
     api.pages
       .update(pageId, {
-        title, slug, isHomepage, ignoreGlobalLayout,
+        title, slug, isHomepage, ignoreGlobalLayout, disableElevatedNavSpacing,
         seoTitle: seoTitle || null,
         seoDescription: seoDescription || null,
         seoKeywords: seoKeywords || null,
@@ -235,7 +237,11 @@ export function PageSettings() {
             <input type="checkbox" id="ignore-global-layout" checked={ignoreGlobalLayout} onChange={(e) => setIgnoreGlobalLayout(e.target.checked)} />
             <Label htmlFor="ignore-global-layout">Ignore global layout</Label>
           </div>
-          <p className="text-xs text-muted-foreground">When checked, this page does not use the site's global navigation or footer.</p>
+          <div className="flex items-center gap-2">
+            <input type="checkbox" id="disable-elevated-nav-spacing" checked={disableElevatedNavSpacing} onChange={(e) => setDisableElevatedNavSpacing(e.target.checked)} />
+            <Label htmlFor="disable-elevated-nav-spacing">Disable elevated header spacing</Label>
+          </div>
+          <p className="text-xs text-muted-foreground">Use layout toggles to hide global layout or allow content to sit under the elevated floating header.</p>
           <Button asChild variant="outline" size="sm">
             <Link to={`/admin/pages/${pageId}/editor`}>Open web editor</Link>
           </Button>

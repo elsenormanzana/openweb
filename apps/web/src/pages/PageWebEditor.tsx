@@ -182,6 +182,7 @@ export function PageWebEditor() {
   const [showHistory, setShowHistory] = useState(false);
   const [draftSavedMsg, setDraftSavedMsg] = useState(false);
   const [palette, setPalette] = useState<ColorPalette>(DEFAULT_PALETTE);
+  const [disableElevatedNavSpacing, setDisableElevatedNavSpacing] = useState(false);
 
   const lastAutoSaved = useRef<string>("");
 
@@ -198,6 +199,7 @@ export function PageWebEditor() {
       .then((data) => {
         setTitle(data.title);
         setContent(data.content ?? "");
+        setDisableElevatedNavSpacing(data.disableElevatedNavSpacing ?? false);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -238,7 +240,7 @@ export function PageWebEditor() {
     setPublishing(true);
     setPublishedMsg(null);
     api.pages
-      .update(pageId, { content })
+      .update(pageId, { content, disableElevatedNavSpacing })
       .then(() => {
         setPublishedMsg("saved");
         setTimeout(() => setPublishedMsg(null), 3000);
@@ -296,6 +298,21 @@ export function PageWebEditor() {
             <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={saveDraft}>
               <Save className="size-3.5" />
               <span className="hidden sm:inline">Save draft</span>
+            </Button>
+
+            <Button
+              variant={disableElevatedNavSpacing ? "default" : "outline"}
+              size="sm"
+              className="h-8"
+              onClick={() => {
+                const next = !disableElevatedNavSpacing;
+                setDisableElevatedNavSpacing(next);
+                api.pages.update(pageId, { disableElevatedNavSpacing: next }).catch(() => {
+                  setDisableElevatedNavSpacing((prev) => !prev);
+                });
+              }}
+            >
+              {disableElevatedNavSpacing ? "Header spacing: Off" : "Header spacing: On"}
             </Button>
 
             <Button

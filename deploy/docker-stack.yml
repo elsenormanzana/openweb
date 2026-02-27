@@ -1,0 +1,104 @@
+services:
+  proxy:
+    image: nginx:1.27-alpine
+    ports:
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: ingress
+    configs:
+      - source: nginx_conf
+        target: /etc/nginx/nginx.conf
+      - source: nginx_site_conf
+        target: /etc/nginx/conf.d/openweb.conf
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+      update_config:
+        order: start-first
+
+  web:
+    image: openweb-web:latest
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+      update_config:
+        order: start-first
+
+  api:
+    image: openweb-api:latest
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-openweb}:${POSTGRES_PASSWORD:-openweb}@postgres:5432/${POSTGRES_DB:-openweb}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-change_me}
+    volumes:
+      - uploads_data:/app/apps/api/uploads
+      - backups_data:/app/apps/api/backups
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+      update_config:
+        order: start-first
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-openweb}
+      POSTGRES_USER: ${POSTGRES_USER:-openweb}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openweb}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
+    volumes:
+      - redis_data:/data
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  autoscaler:
+    image: openweb-autoscaler:latest
+    environment:
+      STACK_NAME: ${STACK_NAME:-openweb}
+      API_SERVICE_BASENAME: api
+      WEB_SERVICE_BASENAME: web
+      API_MIN_REPLICAS: ${API_MIN_REPLICAS:-2}
+      API_MAX_REPLICAS: ${API_MAX_REPLICAS:-10}
+      WEB_MIN_REPLICAS: ${WEB_MIN_REPLICAS:-2}
+      WEB_MAX_REPLICAS: ${WEB_MAX_REPLICAS:-10}
+      SCALE_UP_CPU: ${SCALE_UP_CPU:-70}
+      SCALE_DOWN_CPU: ${SCALE_DOWN_CPU:-25}
+      CHECK_INTERVAL_SECONDS: ${CHECK_INTERVAL_SECONDS:-30}
+      COOLDOWN_SECONDS: ${COOLDOWN_SECONDS:-120}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:
+  backups_data:
+
+configs:
+  nginx_conf:
+    file: ./nginx/nginx.conf
+  nginx_site_conf:
+    file: ./nginx/conf.d/openweb.conf

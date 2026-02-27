@@ -68,5 +68,11 @@ export function PublicPage() {
 
   const content = <BlockRenderer content={page.content} />;
   if (page.ignoreGlobalLayout) return content;
-  return <GlobalLayout>{content}</GlobalLayout>;
+  return (
+    <GlobalLayout>
+      <div className={page.disableElevatedNavSpacing ? "-mt-24 md:-mt-28" : ""}>
+        {content}
+      </div>
+    </GlobalLayout>
+  );
 }

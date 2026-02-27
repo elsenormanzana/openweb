@@ -1,0 +1,9 @@
+{
+  "name": "Hello World Plugin",
+  "description": "Sample OpenWeb plugin that exposes an API route, logs startup, and runs a cron job.",
+  "author": "OpenWeb Team",
+  "version": "1.0.0",
+  "website": "https://github.com/elsenormanzana/openweb",
+  "main": "index.js",
+  "client": "client.js"
+}

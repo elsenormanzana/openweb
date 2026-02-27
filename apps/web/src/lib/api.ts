@@ -7,6 +7,7 @@ export type Page = {
   content: string | null;
   isHomepage: boolean;
   ignoreGlobalLayout: boolean;
+  disableElevatedNavSpacing: boolean;
   siteId: number;
   seoTitle: string | null;
   seoDescription: string | null;
@@ -82,8 +83,14 @@ export type Plugin = {
   name: string;
   slug: string;
   description: string | null;
-  serverCode: string | null;
-  clientCode: string | null;
+  author?: string | null;
+  authors?: string[] | null;
+  version?: string | null;
+  website?: string | null;
+  hasServer?: boolean;
+  hasClient?: boolean;
+  serverCode?: string | null;
+  clientCode?: string | null;
   enabled: boolean;
   createdAt: string;
 };
@@ -136,6 +143,23 @@ export type CmsForm = {
   fields: FormField[];
   createdAt: string;
   updatedAt: string;
+};
+
+export type FormResponse = {
+  id: number;
+  formId: number | null;
+  siteId: number;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
+  status: "new" | "contacted" | "qualified" | "lost";
+  createdAt: string;
+  updatedAt: string;
+  values: Record<string, unknown>;
+  meta: Record<string, unknown>;
+  userAgent: string;
+  ip: string;
 };
 
 export type NewsletterSubscriber = {
@@ -256,6 +280,13 @@ export type SiteContext = {
   canSwitchSites: boolean;
 };
 
+export type BackupItem = {
+  name: string;
+  size: number;
+  createdAt: string;
+  downloadUrl: string;
+};
+
 function getAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
   const token = localStorage.getItem("openweb_token");
@@ -341,7 +372,7 @@ export const api = {
     getBySlug: (slug: string) => request<Page>(`/api/pages/by-slug/${encodeURIComponent(slug)}`),
     create: (body: { title: string; slug: string; content?: string }) =>
       request<Page>("/api/pages", { method: "POST", body: JSON.stringify(body) }),
-    update: (id: number, body: Partial<Pick<Page, "title" | "slug" | "content" | "isHomepage" | "ignoreGlobalLayout" | "seoTitle" | "seoDescription" | "seoKeywords" | "ogImage" | "noIndex" | "canonicalUrl">>) =>
+    update: (id: number, body: Partial<Pick<Page, "title" | "slug" | "content" | "isHomepage" | "ignoreGlobalLayout" | "disableElevatedNavSpacing" | "seoTitle" | "seoDescription" | "seoKeywords" | "ogImage" | "noIndex" | "canonicalUrl">>) =>
       request<Page>(`/api/pages/${id}`, { method: "PUT", body: JSON.stringify(body) }),
     delete: (id: number) => request<{ ok: true }>(`/api/pages/${id}`, { method: "DELETE" }),
   },
@@ -415,9 +446,26 @@ export const api = {
   },
   plugins: {
     list: () => request<Plugin[]>("/api/plugins"),
-    create: (body: { name: string; slug?: string; description?: string; serverCode?: string; clientCode?: string; enabled?: boolean }) =>
-      request<Plugin>("/api/plugins", { method: "POST", body: JSON.stringify(body) }),
-    update: (id: number, body: Partial<Pick<Plugin, "name" | "description" | "serverCode" | "clientCode" | "enabled">>) =>
+    upload: async (file: File): Promise<Plugin> => {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/plugins/upload", {
+        method: "POST",
+        body: form,
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        if (res.status === 403 && window.location.pathname.startsWith("/admin") && window.location.pathname !== "/admin") {
+          window.location.assign("/admin");
+        }
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error((err as { error?: string }).error ?? "Upload failed");
+      }
+      const data = await (res.json() as Promise<Plugin>);
+      emitDataChange({ method: "POST", path: "/api/plugins/upload" });
+      return data;
+    },
+    update: (id: number, body: Partial<Pick<Plugin, "enabled">>) =>
       request<Plugin>(`/api/plugins/${id}`, { method: "PUT", body: JSON.stringify(body) }),
     delete: (id: number) => request<{ ok: true }>(`/api/plugins/${id}`, { method: "DELETE" }),
     reload: (id: number) => request<{ ok: true; message: string }>(`/api/plugins/${id}/reload`, { method: "POST" }),
@@ -467,6 +515,47 @@ export const api = {
     delete: (id: number) => request<{ ok: true }>(`/api/forms/${id}`, { method: "DELETE" }),
     submit: (slug: string, body: { values: Record<string, unknown>; meta?: Record<string, unknown> }) =>
       request<{ ok: true; message: string; lead: CrmLead }>(`/api/forms/submit/${encodeURIComponent(slug)}`, { method: "POST", body: JSON.stringify(body) }),
+    responses: {
+      list: () => request<FormResponse[]>("/api/forms/responses"),
+      listByFormId: (id: number) => request<FormResponse[]>(`/api/forms/${id}/responses`),
+    },
+  },
+  backups: {
+    list: () => request<BackupItem[]>("/api/backups"),
+    create: () => request<{ ok: true; backup: BackupItem }>("/api/backups", { method: "POST" }),
+    download: async (name: string): Promise<Blob> => {
+      const res = await fetch(`/api/backups/${encodeURIComponent(name)}/download`, {
+        method: "GET",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        if (res.status === 403 && window.location.pathname.startsWith("/admin") && window.location.pathname !== "/admin") {
+          window.location.assign("/admin");
+        }
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error((err as { error?: string }).error ?? "Download failed");
+      }
+      return res.blob();
+    },
+    restore: async (file: File): Promise<{ ok: true; message: string }> => {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/backups/restore", {
+        method: "POST",
+        body: form,
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        if (res.status === 403 && window.location.pathname.startsWith("/admin") && window.location.pathname !== "/admin") {
+          window.location.assign("/admin");
+        }
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error((err as { error?: string }).error ?? "Restore failed");
+      }
+      const data = await (res.json() as Promise<{ ok: true; message: string }>);
+      emitDataChange({ method: "POST", path: "/api/backups/restore" });
+      return data;
+    },
   },
   newsletter: {
     subscribe: (body: { email: string; name?: string; source?: string; meta?: Record<string, unknown> }) =>

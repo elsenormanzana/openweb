@@ -78,6 +78,20 @@
       "when": 1772235000000,
       "tag": "0010_newsletter_forms_crm",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1772149709693,
+      "tag": "0011_disable_elevated_nav_spacing",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1772150279986,
+      "tag": "0012_sso_provider_fields",
+      "breakpoints": true
     }
   ]
 }

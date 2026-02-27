@@ -15,6 +15,8 @@ export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
+  authProvider: text("auth_provider"),
+  authProviderId: text("auth_provider_id"),
   role: text("role").notNull().default("subscriber"), // "admin"|"page_developer"|"subscriber"
   siteId: integer("site_id").references(() => sites.id), // null = global admin
   siteRoles: text("site_roles"), // JSON: [{siteId, role}] — multi-site access
@@ -45,6 +47,7 @@ export const pages = pgTable("pages", {
   content: text("content"),
   isHomepage: boolean("is_homepage").default(false).notNull(),
   ignoreGlobalLayout: boolean("ignore_global_layout").default(false).notNull(),
+  disableElevatedNavSpacing: boolean("disable_elevated_nav_spacing").default(false).notNull(),
   // SEO
   seoTitle: text("seo_title"),
   seoDescription: text("seo_description"),

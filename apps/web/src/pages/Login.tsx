@@ -1,8 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
-import { Layers } from "lucide-react";
+import { Globe, Layers } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import type { AuthUser } from "@/lib/auth";
+
+type SetupNeededResponse = { needed: boolean };
+type SsoProvider = { id: "google" | "microsoft" | "oidc"; label: string };
+type SsoProvidersResponse = { providers: SsoProvider[] };
 
 export function Login() {
   const { login } = useAuth();
@@ -14,6 +18,38 @@ export function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [setupNeeded, setSetupNeeded] = useState(false);
+  const [ssoProviders, setSsoProviders] = useState<SsoProvider[]>([]);
+  const [ssoLoading, setSsoLoading] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadAuthMeta() {
+      try {
+        const [setupRes, providerRes] = await Promise.all([
+          fetch("/api/setup/needed"),
+          fetch("/api/auth/sso/providers"),
+        ]);
+        if (setupRes.ok) {
+          const setupData = await setupRes.json() as SetupNeededResponse;
+          if (isMounted) setSetupNeeded(Boolean(setupData.needed));
+        }
+        if (providerRes.ok) {
+          const providerData = await providerRes.json() as SsoProvidersResponse;
+          if (isMounted) setSsoProviders(Array.isArray(providerData.providers) ? providerData.providers : []);
+        }
+      } catch {
+        if (isMounted) {
+          setSetupNeeded(false);
+          setSsoProviders([]);
+        }
+      }
+    }
+    loadAuthMeta();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -34,6 +70,11 @@ export function Login() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleSsoStart(provider: SsoProvider["id"]) {
+    setSsoLoading(provider);
+    window.location.href = `/api/auth/sso/${provider}/start?redirect=${encodeURIComponent(from)}`;
   }
 
   return (
@@ -82,14 +123,45 @@ export function Login() {
           >
             {loading ? "Signing in…" : "Sign in"}
           </button>
+          {ssoProviders.length > 0 && (
+            <>
+              <div className="relative py-1">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t border-border/60" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-background px-2 text-muted-foreground">or continue with</span>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {ssoProviders.map((provider) => (
+                  <button
+                    key={provider.id}
+                    type="button"
+                    onClick={() => handleSsoStart(provider.id)}
+                    disabled={Boolean(ssoLoading)}
+                    className="w-full rounded-lg border border-border/60 bg-background py-2.5 text-sm font-medium hover:bg-muted/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {ssoLoading === provider.id ? "Redirecting…" : `Sign in with ${provider.label}`}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </form>
 
-        <p className="text-center text-sm text-muted-foreground mt-4">
-          First time?{" "}
-          <Link to="/setup" className="underline hover:text-foreground transition-colors">
-            Run setup
-          </Link>
-        </p>
+        <div className="text-center text-sm text-muted-foreground mt-4 flex items-center justify-center gap-2">
+          <Globe className="size-4" />
+          <span>Use your local account or configured SSO provider.</span>
+        </div>
+        {setupNeeded && (
+          <p className="text-center text-sm text-muted-foreground mt-2">
+            First time?{" "}
+            <Link to="/setup" className="underline hover:text-foreground transition-colors">
+              Run setup
+            </Link>
+          </p>
+        )}
       </div>
     </div>
   );

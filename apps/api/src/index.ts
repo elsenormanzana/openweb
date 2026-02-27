@@ -3,7 +3,7 @@ import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
 import Fastify from "fastify";
 import { db } from "./db/index.js";
-import { asc, desc, eq, ne, and, isNull } from "drizzle-orm";
+import { asc, desc, eq, ne, and, isNull, sql } from "drizzle-orm";
 import {
   pages, themePacks, siteSettings, storageConfig, mediaItems, sites, users, plugins,
   blogPosts, blogCategories, blogTags, blogPostAuthors, blogPostCategories, blogPostTags,
@@ -12,11 +12,15 @@ import {
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { existsSync, mkdirSync } from "node:fs";
-import { writeFile, unlink } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { writeFile, unlink, readdir, stat, rm, mkdtemp, cp, readFile } from "node:fs/promises";
 import { join, extname, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
-import { runInNewContext } from "node:vm";
+import { tmpdir } from "node:os";
+import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
+import postgres from "postgres";
 import sharp from "sharp";
 import { hashPassword, verifyPassword, requireAuth, type JwtPayload } from "./auth.js";
 
@@ -33,6 +37,27 @@ await app.register(jwt, {
   secret: process.env.JWT_SECRET ?? "CHANGE_ME",
   sign: { expiresIn: "24h" },
 });
+
+// Runtime compatibility patch: ensure latest pages column exists even if migration was missed.
+await db.execute(sql.raw(`
+  ALTER TABLE "pages"
+  ADD COLUMN IF NOT EXISTS "disable_elevated_nav_spacing" boolean DEFAULT false NOT NULL
+`));
+
+// Runtime compatibility patch for SSO user linkage fields.
+await db.execute(sql.raw(`
+  ALTER TABLE "users"
+  ADD COLUMN IF NOT EXISTS "auth_provider" text
+`));
+await db.execute(sql.raw(`
+  ALTER TABLE "users"
+  ADD COLUMN IF NOT EXISTS "auth_provider_id" text
+`));
+await db.execute(sql.raw(`
+  CREATE UNIQUE INDEX IF NOT EXISTS "users_auth_provider_provider_id_unique"
+  ON "users" ("auth_provider", "auth_provider_id")
+  WHERE "auth_provider" IS NOT NULL AND "auth_provider_id" IS NOT NULL
+`));
 
 // ── Site detection hook ────────────────────────────────────────────────────────
 
@@ -119,6 +144,237 @@ function toSafeUser(row: typeof users.$inferSelect) {
     socialMedia: parseJsonArray<{ platform: string; url: string }>(socialMedia),
   };
 }
+
+type SsoProvider = "google" | "microsoft" | "oidc";
+type EnabledSsoProvider = {
+  id: SsoProvider;
+  label: string;
+};
+
+type PendingSsoState = {
+  provider: SsoProvider;
+  redirectTo: string;
+  expiresAt: number;
+};
+
+const pendingSsoStates = new Map<string, PendingSsoState>();
+
+function firstHeaderValue(v: string | string[] | undefined): string {
+  return Array.isArray(v) ? v[0] ?? "" : v ?? "";
+}
+
+function publicBaseUrl(req: import("fastify").FastifyRequest) {
+  const proto = firstHeaderValue(req.headers["x-forwarded-proto"]) || req.protocol || "http";
+  const host = firstHeaderValue(req.headers["x-forwarded-host"]) || firstHeaderValue(req.headers.host) || req.hostname;
+  return `${proto}://${host}`;
+}
+
+function sanitizeRedirect(redirectTo: string | undefined) {
+  if (!redirectTo) return "/admin";
+  if (!redirectTo.startsWith("/")) return "/admin";
+  if (redirectTo.startsWith("//")) return "/admin";
+  return redirectTo;
+}
+
+function getEnabledSsoProviders(): EnabledSsoProvider[] {
+  const providers: EnabledSsoProvider[] = [];
+  if (process.env.SSO_GOOGLE_CLIENT_ID?.trim() && process.env.SSO_GOOGLE_CLIENT_SECRET?.trim()) {
+    providers.push({ id: "google", label: "Google" });
+  }
+  if (process.env.SSO_MICROSOFT_CLIENT_ID?.trim() && process.env.SSO_MICROSOFT_CLIENT_SECRET?.trim()) {
+    providers.push({ id: "microsoft", label: "Microsoft" });
+  }
+  if (
+    process.env.SSO_OIDC_CLIENT_ID?.trim()
+    && process.env.SSO_OIDC_CLIENT_SECRET?.trim()
+    && process.env.SSO_OIDC_AUTH_URL?.trim()
+    && process.env.SSO_OIDC_TOKEN_URL?.trim()
+    && process.env.SSO_OIDC_USERINFO_URL?.trim()
+  ) {
+    providers.push({ id: "oidc", label: process.env.SSO_OIDC_LABEL?.trim() || "SSO" });
+  }
+  return providers;
+}
+
+async function upsertSsoUser(provider: SsoProvider, providerId: string, email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const [byProvider] = await db.select().from(users)
+    .where(and(eq(users.authProvider, provider), eq(users.authProviderId, providerId)))
+    .limit(1);
+  if (byProvider) return byProvider;
+
+  const [byEmail] = await db.select().from(users).where(eq(users.email, normalizedEmail)).limit(1);
+  if (byEmail) {
+    const [updated] = await db.update(users).set({
+      authProvider: provider,
+      authProviderId: providerId,
+    }).where(eq(users.id, byEmail.id)).returning();
+    return updated;
+  }
+
+  const [existingAny] = await db.select().from(users).limit(1);
+  const [created] = await db.insert(users).values({
+    email: normalizedEmail,
+    passwordHash: await hashPassword(randomUUID()),
+    authProvider: provider,
+    authProviderId: providerId,
+    role: existingAny ? "subscriber" : "admin",
+    siteId: null,
+  }).returning();
+  return created;
+}
+
+app.get("/api/auth/sso/providers", async () => {
+  return { providers: getEnabledSsoProviders() };
+});
+
+app.get<{ Params: { provider: string }; Querystring: { redirect?: string } }>("/api/auth/sso/:provider/start", async (req, reply) => {
+  const provider = req.params.provider as SsoProvider;
+  if (!["google", "microsoft", "oidc"].includes(provider)) return reply.status(404).send({ error: "Provider not found" });
+  const enabled = getEnabledSsoProviders().find((p) => p.id === provider);
+  if (!enabled) return reply.status(400).send({ error: "Provider is not configured" });
+
+  const state = randomUUID();
+  const redirectTo = sanitizeRedirect(req.query.redirect);
+  pendingSsoStates.set(state, { provider, redirectTo, expiresAt: Date.now() + 10 * 60_000 });
+  const baseUrl = publicBaseUrl(req);
+  const callback = `${baseUrl}/api/auth/sso/${provider}/callback`;
+
+  if (provider === "google") {
+    const params = new URLSearchParams({
+      client_id: process.env.SSO_GOOGLE_CLIENT_ID!,
+      redirect_uri: callback,
+      response_type: "code",
+      scope: "openid email profile",
+      state,
+      prompt: "select_account",
+    });
+    return reply.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+  }
+
+  if (provider === "microsoft") {
+    const tenant = process.env.SSO_MICROSOFT_TENANT_ID?.trim() || "common";
+    const params = new URLSearchParams({
+      client_id: process.env.SSO_MICROSOFT_CLIENT_ID!,
+      redirect_uri: callback,
+      response_type: "code",
+      response_mode: "query",
+      scope: "openid profile email User.Read",
+      state,
+    });
+    return reply.redirect(`https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize?${params.toString()}`);
+  }
+
+  const oidcParams = new URLSearchParams({
+    client_id: process.env.SSO_OIDC_CLIENT_ID!,
+    redirect_uri: callback,
+    response_type: "code",
+    scope: process.env.SSO_OIDC_SCOPES?.trim() || "openid profile email",
+    state,
+  });
+  return reply.redirect(`${process.env.SSO_OIDC_AUTH_URL}?${oidcParams.toString()}`);
+});
+
+app.get<{ Params: { provider: string }; Querystring: { code?: string; state?: string } }>("/api/auth/sso/:provider/callback", async (req, reply) => {
+  const provider = req.params.provider as SsoProvider;
+  const code = req.query.code;
+  const state = req.query.state;
+  if (!code || !state) return reply.status(400).send({ error: "Missing code or state" });
+  const pending = pendingSsoStates.get(state);
+  pendingSsoStates.delete(state);
+  if (!pending || pending.provider !== provider || pending.expiresAt < Date.now()) {
+    return reply.status(400).send({ error: "Invalid or expired SSO state" });
+  }
+
+  const baseUrl = publicBaseUrl(req);
+  const callback = `${baseUrl}/api/auth/sso/${provider}/callback`;
+  let providerId = "";
+  let email = "";
+
+  if (provider === "google") {
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: process.env.SSO_GOOGLE_CLIENT_ID!,
+        client_secret: process.env.SSO_GOOGLE_CLIENT_SECRET!,
+        redirect_uri: callback,
+        grant_type: "authorization_code",
+      }),
+    });
+    if (!tokenRes.ok) return reply.status(502).send({ error: "Google token exchange failed" });
+    const tokenData = await tokenRes.json() as { access_token: string };
+    const profileRes = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+    if (!profileRes.ok) return reply.status(502).send({ error: "Google userinfo failed" });
+    const profile = await profileRes.json() as { sub?: string; email?: string };
+    providerId = profile.sub ?? "";
+    email = profile.email ?? "";
+  } else if (provider === "microsoft") {
+    const tenant = process.env.SSO_MICROSOFT_TENANT_ID?.trim() || "common";
+    const tokenRes = await fetch(`https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: process.env.SSO_MICROSOFT_CLIENT_ID!,
+        client_secret: process.env.SSO_MICROSOFT_CLIENT_SECRET!,
+        redirect_uri: callback,
+        grant_type: "authorization_code",
+      }),
+    });
+    if (!tokenRes.ok) return reply.status(502).send({ error: "Microsoft token exchange failed" });
+    const tokenData = await tokenRes.json() as { access_token: string };
+    const profileRes = await fetch("https://graph.microsoft.com/v1.0/me", {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+    if (!profileRes.ok) return reply.status(502).send({ error: "Microsoft userinfo failed" });
+    const profile = await profileRes.json() as { id?: string; mail?: string; userPrincipalName?: string };
+    providerId = profile.id ?? "";
+    email = profile.mail ?? profile.userPrincipalName ?? "";
+  } else {
+    const tokenRes = await fetch(process.env.SSO_OIDC_TOKEN_URL!, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: process.env.SSO_OIDC_CLIENT_ID!,
+        client_secret: process.env.SSO_OIDC_CLIENT_SECRET!,
+        redirect_uri: callback,
+        grant_type: "authorization_code",
+      }),
+    });
+    if (!tokenRes.ok) return reply.status(502).send({ error: "OIDC token exchange failed" });
+    const tokenData = await tokenRes.json() as { access_token: string };
+    const profileRes = await fetch(process.env.SSO_OIDC_USERINFO_URL!, {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+    if (!profileRes.ok) return reply.status(502).send({ error: "OIDC userinfo failed" });
+    const profile = await profileRes.json() as { sub?: string; email?: string };
+    providerId = profile.sub ?? "";
+    email = profile.email ?? "";
+  }
+
+  if (!providerId || !email) return reply.status(400).send({ error: "Provider did not return required account data" });
+
+  const user = await upsertSsoUser(provider, providerId, email);
+  const token = app.jwt.sign({ sub: user.id, email: user.email, role: user.role, siteId: user.siteId } as JwtPayload);
+  const userPayload = { id: user.id, email: user.email, role: user.role, siteId: user.siteId };
+  const redirectTo = sanitizeRedirect(pending.redirectTo);
+
+  return reply.type("text/html").send(`<!doctype html>
+<html><head><meta charset="utf-8"><title>Signing in...</title></head>
+<body>
+<script>
+  localStorage.setItem("openweb_token", ${JSON.stringify(token)});
+  localStorage.setItem("openweb_user", ${JSON.stringify(userPayload)});
+  window.location.replace(${JSON.stringify(redirectTo)});
+</script>
+<p>Signing in...</p>
+</body></html>`);
+});
 
 app.get("/api/site-context", { preHandler: requireAuth() }, async (req, reply) => {
   const [site] = await db.select().from(sites).where(eq(sites.id, req.siteId)).limit(1);
@@ -234,6 +490,7 @@ app.put<{ Params: { id: string } }>("/api/pages/:id", { preHandler: requireAuth(
   const body = req.body as {
     title?: string; slug?: string; content?: string;
     isHomepage?: boolean; ignoreGlobalLayout?: boolean;
+    disableElevatedNavSpacing?: boolean;
     seoTitle?: string | null; seoDescription?: string | null;
     seoKeywords?: string | null; ogImage?: string | null;
     noIndex?: boolean; canonicalUrl?: string | null;
@@ -246,6 +503,7 @@ app.put<{ Params: { id: string } }>("/api/pages/:id", { preHandler: requireAuth(
   if (body.title !== undefined) updates.title = body.title.trim();
   if (body.content !== undefined) updates.content = body.content ?? null;
   if (body.ignoreGlobalLayout !== undefined) updates.ignoreGlobalLayout = body.ignoreGlobalLayout;
+  if (body.disableElevatedNavSpacing !== undefined) updates.disableElevatedNavSpacing = body.disableElevatedNavSpacing;
   if (body.seoTitle !== undefined) updates.seoTitle = body.seoTitle ?? null;
   if (body.seoDescription !== undefined) updates.seoDescription = body.seoDescription ?? null;
   if (body.seoKeywords !== undefined) updates.seoKeywords = body.seoKeywords ?? null;
@@ -575,10 +833,39 @@ app.get("/api/oauth/google/status", { preHandler: requireAuth(["admin"]) }, asyn
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = join(__dirname, "..", "uploads");
+const BACKUPS_DIR = join(__dirname, "..", "backups");
+const PROJECT_ROOT = join(__dirname, "..", "..", "..");
 function ensureUploadsDir() {
   if (!existsSync(UPLOADS_DIR)) mkdirSync(UPLOADS_DIR, { recursive: true });
 }
+function ensureBackupsDir() {
+  if (!existsSync(BACKUPS_DIR)) mkdirSync(BACKUPS_DIR, { recursive: true });
+}
 ensureUploadsDir();
+ensureBackupsDir();
+
+function backupFileName() {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `backup_${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}_${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}.zip`;
+}
+
+function isSafeBackupName(name: string) {
+  return /^[a-zA-Z0-9._-]+\.zip$/.test(name);
+}
+
+async function runCommand(cmd: string, args: string[], cwd?: string) {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (d) => { stderr += d.toString(); });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(stderr || `${cmd} exited with code ${code}`));
+    });
+  });
+}
 
 app.get("/api/media", async (req) => {
   return db.select().from(mediaItems)
@@ -635,6 +922,145 @@ app.post("/api/media/upload", { preHandler: requireAuth(["admin", "page_develope
     providerPath: destPath,
   }).returning();
   return row;
+});
+
+// ── Backups (admin global only) ───────────────────────────────────────────────
+
+app.get("/api/backups", { preHandler: requireAuth(["admin"], { globalOnly: true }) }, async () => {
+  ensureBackupsDir();
+  const files = await readdir(BACKUPS_DIR);
+  const items = await Promise.all(files
+    .filter((name) => isSafeBackupName(name))
+    .map(async (name) => {
+      const fullPath = join(BACKUPS_DIR, name);
+      const file = await stat(fullPath);
+      return {
+        name,
+        size: file.size,
+        createdAt: file.mtime.toISOString(),
+        downloadUrl: `/api/backups/${encodeURIComponent(name)}/download`,
+      };
+    }));
+  return items.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+});
+
+app.post("/api/backups", { preHandler: requireAuth(["admin"], { globalOnly: true }) }, async (_req, reply) => {
+  if (!process.env.DATABASE_URL?.trim()) {
+    return reply.status(500).send({ error: "DATABASE_URL is required for backups" });
+  }
+
+  ensureUploadsDir();
+  ensureBackupsDir();
+  const tmpRoot = await mkdtemp(join(tmpdir(), "openweb-backup-"));
+  const payloadDir = join(tmpRoot, "payload");
+  const backupName = backupFileName();
+  const backupPath = join(BACKUPS_DIR, backupName);
+
+  try {
+    mkdirSync(payloadDir, { recursive: true });
+
+    const dbDumpPath = join(payloadDir, "database.sql");
+    await runCommand("pg_dump", ["--clean", "--if-exists", "--no-owner", "--no-privileges", "--file", dbDumpPath, process.env.DATABASE_URL]);
+
+    if (existsSync(UPLOADS_DIR)) {
+      await cp(UPLOADS_DIR, join(payloadDir, "uploads"), { recursive: true, force: true });
+    }
+
+    const codeDir = join(payloadDir, "code");
+    mkdirSync(codeDir, { recursive: true });
+    const copyTargets = ["package.json", "package-lock.json", "apps/api", "apps/web", "deploy"];
+    for (const target of copyTargets) {
+      const from = join(PROJECT_ROOT, target);
+      if (existsSync(from)) {
+        await cp(from, join(codeDir, target), {
+          recursive: true,
+          force: true,
+          filter: (src) => {
+            const normalized = src.replaceAll("\\", "/");
+            return !normalized.includes("/node_modules/") && !normalized.includes("/.git/") && !normalized.includes("/backups/");
+          },
+        });
+      }
+    }
+
+    await writeFile(join(payloadDir, "manifest.json"), JSON.stringify({
+      createdAt: new Date().toISOString(),
+      backupName,
+      hasUploads: existsSync(join(payloadDir, "uploads")),
+      hasCodeSnapshot: existsSync(codeDir),
+      format: "openweb-backup-v1",
+    }, null, 2), "utf8");
+
+    await runCommand("zip", ["-r", backupPath, "."], payloadDir);
+    const file = await stat(backupPath);
+
+    return {
+      ok: true,
+      backup: {
+        name: backupName,
+        size: file.size,
+        createdAt: file.mtime.toISOString(),
+        downloadUrl: `/api/backups/${encodeURIComponent(backupName)}/download`,
+      },
+    };
+  } catch (error) {
+    app.log.error({ error }, "Backup creation failed");
+    return reply.status(500).send({ error: (error as Error).message || "Backup creation failed" });
+  } finally {
+    await rm(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+app.get<{ Params: { name: string } }>("/api/backups/:name/download", { preHandler: requireAuth(["admin"], { globalOnly: true }) }, async (req, reply) => {
+  const name = decodeURIComponent(req.params.name);
+  if (!isSafeBackupName(name)) return reply.status(400).send({ error: "Invalid backup file name" });
+  const fullPath = join(BACKUPS_DIR, name);
+  if (!existsSync(fullPath)) return reply.status(404).send({ error: "Backup not found" });
+
+  reply.header("Content-Type", "application/zip");
+  reply.header("Content-Disposition", `attachment; filename="${name}"`);
+  return reply.send(createReadStream(fullPath));
+});
+
+app.post("/api/backups/restore", { preHandler: requireAuth(["admin"], { globalOnly: true }) }, async (req, reply) => {
+  if (!process.env.DATABASE_URL?.trim()) {
+    return reply.status(500).send({ error: "DATABASE_URL is required for restore" });
+  }
+
+  ensureUploadsDir();
+  const file = await req.file();
+  if (!file) return reply.status(400).send({ error: "ZIP file is required" });
+  if (!file.filename.toLowerCase().endsWith(".zip")) return reply.status(400).send({ error: "Only .zip files are supported" });
+
+  const tmpRoot = await mkdtemp(join(tmpdir(), "openweb-restore-"));
+  const zipPath = join(tmpRoot, "backup.zip");
+  const extractDir = join(tmpRoot, "extract");
+
+  try {
+    const chunks: Buffer[] = [];
+    for await (const chunk of file.file) chunks.push(chunk as Buffer);
+    await writeFile(zipPath, Buffer.concat(chunks));
+    mkdirSync(extractDir, { recursive: true });
+    await runCommand("unzip", ["-o", zipPath, "-d", extractDir]);
+
+    const dbDumpPath = join(extractDir, "database.sql");
+    if (!existsSync(dbDumpPath)) return reply.status(400).send({ error: "Invalid backup: missing database.sql" });
+    await runCommand("psql", [process.env.DATABASE_URL, "-f", dbDumpPath]);
+
+    const uploadsBackupDir = join(extractDir, "uploads");
+    if (existsSync(uploadsBackupDir)) {
+      await rm(UPLOADS_DIR, { recursive: true, force: true });
+      mkdirSync(UPLOADS_DIR, { recursive: true });
+      await cp(uploadsBackupDir, UPLOADS_DIR, { recursive: true, force: true });
+    }
+
+    return { ok: true, message: "Backup restored successfully" };
+  } catch (error) {
+    app.log.error({ error }, "Backup restore failed");
+    return reply.status(500).send({ error: (error as Error).message || "Backup restore failed" });
+  } finally {
+    await rm(tmpRoot, { recursive: true, force: true });
+  }
 });
 
 // ── Sites CRUD (admin only) ────────────────────────────────────────────────────
@@ -1245,6 +1671,28 @@ function mapLeadRow(row: typeof crmLeads.$inferSelect) {
   };
 }
 
+function mapFormResponseRow(row: typeof crmLeads.$inferSelect) {
+  const payload = parseJsonObject(row.payload);
+  const values = payload.values && typeof payload.values === "object" ? payload.values as Record<string, unknown> : {};
+  const meta = payload.meta && typeof payload.meta === "object" ? payload.meta as Record<string, unknown> : {};
+  return {
+    id: row.id,
+    formId: row.formId,
+    siteId: row.siteId,
+    name: row.name,
+    email: row.email,
+    phone: row.phone,
+    company: row.company,
+    status: row.status,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    values,
+    meta,
+    userAgent: typeof payload.userAgent === "string" ? payload.userAgent : "",
+    ip: typeof payload.ip === "string" ? payload.ip : "",
+  };
+}
+
 async function findOrCreateSourceChannel(siteId: number, source: "form" | "newsletter" | "custom") {
   const [existing] = await db.select().from(crmChannels)
     .where(and(eq(crmChannels.siteId, siteId), eq(crmChannels.slug, source)))
@@ -1268,6 +1716,13 @@ app.get("/api/forms", { preHandler: requireAuth(["admin", "page_developer", "blo
   return rows.map(mapFormRow);
 });
 
+app.get("/api/forms/responses", { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) }, async (req) => {
+  const rows = await db.select().from(crmLeads)
+    .where(and(eq(crmLeads.siteId, req.siteId), eq(crmLeads.source, "form")))
+    .orderBy(desc(crmLeads.createdAt));
+  return rows.map(mapFormResponseRow);
+});
+
 app.get<{ Params: { id: string } }>("/api/forms/:id", { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) }, async (req, reply) => {
   const id = Number(req.params.id);
   if (Number.isNaN(id)) return reply.status(400).send({ error: "Invalid id" });
@@ -1276,6 +1731,19 @@ app.get<{ Params: { id: string } }>("/api/forms/:id", { preHandler: requireAuth(
     .limit(1);
   if (!row) return reply.status(404).send({ error: "Form not found" });
   return mapFormRow(row);
+});
+
+app.get<{ Params: { id: string } }>("/api/forms/:id/responses", { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) }, async (req, reply) => {
+  const id = Number(req.params.id);
+  if (Number.isNaN(id)) return reply.status(400).send({ error: "Invalid id" });
+  const [form] = await db.select().from(forms)
+    .where(and(eq(forms.id, id), eq(forms.siteId, req.siteId)))
+    .limit(1);
+  if (!form) return reply.status(404).send({ error: "Form not found" });
+  const rows = await db.select().from(crmLeads)
+    .where(and(eq(crmLeads.siteId, req.siteId), eq(crmLeads.source, "form"), eq(crmLeads.formId, id)))
+    .orderBy(desc(crmLeads.createdAt));
+  return rows.map(mapFormResponseRow);
 });
 
 app.get<{ Params: { slug: string } }>("/api/forms/by-slug/:slug", async (req, reply) => {
@@ -1683,104 +2151,458 @@ app.delete<{ Params: { id: string } }>("/api/crm/leads/:id", { preHandler: requi
 
 // ── Plugins CRUD (admin only) ──────────────────────────────────────────────────
 
+type PluginManifest = {
+  name: string;
+  description: string;
+  author?: string;
+  authors?: string[];
+  version: string;
+  website: string;
+  main?: string;
+  client?: string;
+};
+
+type PluginCronContext = {
+  siteId: number | null;
+  now: Date;
+};
+
+type PluginCronJob = {
+  pluginSlug: string;
+  name: string;
+  expression: string;
+  allSites: boolean;
+  handler: (ctx: PluginCronContext) => unknown | Promise<unknown>;
+  lastTickKey: string | null;
+};
+
+const PLUGINS_DIR = join(UPLOADS_DIR, "plugins");
+const pluginCronJobs: PluginCronJob[] = [];
+let pluginCronTimer: NodeJS.Timeout | null = null;
+const pluginSql = postgres(process.env.DATABASE_URL!);
+
+function ensurePluginsDir() {
+  if (!existsSync(PLUGINS_DIR)) mkdirSync(PLUGINS_DIR, { recursive: true });
+}
+ensurePluginsDir();
+
+function safeSqlIdentifier(input: string, label: string) {
+  if (!/^[a-z_][a-z0-9_]*$/i.test(input)) throw new Error(`Invalid ${label}: ${input}`);
+  return input.toLowerCase();
+}
+
+function pluginTableName(pluginSlug: string, localTable: string) {
+  const safeSlug = pluginSlug.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+  const safeLocalTable = safeSqlIdentifier(localTable, "table name");
+  return safeSqlIdentifier(`plugin_${safeSlug}_${safeLocalTable}`, "table name");
+}
+
+function parseCronField(field: string, min: number, max: number, value: number) {
+  const token = field.trim();
+  if (token === "*") return true;
+  if (/^\*\/\d+$/.test(token)) {
+    const step = Number(token.split("/")[1]);
+    if (!Number.isInteger(step) || step <= 0) return false;
+    return (value - min) % step === 0;
+  }
+  const values = token.split(",").map((t) => Number(t.trim()));
+  if (values.some((n) => !Number.isInteger(n) || n < min || n > max)) return false;
+  return values.includes(value);
+}
+
+function validateCronField(field: string, min: number, max: number) {
+  const token = field.trim();
+  if (token === "*") return true;
+  if (/^\*\/\d+$/.test(token)) {
+    const step = Number(token.split("/")[1]);
+    return Number.isInteger(step) && step > 0;
+  }
+  const values = token.split(",").map((t) => Number(t.trim()));
+  return values.length > 0 && values.every((n) => Number.isInteger(n) && n >= min && n <= max);
+}
+
+function cronExpressionIsValid(expression: string) {
+  const parts = expression.trim().split(/\s+/);
+  if (parts.length !== 5) return false;
+  const [m, h, d, mo, w] = parts;
+  return validateCronField(m, 0, 59)
+    && validateCronField(h, 0, 23)
+    && validateCronField(d, 1, 31)
+    && validateCronField(mo, 1, 12)
+    && validateCronField(w, 0, 6);
+}
+
+function cronMatches(expression: string, now: Date) {
+  const parts = expression.trim().split(/\s+/);
+  if (parts.length !== 5) return false;
+  const [m, h, d, mo, w] = parts;
+  return parseCronField(m, 0, 59, now.getMinutes())
+    && parseCronField(h, 0, 23, now.getHours())
+    && parseCronField(d, 1, 31, now.getDate())
+    && parseCronField(mo, 1, 12, now.getMonth() + 1)
+    && parseCronField(w, 0, 6, now.getDay());
+}
+
+function cronTickKey(now: Date) {
+  return `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}-${now.getHours()}-${now.getMinutes()}`;
+}
+
+async function readPluginManifest(pluginSlug: string): Promise<PluginManifest | null> {
+  const manifestPath = join(PLUGINS_DIR, pluginSlug, "plugin.json");
+  if (!existsSync(manifestPath)) return null;
+  try {
+    const raw = await readFile(manifestPath, "utf8");
+    const parsed = JSON.parse(raw) as PluginManifest;
+    const hasAuthors = Array.isArray(parsed.authors) ? parsed.authors.length > 0 : !!parsed.author;
+    if (!parsed.name?.trim() || !parsed.description?.trim() || !parsed.version?.trim() || !parsed.website?.trim() || !hasAuthors) {
+      return null;
+    }
+    return {
+      ...parsed,
+      main: parsed.main?.trim() || "index.js",
+      client: parsed.client?.trim() || "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function pluginDir(slug: string) {
+  return join(PLUGINS_DIR, slug);
+}
+
+async function uninstallPluginNodeModules(slug: string) {
+  await rm(join(pluginDir(slug), "node_modules"), { recursive: true, force: true });
+}
+
+async function installPluginDependencies(slug: string) {
+  const dir = pluginDir(slug);
+  if (!existsSync(join(dir, "package.json"))) return;
+  await runCommand("npm", ["install", "--omit=dev", "--no-audit", "--no-fund"], dir);
+}
+
+async function mapPluginRow(row: typeof plugins.$inferSelect) {
+  const manifest = await readPluginManifest(row.slug);
+  return {
+    ...row,
+    name: manifest?.name ?? row.name,
+    description: manifest?.description ?? row.description,
+    author: manifest?.author ?? null,
+    authors: manifest?.authors ?? null,
+    version: manifest?.version ?? null,
+    website: manifest?.website ?? null,
+    hasServer: !!manifest?.main,
+    hasClient: !!manifest?.client,
+  };
+}
+
+function resolvePluginExtractRoot(baseDir: string) {
+  const directManifest = join(baseDir, "plugin.json");
+  if (existsSync(directManifest)) return baseDir;
+  return readdir(baseDir).then((entries) => {
+    if (entries.length !== 1) return baseDir;
+    const candidate = join(baseDir, entries[0]);
+    if (!existsSync(join(candidate, "plugin.json"))) return baseDir;
+    return candidate;
+  });
+}
+
 app.get("/api/plugins", { preHandler: requireAuth(["admin"]) }, async (req) => {
-  return db.select().from(plugins).where(eq(plugins.siteId, req.siteId)).orderBy(asc(plugins.name));
+  const rows = await db.select().from(plugins).where(eq(plugins.siteId, req.siteId)).orderBy(asc(plugins.name));
+  return Promise.all(rows.map(mapPluginRow));
 });
 
-app.post("/api/plugins", { preHandler: requireAuth(["admin"]) }, async (req, reply) => {
-  const user = req.user as JwtPayload;
-  if (user.siteId != null) return reply.status(403).send({ error: "Only global admins can create plugins" });
-  const body = req.body as { name: string; slug?: string; description?: string; serverCode?: string; clientCode?: string; enabled?: boolean };
-  if (!body.name?.trim()) return reply.status(400).send({ error: "name required" });
-  const slug = (body.slug ?? body.name).trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "") || "plugin";
-  const [created] = await db.insert(plugins).values({
-    siteId: req.siteId,
-    name: body.name.trim(),
-    slug,
-    description: body.description ?? null,
-    serverCode: body.serverCode ?? null,
-    clientCode: body.clientCode ?? null,
-    enabled: body.enabled ?? false,
-  }).returning();
-  return created;
+app.post("/api/plugins", { preHandler: requireAuth(["admin"]) }, async (_req, reply) => {
+  return reply.status(400).send({ error: "Plugin creation now requires ZIP upload via /api/plugins/upload" });
+});
+
+app.post("/api/plugins/upload", { preHandler: requireAuth(["admin"], { globalOnly: true }) }, async (req, reply) => {
+  ensurePluginsDir();
+  const file = await req.file();
+  if (!file) return reply.status(400).send({ error: "ZIP file is required" });
+  if (!file.filename.toLowerCase().endsWith(".zip")) return reply.status(400).send({ error: "Only .zip files are supported" });
+
+  const tmpRoot = await mkdtemp(join(tmpdir(), "openweb-plugin-upload-"));
+  const zipPath = join(tmpRoot, "plugin.zip");
+  const extractDir = join(tmpRoot, "extract");
+
+  try {
+    const chunks: Buffer[] = [];
+    for await (const chunk of file.file) chunks.push(chunk as Buffer);
+    await writeFile(zipPath, Buffer.concat(chunks));
+    mkdirSync(extractDir, { recursive: true });
+    await runCommand("unzip", ["-o", zipPath, "-d", extractDir]);
+    const root = await resolvePluginExtractRoot(extractDir);
+
+    const manifestRaw = await readFile(join(root, "plugin.json"), "utf8").catch(() => "");
+    if (!manifestRaw) return reply.status(400).send({ error: "plugin.json is required in ZIP root" });
+    const manifest = JSON.parse(manifestRaw) as PluginManifest;
+    const hasAuthors = Array.isArray(manifest.authors) ? manifest.authors.length > 0 : !!manifest.author;
+    if (!manifest.name?.trim() || !manifest.description?.trim() || !manifest.version?.trim() || !manifest.website?.trim() || !hasAuthors) {
+      return reply.status(400).send({ error: "plugin.json must include name, description, author/authors, version, and website" });
+    }
+    const slug = slugifyText(manifest.name) || "plugin";
+    const target = pluginDir(slug);
+    await rm(target, { recursive: true, force: true });
+    await cp(root, target, { recursive: true, force: true });
+    await rm(join(target, "node_modules"), { recursive: true, force: true });
+
+    const [existing] = await db.select().from(plugins).where(and(eq(plugins.slug, slug), eq(plugins.siteId, req.siteId))).limit(1);
+    let saved: typeof plugins.$inferSelect;
+    if (existing) {
+      const [updated] = await db.update(plugins).set({
+        name: manifest.name.trim(),
+        description: manifest.description.trim(),
+      }).where(eq(plugins.id, existing.id)).returning();
+      saved = updated;
+      if (existing.enabled) await installPluginDependencies(slug);
+    } else {
+      const [created] = await db.insert(plugins).values({
+        siteId: req.siteId,
+        name: manifest.name.trim(),
+        slug,
+        description: manifest.description.trim(),
+        serverCode: null,
+        clientCode: null,
+        enabled: false,
+      }).returning();
+      saved = created;
+    }
+    return mapPluginRow(saved);
+  } catch (error) {
+    app.log.error({ error }, "Plugin ZIP upload failed");
+    return reply.status(500).send({ error: (error as Error).message || "Plugin upload failed" });
+  } finally {
+    await rm(tmpRoot, { recursive: true, force: true });
+  }
 });
 
 app.put<{ Params: { id: string } }>("/api/plugins/:id", { preHandler: requireAuth(["admin"]) }, async (req, reply) => {
   const id = Number(req.params.id);
   if (Number.isNaN(id)) return reply.status(400).send({ error: "Invalid id" });
-  const body = req.body as { name?: string; description?: string; serverCode?: string; clientCode?: string; enabled?: boolean };
-  const user = req.user as JwtPayload;
+  const body = req.body as { enabled?: boolean };
   const [existing] = await db.select().from(plugins)
     .where(and(eq(plugins.id, id), eq(plugins.siteId, req.siteId)))
     .limit(1);
   if (!existing) return reply.status(404).send({ error: "Plugin not found" });
-  const updates: Record<string, unknown> = {};
-  if (user.siteId == null) {
-    if (body.name !== undefined) updates.name = body.name.trim();
-    if (body.description !== undefined) updates.description = body.description;
-    if (body.serverCode !== undefined) updates.serverCode = body.serverCode;
-    if (body.clientCode !== undefined) updates.clientCode = body.clientCode;
-    if (body.enabled !== undefined) updates.enabled = body.enabled;
-  } else if (body.enabled !== undefined) {
-    updates.enabled = body.enabled;
-  } else {
-    return reply.status(403).send({ error: "Site admins can only enable or disable plugins" });
-  }
-  const [updated] = await db.update(plugins).set(updates).where(eq(plugins.id, id)).returning();
-  return updated;
+  if (body.enabled === undefined) return reply.status(400).send({ error: "Only enabled can be updated. Upload ZIP to change plugin code." });
+
+  if (body.enabled) await installPluginDependencies(existing.slug);
+  else await uninstallPluginNodeModules(existing.slug);
+
+  const [updated] = await db.update(plugins).set({ enabled: body.enabled }).where(eq(plugins.id, id)).returning();
+  return mapPluginRow(updated);
 });
 
-app.delete<{ Params: { id: string } }>("/api/plugins/:id", { preHandler: requireAuth(["admin"]) }, async (req, reply) => {
-  const user = req.user as JwtPayload;
-  if (user.siteId != null) return reply.status(403).send({ error: "Only global admins can delete plugins" });
+app.delete<{ Params: { id: string } }>("/api/plugins/:id", { preHandler: requireAuth(["admin"], { globalOnly: true }) }, async (req, reply) => {
   const id = Number(req.params.id);
   if (Number.isNaN(id)) return reply.status(400).send({ error: "Invalid id" });
   const [existing] = await db.select().from(plugins)
     .where(and(eq(plugins.id, id), eq(plugins.siteId, req.siteId)))
     .limit(1);
   if (!existing) return reply.status(404).send({ error: "Plugin not found" });
+  await uninstallPluginNodeModules(existing.slug);
+  await rm(pluginDir(existing.slug), { recursive: true, force: true });
   await db.delete(plugins).where(eq(plugins.id, id));
   return { ok: true };
 });
 
-app.post<{ Params: { id: string } }>("/api/plugins/:id/reload", { preHandler: requireAuth(["admin"]) }, async (req, reply) => {
-  const user = req.user as JwtPayload;
-  if (user.siteId != null) return reply.status(403).send({ error: "Only global admins can reload plugins" });
+app.post<{ Params: { id: string } }>("/api/plugins/:id/reload", { preHandler: requireAuth(["admin"], { globalOnly: true }) }, async (req, reply) => {
   const id = Number(req.params.id);
   if (Number.isNaN(id)) return reply.status(400).send({ error: "Invalid id" });
   reply.send({ ok: true, message: "Restarting server to reload plugins..." });
   setImmediate(() => process.exit(0));
 });
 
-// Public client.js endpoint for enabled plugins
 app.get<{ Params: { slug: string } }>("/api/plugins/:slug/client.js", async (req, reply) => {
   const [plugin] = await db.select().from(plugins)
     .where(and(eq(plugins.slug, req.params.slug), eq(plugins.siteId, req.siteId), eq(plugins.enabled, true)))
     .limit(1);
-  if (!plugin?.clientCode) {
-    return reply.status(404).send("/* plugin not found or disabled */");
-  }
-  return reply.type("application/javascript").send(plugin.clientCode);
+  if (!plugin) return reply.status(404).send("/* plugin not found or disabled */");
+  const manifest = await readPluginManifest(plugin.slug);
+  if (!manifest?.client) return reply.status(404).send("/* plugin has no client entry */");
+  const clientPath = join(pluginDir(plugin.slug), manifest.client);
+  if (!existsSync(clientPath)) return reply.status(404).send("/* client entry missing */");
+  const code = await readFile(clientPath, "utf8");
+  return reply.type("application/javascript").send(code);
 });
 
-// ── Plugin VM loader ───────────────────────────────────────────────────────────
+// ── Plugin VM/module loader ────────────────────────────────────────────────────
+
+function startPluginCronRunner() {
+  if (pluginCronTimer) return;
+  pluginCronTimer = setInterval(async () => {
+    if (pluginCronJobs.length === 0) return;
+    const now = new Date();
+    const tickKey = cronTickKey(now);
+    for (const job of pluginCronJobs) {
+      if (job.lastTickKey === tickKey) continue;
+      if (!cronMatches(job.expression, now)) continue;
+      job.lastTickKey = tickKey;
+      try {
+        if (job.allSites) {
+          const allSitesRows = await db.select({ id: sites.id }).from(sites);
+          for (const siteRow of allSitesRows) await job.handler({ siteId: siteRow.id, now });
+        } else {
+          await job.handler({ siteId: null, now });
+        }
+      } catch (error) {
+        app.log.error({ error, plugin: job.pluginSlug, job: job.name }, "Plugin cron job failed");
+      }
+    }
+  }, 10_000);
+}
+
+function createPluginRuntimeApi(plugin: typeof plugins.$inferSelect) {
+  const pluginLog = {
+    info: (msg: string) => app.log.info(`[plugin:${plugin.slug}] ${msg}`),
+    error: (msg: string) => app.log.error(`[plugin:${plugin.slug}] ${msg}`),
+  };
+  const pluginPagesApi = {
+    list: (siteId: number) => db.select().from(pages).where(eq(pages.siteId, siteId)).orderBy(desc(pages.updatedAt)),
+    getById: async (siteId: number, id: number) => {
+      const [row] = await db.select().from(pages).where(and(eq(pages.siteId, siteId), eq(pages.id, id))).limit(1);
+      return row ?? null;
+    },
+    getBySlug: async (siteId: number, slug: string) => {
+      const [row] = await db.select().from(pages).where(and(eq(pages.siteId, siteId), eq(pages.slug, slug))).limit(1);
+      return row ?? null;
+    },
+    create: async (siteId: number, body: { title: string; slug: string; content?: string | null }) => {
+      const cleanedSlug = body.slug.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+      const [created] = await db.insert(pages).values({
+        siteId,
+        title: body.title.trim(),
+        slug: cleanedSlug,
+        content: body.content ?? null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }).returning();
+      return created;
+    },
+  };
+  const pluginDbApi = {
+    query: async (queryText: string, params: unknown[] = []) => {
+      if (!queryText?.trim()) throw new Error("query text is required");
+      return pluginSql.unsafe(queryText, params as never[]);
+    },
+    createTable: async (localTable: string, columns: Record<string, string>, opts?: { includeSiteId?: boolean }) => {
+      const table = pluginTableName(plugin.slug, localTable);
+      const includeSiteId = opts?.includeSiteId !== false;
+      const defs: string[] = [];
+      if (includeSiteId && !Object.keys(columns).some((c) => c.toLowerCase() === "site_id")) {
+        defs.push("site_id integer not null references sites(id) on delete cascade");
+      }
+      for (const [name, definition] of Object.entries(columns)) {
+        const col = safeSqlIdentifier(name, "column name");
+        if (!definition?.trim()) throw new Error(`Column definition required for ${col}`);
+        defs.push(`${col} ${definition}`);
+      }
+      await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS "${table}" (${defs.join(", ")})`));
+      return { ok: true, table };
+    },
+    dropTable: async (localTable: string) => {
+      const table = pluginTableName(plugin.slug, localTable);
+      await db.execute(sql.raw(`DROP TABLE IF EXISTS "${table}" CASCADE`));
+      return { ok: true, table };
+    },
+    tableName: (localTable: string) => pluginTableName(plugin.slug, localTable),
+    pages: pluginPagesApi,
+  };
+  const pluginSitesApi = {
+    list: () => db.select().from(sites).orderBy(asc(sites.id)),
+    getById: async (id: number) => {
+      const [site] = await db.select().from(sites).where(eq(sites.id, id)).limit(1);
+      return site ?? null;
+    },
+  };
+  const pluginCronApi = {
+    schedule: (
+      name: string,
+      expression: string,
+      handler: (ctx: PluginCronContext) => unknown | Promise<unknown>,
+      options?: { allSites?: boolean; runOnStart?: boolean },
+    ) => {
+      if (!name?.trim()) throw new Error("Cron name is required");
+      if (!cronExpressionIsValid(expression)) throw new Error(`Invalid cron expression: ${expression}`);
+      const existingIdx = pluginCronJobs.findIndex((j) => j.pluginSlug === plugin.slug && j.name === name);
+      if (existingIdx >= 0) pluginCronJobs.splice(existingIdx, 1);
+      const job: PluginCronJob = { pluginSlug: plugin.slug, name: name.trim(), expression: expression.trim(), allSites: options?.allSites === true, handler, lastTickKey: null };
+      pluginCronJobs.push(job);
+      startPluginCronRunner();
+      if (options?.runOnStart) {
+        setImmediate(async () => {
+          if (job.allSites) {
+            const allSitesRows = await db.select({ id: sites.id }).from(sites);
+            for (const siteRow of allSitesRows) await handler({ siteId: siteRow.id, now: new Date() });
+          } else {
+            await handler({ siteId: null, now: new Date() });
+          }
+        });
+      }
+      return { ok: true };
+    },
+  };
+  const registerRoute = (
+    method: string,
+    path: string,
+    handler: (req: unknown, reply: unknown, ctx: { siteId: number; pluginSlug: string }) => unknown | Promise<unknown>,
+    options?: { allSites?: boolean; auth?: JwtPayload["role"][]; globalOnly?: boolean },
+  ) => {
+    const upperMethod = method.toUpperCase() as "GET" | "POST" | "PUT" | "DELETE";
+    app.route({
+      method: upperMethod,
+      url: path,
+      preHandler: async (req, reply) => {
+        if (options?.auth?.length || options?.globalOnly) {
+          await requireAuth(options?.auth ?? [], { globalOnly: options?.globalOnly })(req, reply);
+          if (reply.sent) return;
+        }
+        if (!options?.allSites && req.siteId !== plugin.siteId) return reply.status(404).send({ error: "Not found" });
+      },
+      handler: async (req, reply) => handler(req, reply, { siteId: req.siteId, pluginSlug: plugin.slug }),
+    });
+  };
+  return {
+    registerRoute,
+    db: pluginDbApi,
+    pages: pluginPagesApi,
+    sites: pluginSitesApi,
+    cron: pluginCronApi,
+    plugin: { id: plugin.id, slug: plugin.slug, name: plugin.name, siteId: plugin.siteId },
+    log: pluginLog,
+  };
+}
 
 async function loadPlugins() {
+  ensurePluginsDir();
   const enabled = await db.select().from(plugins).where(eq(plugins.enabled, true));
   for (const plugin of enabled) {
-    if (!plugin.serverCode?.trim()) continue;
-    const sandbox = {
-      registerRoute: (method: string, path: string, handler: Function) =>
-        app.route({ method: method.toUpperCase() as "GET" | "POST" | "PUT" | "DELETE", url: path, handler: handler as () => unknown }),
-      db: {
-        pages: { list: (sid: number) => db.select().from(pages).where(eq(pages.siteId, sid)) },
-      },
-      log: {
-        info: (msg: string) => app.log.info(`[plugin:${plugin.slug}] ${msg}`),
-      },
-    };
+    const manifest = await readPluginManifest(plugin.slug);
+    if (!manifest?.main) continue;
+    const runtimeApi = createPluginRuntimeApi(plugin);
+    const entryPath = join(pluginDir(plugin.slug), manifest.main);
+    if (!existsSync(entryPath)) {
+      app.log.error(`[plugin:${plugin.slug}] main entry not found: ${manifest.main}`);
+      continue;
+    }
     try {
-      runInNewContext(plugin.serverCode, sandbox, { timeout: 2000 });
+      await installPluginDependencies(plugin.slug);
+      let mod: unknown;
+      try {
+        mod = await import(`${pathToFileURL(entryPath).href}?v=${Date.now()}`);
+      } catch {
+        const req = createRequire(join(pluginDir(plugin.slug), "package.json"));
+        mod = req(entryPath);
+      }
+      const exported = mod as { default?: unknown; register?: unknown };
+      const register = (typeof exported.default === "function" ? exported.default : exported.register) as ((api: ReturnType<typeof createPluginRuntimeApi>) => unknown) | undefined;
+      if (!register) {
+        app.log.error(`[plugin:${plugin.slug}] plugin main must export default or register(api) function`);
+        continue;
+      }
+      await register(runtimeApi);
+      app.log.info(`[plugin:${plugin.slug}] loaded`);
     } catch (e) {
       app.log.error(`Plugin ${plugin.slug} failed: ${e}`);
     }

@@ -3,7 +3,7 @@ import { NavLink, Outlet, Link } from "react-router-dom";
 import {
   Home, FileText, Palette, Layout, Image, HardDrive,
   Search, ExternalLink, Menu, X, Layers, Lock,
-  Users2, Globe, Puzzle, ChevronDown, LogOut, UserCircle2, BookOpenText, ClipboardList, Mail, BriefcaseBusiness,
+  Users2, Globe, Puzzle, ChevronDown, LogOut, UserCircle2, BookOpenText, ClipboardList, Mail, BriefcaseBusiness, Archive,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -18,6 +18,7 @@ const adminRoutePrefetchers: Record<string, () => Promise<unknown>> = {
   "/admin/layout": () => import("@/pages/SiteLayout"),
   "/admin/seo": () => import("@/pages/SeoSettings"),
   "/admin/storage": () => import("@/pages/StorageSettings"),
+  "/admin/backups": () => import("@/pages/BackupsAdmin"),
   "/admin/themes": () => import("@/pages/ThemePacksList"),
   "/admin/users": () => import("@/pages/Users"),
   "/admin/sites": () => import("@/pages/Sites"),
@@ -55,6 +56,7 @@ const allNav = [
   { to: "/admin/crm", end: true, label: "CRM", icon: BriefcaseBusiness, roles: ["admin", "page_developer", "blogger_admin"], group: "Growth" as NavGroup },
   { to: "/admin/users", end: true, label: "Users", icon: Users2, roles: ["admin", "blogger_admin"], group: "System" as NavGroup },
   { to: "/admin/storage", end: true, label: "Storage", icon: HardDrive, roles: ["admin"], globalOnly: true, group: "System" as NavGroup },
+  { to: "/admin/backups", end: true, label: "Backups", icon: Archive, roles: ["admin"], globalOnly: true, group: "System" as NavGroup },
   { to: "/admin/sites", end: true, label: "Sites", icon: Globe, roles: ["admin"], globalOnly: true, group: "System" as NavGroup },
   { to: "/admin/plugins", end: true, label: "Plugins", icon: Puzzle, roles: ["admin"], group: "System" as NavGroup },
 ];

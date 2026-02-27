@@ -259,43 +259,46 @@ export function NavbarElevated({ logoText, logoImage, logoHref, navLinks, ctaPri
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 py-3">
-      <div className="max-w-7xl mx-auto px-4 xl:px-0">
-        <div className="bg-white flex items-center justify-between gap-x-4 rounded-2xl py-2.5 pl-5 pr-2.5 shadow-[0_2px_10px_0px_rgba(0,0,0,0.15)] lg:grid lg:grid-cols-[1fr_auto_1fr] lg:justify-stretch lg:gap-x-12 lg:rounded-[1.375rem]">
-          <div className="flex items-center gap-x-10">
-            <LogoBrand logoText={logoText} logoImage={logoImage} logoHref={logoHref} />
-            <span className="hidden h-4 w-[1px] bg-neutral-300 lg:block" />
-          </div>
+    <>
+      <header className="fixed top-0 left-0 right-0 z-50 py-3">
+        <div className="max-w-7xl mx-auto px-4 xl:px-0">
+          <div className="bg-white flex items-center justify-between gap-x-4 rounded-2xl py-2.5 pl-5 pr-2.5 shadow-[0_2px_10px_0px_rgba(0,0,0,0.15)] lg:grid lg:grid-cols-[1fr_auto_1fr] lg:justify-stretch lg:gap-x-12 lg:rounded-[1.375rem]">
+            <div className="flex items-center gap-x-10">
+              <LogoBrand logoText={logoText} logoImage={logoImage} logoHref={logoHref} />
+              <span className="hidden h-4 w-[1px] bg-neutral-300 lg:block" />
+            </div>
 
-          <DesktopNav links={navLinks} />
+            <DesktopNav links={navLinks} />
 
-          <div className="flex items-center gap-x-10 justify-self-end">
-            <span className="hidden h-4 w-[1px] bg-neutral-300 lg:block" />
-            <div className="flex items-center gap-x-3 lg:gap-x-2">
-              {ctaSecondaryText && (
-                <NavAnchor href={ctaSecondaryHref ?? "#"} className="hidden lg:flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all shadow-[0_2px_10px_0px_rgba(0,0,0,0.05)] border border-neutral-100 bg-white text-neutral-700 hover:border-neutral-200 hover:bg-neutral-100 px-3 py-2 rounded-[0.625rem]">
-                  {ctaSecondaryText}
-                </NavAnchor>
-              )}
-              {ctaPrimaryText && (
-                <NavAnchor href={ctaPrimaryHref ?? "#"} className="flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all shadow-[0_2px_10px_0px_rgba(0,0,0,0.05)] bg-slate-900 text-white hover:bg-slate-800 px-3 py-2 rounded-[0.625rem]">
-                  {ctaPrimaryText}
-                </NavAnchor>
-              )}
-              <button type="button" aria-label="Open menu" onClick={() => setOpen(!open)} className="lg:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md">
-                <HamburgerIcon />
-              </button>
+            <div className="flex items-center gap-x-10 justify-self-end">
+              <span className="hidden h-4 w-[1px] bg-neutral-300 lg:block" />
+              <div className="flex items-center gap-x-3 lg:gap-x-2">
+                {ctaSecondaryText && (
+                  <NavAnchor href={ctaSecondaryHref ?? "#"} className="hidden lg:flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all shadow-[0_2px_10px_0px_rgba(0,0,0,0.05)] border border-neutral-100 bg-white text-neutral-700 hover:border-neutral-200 hover:bg-neutral-100 px-3 py-2 rounded-[0.625rem]">
+                    {ctaSecondaryText}
+                  </NavAnchor>
+                )}
+                {ctaPrimaryText && (
+                  <NavAnchor href={ctaPrimaryHref ?? "#"} className="flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all shadow-[0_2px_10px_0px_rgba(0,0,0,0.05)] bg-slate-900 text-white hover:bg-slate-800 px-3 py-2 rounded-[0.625rem]">
+                    {ctaPrimaryText}
+                  </NavAnchor>
+                )}
+                <button type="button" aria-label="Open menu" onClick={() => setOpen(!open)} className="lg:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md">
+                  <HamburgerIcon />
+                </button>
+              </div>
             </div>
           </div>
-        </div>
 
-        {open && (
-          <div className="mt-2 bg-white rounded-2xl shadow-[0_2px_10px_0px_rgba(0,0,0,0.15)] overflow-hidden">
-            <MobileDrawer links={navLinks} open={open} />
-          </div>
-        )}
-      </div>
-    </header>
+          {open && (
+            <div className="mt-2 bg-white rounded-2xl shadow-[0_2px_10px_0px_rgba(0,0,0,0.15)] overflow-hidden">
+              <MobileDrawer links={navLinks} open={open} />
+            </div>
+          )}
+        </div>
+      </header>
+      <div className="h-24 md:h-28" aria-hidden="true" />
+    </>
   );
 }
 

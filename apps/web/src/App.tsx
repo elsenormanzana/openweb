@@ -28,6 +28,7 @@ const BlogPostEditor = lazy(() => import("@/pages/BlogPostEditor").then((m) => (
 const FormsBuilder = lazy(() => import("@/pages/FormsBuilder").then((m) => ({ default: m.FormsBuilder })));
 const NewsletterAdmin = lazy(() => import("@/pages/NewsletterAdmin").then((m) => ({ default: m.NewsletterAdmin })));
 const CrmAdmin = lazy(() => import("@/pages/CrmAdmin").then((m) => ({ default: m.CrmAdmin })));
+const BackupsAdmin = lazy(() => import("@/pages/BackupsAdmin").then((m) => ({ default: m.BackupsAdmin })));
 const PublicHomePage = lazy(() => import("@/pages/PublicHomePage").then((m) => ({ default: m.PublicHomePage })));
 const PublicPage = lazy(() => import("@/pages/PublicPage").then((m) => ({ default: m.PublicPage })));
 const PublicBlogList = lazy(() => import("@/pages/PublicBlogList").then((m) => ({ default: m.PublicBlogList })));
@@ -106,6 +107,11 @@ export default function App() {
             <Route path="storage" element={
               <RequireAuth roles={["admin"]} globalOnly>
                 <RouteLoader><StorageSettings /></RouteLoader>
+              </RequireAuth>
+            } />
+            <Route path="backups" element={
+              <RequireAuth roles={["admin"]} globalOnly>
+                <RouteLoader><BackupsAdmin /></RouteLoader>
               </RequireAuth>
             } />
             <Route path="users" element={
