@@ -57,7 +57,10 @@ export function GlobalLayout({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    // Always fetch from API on mount — SSR data is an optimistic seed only (may have stale or partially parsed fields)
+    // The API embeds fully-parsed site settings on first load. Only hit the
+    // network when that seed is absent (client-side nav, or a non-SSR entry) —
+    // saves a request on every first paint.
+    if (typeof window !== "undefined" && window.__INITIAL_SITE_SETTINGS__) return;
     api.siteSettings.get().then(setSettings).catch(() => {});
   }, []);
 

@@ -16,7 +16,7 @@ export function LogoCloudBlock({ props }: { props: LogoCloudBlockProps }) {
           {logos.map((logo, i) => (
             <div key={i} className="flex items-center justify-center">
               {logo.url ? (
-                <img src={logo.url} alt={logo.name} className="h-10 object-contain grayscale opacity-60 hover:opacity-100 hover:grayscale-0 transition-all" />
+                <img src={logo.url} alt={logo.name} loading="lazy" decoding="async" className="h-10 object-contain grayscale opacity-60 hover:opacity-100 hover:grayscale-0 transition-all" />
               ) : (
                 <span className="text-xl font-bold text-gray-300">{logo.name}</span>
               )}

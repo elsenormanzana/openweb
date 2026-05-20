@@ -1,5 +1,5 @@
 import type { FeaturesBlockProps } from "@/lib/blocks";
-import { FEATURE_ICON_MAP } from "@/lib/blocks";
+import { FEATURE_ICON_MAP } from "@/lib/featureIcons";
 
 export function FeaturesBlock({ props }: { props: FeaturesBlockProps }) {
   const { heading, subheading, columns, items } = props;

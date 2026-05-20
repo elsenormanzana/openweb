@@ -16,7 +16,7 @@ export function ImageBlock({ props }: { props: ImageBlockProps }) {
   return (
     <div className="w-full py-12 px-4">
       <figure className={width === "full" ? "w-full" : "max-w-3xl mx-auto"}>
-        <img src={src} alt={alt} className="w-full h-auto rounded-xl object-cover" />
+        <img src={src} alt={alt} loading="lazy" decoding="async" className="w-full h-auto rounded-xl object-cover" />
         {caption && <figcaption className="mt-3 text-center text-sm text-gray-500">{caption}</figcaption>}
       </figure>
     </div>

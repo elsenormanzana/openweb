@@ -26,7 +26,7 @@ export function TeamSocialBlock({ props }: { props: TeamSocialBlockProps }) {
               <div className="relative mb-5">
                 <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 blur opacity-40 group-hover:opacity-75 transition-opacity duration-300" />
                 {member.avatar ? (
-                  <img src={member.avatar} alt={member.name} className="relative w-28 h-28 rounded-full object-cover border-2 border-slate-700 group-hover:border-slate-500 transition-colors" />
+                  <img src={member.avatar} alt={member.name} loading="lazy" decoding="async" className="relative w-28 h-28 rounded-full object-cover border-2 border-slate-700 group-hover:border-slate-500 transition-colors" />
                 ) : (
                   <div className="relative w-28 h-28 rounded-full bg-slate-700 flex items-center justify-center text-3xl font-bold text-slate-300 border-2 border-slate-600">
                     {member.name.charAt(0)}

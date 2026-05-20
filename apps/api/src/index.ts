@@ -29,6 +29,16 @@ import { renderPageHtml, renderBlogListHtml, renderBlogPostHtml } from "./ssr.js
 // ── SSR Cache and Invalidation ───────────────────────────────────────────────
 const ssrCache = new Map<string, string>();
 
+// Search-engine crawlers and link-preview scrapers that don't execute JS get the
+// full string-rendered HTML. Every real browser gets the lightweight shell that
+// React fills instantly from embedded data. Unknown/empty UAs default to human.
+const BOT_UA_RE = /bot|crawl|spider|slurp|googlebot|bingbot|duckduckbot|yandex|baiduspider|facebookexternalhit|twitterbot|linkedinbot|slackbot|whatsapp|discordbot|telegrambot|embedly|quora link preview|pinterest|redditbot|applebot|ia_archiver/i;
+
+function isBotRequest(userAgent: string | undefined): boolean {
+  if (!userAgent) return false;
+  return BOT_UA_RE.test(userAgent);
+}
+
 function clearSsrCache(siteId?: number) {
   if (siteId) {
     for (const key of ssrCache.keys()) {
@@ -4131,7 +4141,8 @@ async function loadPlugins() {
 // ── SSR Wildcard Routes ────────────────────────────────────────────────────────
 app.get("/", async (req, reply) => {
   reply.header("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=60");
-  const cacheKey = `${req.siteId}:_homepage`;
+  const isBot = isBotRequest(req.headers["user-agent"]);
+  const cacheKey = `${req.siteId}:_homepage:${isBot ? "bot" : "human"}`;
   if (ssrCache.has(cacheKey)) {
     reply.type("text/html");
     return ssrCache.get(cacheKey)!;
@@ -4155,7 +4166,7 @@ app.get("/", async (req, reply) => {
     page = firstPage;
   }
 
-  const html = renderPageHtml(page, activeSettings, template, "/");
+  const html = renderPageHtml(page, activeSettings, template, "/", isBot);
   ssrCache.set(cacheKey, html);
   reply.type("text/html");
   return html;
@@ -4163,7 +4174,8 @@ app.get("/", async (req, reply) => {
 
 app.get("/blog", async (req, reply) => {
   reply.header("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=60");
-  const cacheKey = `${req.siteId}:_blog_list`;
+  const isBot = isBotRequest(req.headers["user-agent"]);
+  const cacheKey = `${req.siteId}:_blog_list:${isBot ? "bot" : "human"}`;
   if (ssrCache.has(cacheKey)) {
     reply.type("text/html");
     return ssrCache.get(cacheKey)!;
@@ -4180,7 +4192,7 @@ app.get("/blog", async (req, reply) => {
   const activeSettings = settingsRows[0] || defaultSiteSettings();
   const hydrated = await Promise.all(rows.map(async (post) => ({ ...post, ...(await attachBlogRelations(post.id, req.siteId)) })));
 
-  const html = renderBlogListHtml(hydrated, activeSettings, template, "/blog");
+  const html = renderBlogListHtml(hydrated, activeSettings, template, "/blog", isBot);
   ssrCache.set(cacheKey, html);
   reply.type("text/html");
   return html;
@@ -4189,7 +4201,8 @@ app.get("/blog", async (req, reply) => {
 app.get<{ Params: { slug: string } }>("/blog/:slug", async (req, reply) => {
   reply.header("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=60");
   const slug = req.params.slug.trim().toLowerCase();
-  const cacheKey = `${req.siteId}:_blog:${slug}`;
+  const isBot = isBotRequest(req.headers["user-agent"]);
+  const cacheKey = `${req.siteId}:_blog:${slug}:${isBot ? "bot" : "human"}`;
   if (ssrCache.has(cacheKey)) {
     reply.type("text/html");
     return ssrCache.get(cacheKey)!;
@@ -4211,7 +4224,7 @@ app.get<{ Params: { slug: string } }>("/blog/:slug", async (req, reply) => {
   }
 
   const hydrated = { ...post, ...(await attachBlogRelations(post.id, req.siteId)) };
-  const html = renderBlogPostHtml(hydrated, activeSettings, template, `/blog/${slug}`);
+  const html = renderBlogPostHtml(hydrated, activeSettings, template, `/blog/${slug}`, isBot);
   ssrCache.set(cacheKey, html);
   reply.type("text/html");
   return html;
@@ -4224,7 +4237,8 @@ app.get<{ Params: { slug: string } }>("/:slug", async (req, reply) => {
   }
 
   reply.header("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=60");
-  const cacheKey = `${req.siteId}:${slug}`;
+  const isBot = isBotRequest(req.headers["user-agent"]);
+  const cacheKey = `${req.siteId}:${slug}:${isBot ? "bot" : "human"}`;
   if (ssrCache.has(cacheKey)) {
     reply.type("text/html");
     return ssrCache.get(cacheKey)!;
@@ -4243,7 +4257,7 @@ app.get<{ Params: { slug: string } }>("/:slug", async (req, reply) => {
     return reply.status(404).send("Page not found");
   }
 
-  const html = renderPageHtml(page, activeSettings, template, `/${slug}`);
+  const html = renderPageHtml(page, activeSettings, template, `/${slug}`, isBot);
   ssrCache.set(cacheKey, html);
   reply.type("text/html");
   return html;
@@ -4272,10 +4286,11 @@ await app.listen({ port, host: "0.0.0.0" });
         // Pre-render homepage
         const [homePage] = await db.select().from(pages)
           .where(and(eq(pages.siteId, site.id), eq(pages.isHomepage, true))).limit(1);
+        // Pre-warm the human variant — that's what almost every visitor hits.
         if (homePage) {
-          const cacheKey = `${site.id}:_homepage`;
+          const cacheKey = `${site.id}:_homepage:human`;
           if (!ssrCache.has(cacheKey)) {
-            const html = renderPageHtml(homePage, activeSettings, template, "/");
+            const html = renderPageHtml(homePage, activeSettings, template, "/", false);
             ssrCache.set(cacheKey, html);
             app.log.info(`[prewarm] Cached homepage for site ${site.id}`);
           }
@@ -4285,9 +4300,9 @@ await app.listen({ port, host: "0.0.0.0" });
         const allPages = await db.select().from(pages).where(eq(pages.siteId, site.id));
         for (const page of allPages) {
           if (page.isHomepage) continue;
-          const cacheKey = `${site.id}:${page.slug}`;
+          const cacheKey = `${site.id}:${page.slug}:human`;
           if (!ssrCache.has(cacheKey)) {
-            const html = renderPageHtml(page, activeSettings, template, `/${page.slug}`);
+            const html = renderPageHtml(page, activeSettings, template, `/${page.slug}`, false);
             ssrCache.set(cacheKey, html);
           }
         }

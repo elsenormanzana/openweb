@@ -18,7 +18,7 @@ export function CardBlock({ props, editorProps, blockId }: { props: CardBlockPro
     >
       {image && (
         <div className="w-full h-56 md:h-72 overflow-hidden bg-muted">
-          <img src={image} alt={title} className="w-full h-full object-cover" />
+          <img src={image} alt={title} loading="lazy" decoding="async" className="w-full h-full object-cover" />
         </div>
       )}
       <div className={`${PADDING[padding]}`}>

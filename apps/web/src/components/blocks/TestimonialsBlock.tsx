@@ -17,7 +17,7 @@ export function TestimonialsBlock({ props }: { props: TestimonialsBlockProps }) 
               <p className="text-gray-700 italic leading-relaxed">"{item.quote}"</p>
               <div className="flex items-center gap-3 mt-auto">
                 {item.avatar ? (
-                  <img src={item.avatar} alt={item.name} className="w-10 h-10 rounded-full object-cover" />
+                  <img src={item.avatar} alt={item.name} loading="lazy" decoding="async" className="w-10 h-10 rounded-full object-cover" />
                 ) : (
                   <div className="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center text-sm font-bold text-gray-600">
                     {item.name.charAt(0)}

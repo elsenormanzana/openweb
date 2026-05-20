@@ -2,6 +2,10 @@ import { Suspense, lazy, useEffect, type ReactNode } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/lib/auth";
 import { RequireAuth } from "@/components/RequireAuth";
+// Public pages are eager — they are the highest-traffic routes and render
+// instantly from server-embedded data, so they ship in the initial chunk.
+import { PublicHomePage } from "@/pages/PublicHomePage";
+import { PublicPage } from "@/pages/PublicPage";
 
 // Preloader dismiss — injected by SSR, exposed globally
 declare global { interface Window { __dismissPreloader?: () => void; } }
@@ -33,8 +37,6 @@ const FormsBuilder = lazy(() => import("@/pages/FormsBuilder").then((m) => ({ de
 const NewsletterAdmin = lazy(() => import("@/pages/NewsletterAdmin").then((m) => ({ default: m.NewsletterAdmin })));
 const CrmAdmin = lazy(() => import("@/pages/CrmAdmin").then((m) => ({ default: m.CrmAdmin })));
 const BackupsAdmin = lazy(() => import("@/pages/BackupsAdmin").then((m) => ({ default: m.BackupsAdmin })));
-const PublicHomePage = lazy(() => import("@/pages/PublicHomePage").then((m) => ({ default: m.PublicHomePage })));
-const PublicPage = lazy(() => import("@/pages/PublicPage").then((m) => ({ default: m.PublicPage })));
 const PublicBlogList = lazy(() => import("@/pages/PublicBlogList").then((m) => ({ default: m.PublicBlogList })));
 const PublicBlogPost = lazy(() => import("@/pages/PublicBlogPost").then((m) => ({ default: m.PublicBlogPost })));
 

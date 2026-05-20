@@ -4,8 +4,6 @@ import {
   BadgeDollarSign, MessageSquare, CircleHelp, BarChart3, Building2,
   Type, ImageIcon, SeparatorHorizontal, Heading1, Columns2, Minus,
   Navigation, Mail, PhoneCall,
-  Zap, Shield, Star, Globe, Heart, Clock, Settings, Check,
-  Award, Code2, Smartphone, Database, Cloud, Rocket, Lock,
   // Sprint 4-5 icons
   Wand2, TextCursorInput, Grid3x3, Layers, ArrowRightLeft, Hash,
   LayoutDashboard, Palette, Grip, PanelTop, Scroll,
@@ -13,13 +11,13 @@ import {
   Milestone, Share2, MousePointerClick,
 } from "lucide-react";
 
-// Icons available for the Features block icon picker
-export const FEATURE_ICON_MAP = {
-  Zap, Lock, Shield, BarChart3, Star, Globe, Heart, Clock, Users,
-  Settings, Check, Award, Code2, Smartphone, Database, Cloud, Rocket,
-  Sparkles, Mail,
-} as const;
-export type FeatureIconName = keyof typeof FEATURE_ICON_MAP;
+// Features-block icon picker map — re-exported from a lightweight module so
+// public block components can import it without dragging in BLOCK_REGISTRY.
+export { FEATURE_ICON_MAP } from "./featureIcons";
+export type { FeatureIconName } from "./featureIcons";
+
+// parseBlocks lives in its own dependency-free module (see ./parseBlocks).
+export { parseBlocks } from "./parseBlocks";
 
 // ─── Block prop types ────────────────────────────────────────────────────────
 
@@ -1353,19 +1351,6 @@ export const BLOCK_REGISTRY: BlockRegistryEntry[] = [
 export function defaultBlock(type: BlockType): Block {
   const entry = BLOCK_REGISTRY.find((r) => r.type === type)!;
   return { id: crypto.randomUUID(), type, props: structuredClone(entry.defaultProps) } as Block;
-}
-
-export function parseBlocks(content: string | null): Block[] | null {
-  if (!content) return null;
-  try {
-    const parsed = JSON.parse(content);
-    if (Array.isArray(parsed) && parsed.every((b) => b.id && b.type && b.props !== undefined)) {
-      return parsed as Block[];
-    }
-  } catch {
-    // fall through
-  }
-  return null;
 }
 
 export function validateBlocksRequireNativeForms(blocks: Block[]): string[] {

@@ -33,7 +33,7 @@ export function SocialProofFeedBlock({ props }: { props: SocialProofFeedBlockPro
               <div className="flex items-center justify-between gap-4 mb-5">
                 <div className="flex items-center gap-3.5">
                   {item.authorAvatar ? (
-                    <img src={item.authorAvatar} alt={item.authorName} className="size-12 rounded-full object-cover border border-slate-700 shadow-sm" />
+                    <img src={item.authorAvatar} alt={item.authorName} loading="lazy" decoding="async" className="size-12 rounded-full object-cover border border-slate-700 shadow-sm" />
                   ) : (
                     <div className="size-12 rounded-full bg-slate-800 flex items-center justify-center font-bold text-lg text-slate-300 border border-slate-700">
                       {item.authorName.charAt(0)}

@@ -1123,7 +1123,8 @@ function assembleHtml(
   pageData: any,
   settingsData: any,
   palette: any,
-  extraGlobalData: Record<string, any> = {}
+  extraGlobalData: Record<string, any> = {},
+  isBot: boolean = true
 ): string {
   // Pre-generate dynamic style injection
   const paletteCSS = paletteToCSS(palette);
@@ -1218,17 +1219,25 @@ function assembleHtml(
   
   html = html.replace("</head>", `${headerTags}</head>`);
   
-  // Inject server-rendered static DOM into React's root mount node
+  // Inject server-rendered static DOM into React's root mount node.
+  // Bots get the full string-rendered markup (SEO); human browsers get an empty
+  // root so React's createRoot() mounts cleanly with no flash of divergent content.
   const rootMountToken = '<div id="root"></div>';
-  const hydratedMountToken = `<div id="root">${renderedStaticHTML}</div>${bodyStateScripts}`;
-  
+  const rootContent = isBot ? renderedStaticHTML : "";
+  const hydratedMountToken = `<div id="root">${rootContent}</div>${bodyStateScripts}`;
+
   if (html.includes(rootMountToken)) {
     html = html.replace(rootMountToken, hydratedMountToken);
   } else {
     html = html.replace("</body>", `${hydratedMountToken}</body>`);
   }
 
-  // Inject preloader right after <body> tag
+  // Humans render instantly from embedded data — no preloader needed.
+  if (!isBot) {
+    return html;
+  }
+
+  // Inject preloader right after <body> tag (bot/no-JS fallback path only)
   const preloaderHtml = `
 <div id="openweb-preloader" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: var(--palette-background, #0b0f19); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 999999; transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.4s cubic-bezier(0.4, 0, 0.2, 1);">
   <div style="display: flex; flex-direction: column; align-items: center; gap: 1.5rem;">
@@ -1291,37 +1300,40 @@ function assembleHtml(
 // ── RENDER ROOT CHANNELS ──────────────────────────────────────────────────────
 
 // Render custom page HTML
-export function renderPageHtml(page: Page, settings: SiteSettings, indexTemplate: string, currentPath: string = "/"): string {
-  const contentStr = page.content || "[]";
-  let blocks: any[] = [];
-  try {
-    blocks = JSON.parse(contentStr);
-  } catch (e) {}
-
-  let blocksHtml = "";
-  for (const block of blocks) {
-    blocksHtml += renderBlock(block);
-  }
-
+export function renderPageHtml(page: Page, settings: SiteSettings, indexTemplate: string, currentPath: string = "/", isBot: boolean = true): string {
   const nav = settings.navConfig ? JSON.parse(settings.navConfig) : {};
   const footer = settings.footerConfig ? JSON.parse(settings.footerConfig) : {};
   const palette = nav.palette || {};
 
+  // Only run the (expensive) string-rendering engine for bots. Human browsers
+  // render from the embedded __INITIAL_PAGE_DATA__ via React.
   let layoutHtml = "";
-  if (page.ignoreGlobalLayout) {
-    layoutHtml = `
-      <div class="min-h-screen flex flex-col">
-        <main class="flex-1">${blocksHtml}</main>
-      </div>
-    `;
-  } else {
-    layoutHtml = `
-      <div class="min-h-screen flex flex-col">
-        ${renderHeader(nav, currentPath)}
-        <main class="flex-1">${blocksHtml}</main>
-        ${renderFooter(footer)}
-      </div>
-    `;
+  if (isBot) {
+    let blocks: any[] = [];
+    try {
+      blocks = JSON.parse(page.content || "[]");
+    } catch (e) {}
+
+    let blocksHtml = "";
+    for (const block of blocks) {
+      blocksHtml += renderBlock(block);
+    }
+
+    if (page.ignoreGlobalLayout) {
+      layoutHtml = `
+        <div class="min-h-screen flex flex-col">
+          <main class="flex-1">${blocksHtml}</main>
+        </div>
+      `;
+    } else {
+      layoutHtml = `
+        <div class="min-h-screen flex flex-col">
+          ${renderHeader(nav, currentPath)}
+          <main class="flex-1">${blocksHtml}</main>
+          ${renderFooter(footer)}
+        </div>
+      `;
+    }
   }
 
   const seo = {
@@ -1339,19 +1351,25 @@ export function renderPageHtml(page: Page, settings: SiteSettings, indexTemplate
     seo,
     page,
     settings,
-    palette
+    palette,
+    {},
+    isBot
   );
 }
 
 // Render Blog List HTML
-export function renderBlogListHtml(posts: BlogPost[], settings: SiteSettings, indexTemplate: string, currentPath: string = "/blog"): string {
+export function renderBlogListHtml(posts: BlogPost[], settings: SiteSettings, indexTemplate: string, currentPath: string = "/blog", isBot: boolean = true): string {
   const nav = settings.navConfig ? JSON.parse(settings.navConfig) : {};
   const footer = settings.footerConfig ? JSON.parse(settings.footerConfig) : {};
   const palette = nav.palette || {};
 
+  if (!isBot) {
+    return assembleHtml(indexTemplate, "", "Blog", {}, null, settings, palette, { "__INITIAL_BLOG_POSTS__": posts }, false);
+  }
+
   let postsListHtml = "";
   for (const post of posts) {
-    const postDate = post.datePublished 
+    const postDate = post.datePublished
       ? new Date(post.datePublished).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
       : "";
       
@@ -1407,17 +1425,23 @@ export function renderBlogListHtml(posts: BlogPost[], settings: SiteSettings, in
     null,
     settings,
     palette,
-    { "__INITIAL_BLOG_POSTS__": posts }
+    { "__INITIAL_BLOG_POSTS__": posts },
+    true
   );
 }
 
 // Render Blog Post Detail HTML
-export function renderBlogPostHtml(post: BlogPost, settings: SiteSettings, indexTemplate: string, currentPath: string = "/blog"): string {
+export function renderBlogPostHtml(post: BlogPost, settings: SiteSettings, indexTemplate: string, currentPath: string = "/blog", isBot: boolean = true): string {
   const nav = settings.navConfig ? JSON.parse(settings.navConfig) : {};
   const footer = settings.footerConfig ? JSON.parse(settings.footerConfig) : {};
   const palette = nav.palette || {};
 
-  const postDate = post.datePublished 
+  if (!isBot) {
+    const humanSeo = { seoDescription: post.description, ogImage: post.headerImage };
+    return assembleHtml(indexTemplate, "", post.title, humanSeo, null, settings, palette, { "__INITIAL_BLOG_POST__": post }, false);
+  }
+
+  const postDate = post.datePublished
     ? new Date(post.datePublished).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
     : "";
 
@@ -1464,6 +1488,7 @@ export function renderBlogPostHtml(post: BlogPost, settings: SiteSettings, index
     null,
     settings,
     palette,
-    { "__INITIAL_BLOG_POST__": post }
+    { "__INITIAL_BLOG_POST__": post },
+    true
   );
 }

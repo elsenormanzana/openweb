@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { motion, useInView } from "framer-motion";
 import type { BentoGridBlockProps } from "@/lib/blocks";
-import { FEATURE_ICON_MAP } from "@/lib/blocks";
+import { FEATURE_ICON_MAP } from "@/lib/featureIcons";
 
 export function BentoGridBlock({ props }: { props: BentoGridBlockProps }) {
   const { items, gridCols } = props;

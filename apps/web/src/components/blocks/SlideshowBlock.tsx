@@ -20,7 +20,7 @@ export function SlideshowBlock({ props }: { props: SlideshowBlockProps }) {
         )}
         <div className="relative rounded-2xl overflow-hidden border border-gray-100 bg-gray-50 min-h-[340px] flex items-center">
           {item.image && (
-            <img src={item.image} alt={item.title} className="absolute inset-0 w-full h-full object-cover opacity-20" />
+            <img src={item.image} alt={item.title} loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-cover opacity-20" />
           )}
           <div className="relative z-10 p-10 flex flex-col gap-4 max-w-2xl">
             {item.badge && (

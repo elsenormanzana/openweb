@@ -17,7 +17,7 @@ export function BioCardsBlock({ props }: { props: BioCardsBlockProps }) {
           {items.map((item, i) => (
             <div key={i} className="flex flex-col items-center text-center gap-3 p-6 rounded-xl bg-white border border-gray-100 shadow-sm">
               {item.avatar ? (
-                <img src={item.avatar} alt={item.name} className="w-20 h-20 rounded-full object-cover" />
+                <img src={item.avatar} alt={item.name} loading="lazy" decoding="async" className="w-20 h-20 rounded-full object-cover" />
               ) : (
                 <div className="w-20 h-20 rounded-full bg-gray-200 flex items-center justify-center text-2xl font-bold text-gray-500">
                   {item.name.charAt(0)}

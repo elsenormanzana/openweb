@@ -1,5 +1,5 @@
 import { Suspense, lazy } from "react";
-import { parseBlocks, type Block } from "@/lib/blocks";
+import { parseBlocks, type Block } from "@/lib/parseBlocks";
 import { HeroBlock } from "@/components/blocks/HeroBlock";
 import { CtaBlock } from "@/components/blocks/CtaBlock";
 import { FeaturesBlock } from "@/components/blocks/FeaturesBlock";
@@ -29,34 +29,104 @@ const AnimationWrapper = lazy(() =>
   import("@/components/blocks/AnimationWrapper").then((m) => ({ default: m.AnimationWrapper }))
 );
 
-// Lazy-load animated blocks (they use framer-motion)
-const AnimatedHeroBlock = lazy(() => import("@/components/blocks/animated/AnimatedHeroBlock").then((m) => ({ default: m.AnimatedHeroBlock })));
-const AnimatedTextBlock = lazy(() => import("@/components/blocks/animated/AnimatedTextBlock").then((m) => ({ default: m.AnimatedTextBlock })));
-const BentoGridBlock = lazy(() => import("@/components/blocks/animated/BentoGridBlock").then((m) => ({ default: m.BentoGridBlock })));
-const AnimatedCardsBlock = lazy(() => import("@/components/blocks/animated/AnimatedCardsBlock").then((m) => ({ default: m.AnimatedCardsBlock })));
-const MarqueeBlock = lazy(() => import("@/components/blocks/animated/MarqueeBlock").then((m) => ({ default: m.MarqueeBlock })));
-const LogoMarqueeBlock = lazy(() => import("@/components/blocks/animated/LogoMarqueeBlock").then((m) => ({ default: m.LogoMarqueeBlock })));
-const AnimatedCounterBlock = lazy(() => import("@/components/blocks/animated/AnimatedCounterBlock").then((m) => ({ default: m.AnimatedCounterBlock })));
-const CardGridBlock = lazy(() => import("@/components/blocks/animated/CardGridBlock").then((m) => ({ default: m.CardGridBlock })));
-const GradientSectionBlock = lazy(() => import("@/components/blocks/animated/GradientSectionBlock").then((m) => ({ default: m.GradientSectionBlock })));
-const GridBackgroundBlock = lazy(() => import("@/components/blocks/animated/GridBackgroundBlock").then((m) => ({ default: m.GridBackgroundBlock })));
-const ParallaxScrollBlock = lazy(() => import("@/components/blocks/animated/ParallaxScrollBlock").then((m) => ({ default: m.ParallaxScrollBlock })));
-const FeatureShowcaseBlock = lazy(() => import("@/components/blocks/animated/FeatureShowcaseBlock").then((m) => ({ default: m.FeatureShowcaseBlock })));
-const TimelineBlock = lazy(() => import("@/components/blocks/animated/TimelineBlock").then((m) => ({ default: m.TimelineBlock })));
-const TabsContentBlock = lazy(() => import("@/components/blocks/animated/TabsContentBlock").then((m) => ({ default: m.TabsContentBlock })));
-const AccordionBlock = lazy(() => import("@/components/blocks/animated/AccordionBlock").then((m) => ({ default: m.AccordionBlock })));
-const ImageComparisonBlock = lazy(() => import("@/components/blocks/animated/ImageComparisonBlock").then((m) => ({ default: m.ImageComparisonBlock })));
-const CtaBannerBlock = lazy(() => import("@/components/blocks/animated/CtaBannerBlock").then((m) => ({ default: m.CtaBannerBlock })));
-const FloatingDockBlock = lazy(() => import("@/components/blocks/animated/FloatingDockBlock").then((m) => ({ default: m.FloatingDockBlock })));
-const SocialConnectBlock = lazy(() => import("@/components/blocks/SocialConnectBlock").then((m) => ({ default: m.SocialConnectBlock })));
-const TeamSocialBlock = lazy(() => import("@/components/blocks/TeamSocialBlock").then((m) => ({ default: m.TeamSocialBlock })));
-const FooterSocialBlock = lazy(() => import("@/components/blocks/FooterSocialBlock").then((m) => ({ default: m.FooterSocialBlock })));
-const SocialProofFeedBlock = lazy(() => import("@/components/blocks/SocialProofFeedBlock").then((m) => ({ default: m.SocialProofFeedBlock })));
-const SocialButtonsBlock = lazy(() => import("@/components/blocks/SocialButtonsBlock").then((m) => ({ default: m.SocialButtonsBlock })));
+// ── Lazy block registry ───────────────────────────────────────────────────────
+// Animated + social blocks are heavy (framer-motion etc.), so each is a separate
+// dynamic import — Vite emits one on-demand chunk per block, and the shared
+// framer-motion code is a single chunk loaded once. `preloadBlocks()` fires the
+// imports for exactly the block types a page uses, in parallel and up front, so
+// there is no per-block load waterfall. A page with no animated/social blocks
+// ships none of this code (and no framer-motion).
+type ModuleLoader = () => Promise<Record<string, unknown>>;
+
+const LAZY_BLOCK_LOADERS: Record<string, { load: ModuleLoader; export: string }> = {
+  "animated-hero": { load: () => import("@/components/blocks/animated/AnimatedHeroBlock"), export: "AnimatedHeroBlock" },
+  "animated-text": { load: () => import("@/components/blocks/animated/AnimatedTextBlock"), export: "AnimatedTextBlock" },
+  "bento-grid": { load: () => import("@/components/blocks/animated/BentoGridBlock"), export: "BentoGridBlock" },
+  "animated-cards": { load: () => import("@/components/blocks/animated/AnimatedCardsBlock"), export: "AnimatedCardsBlock" },
+  "marquee": { load: () => import("@/components/blocks/animated/MarqueeBlock"), export: "MarqueeBlock" },
+  "logo-marquee": { load: () => import("@/components/blocks/animated/LogoMarqueeBlock"), export: "LogoMarqueeBlock" },
+  "animated-counter": { load: () => import("@/components/blocks/animated/AnimatedCounterBlock"), export: "AnimatedCounterBlock" },
+  "card-grid": { load: () => import("@/components/blocks/animated/CardGridBlock"), export: "CardGridBlock" },
+  "gradient-section": { load: () => import("@/components/blocks/animated/GradientSectionBlock"), export: "GradientSectionBlock" },
+  "grid-background": { load: () => import("@/components/blocks/animated/GridBackgroundBlock"), export: "GridBackgroundBlock" },
+  "parallax-scroll": { load: () => import("@/components/blocks/animated/ParallaxScrollBlock"), export: "ParallaxScrollBlock" },
+  "feature-showcase": { load: () => import("@/components/blocks/animated/FeatureShowcaseBlock"), export: "FeatureShowcaseBlock" },
+  "timeline": { load: () => import("@/components/blocks/animated/TimelineBlock"), export: "TimelineBlock" },
+  "tabs-content": { load: () => import("@/components/blocks/animated/TabsContentBlock"), export: "TabsContentBlock" },
+  "accordion": { load: () => import("@/components/blocks/animated/AccordionBlock"), export: "AccordionBlock" },
+  "image-comparison": { load: () => import("@/components/blocks/animated/ImageComparisonBlock"), export: "ImageComparisonBlock" },
+  "cta-banner": { load: () => import("@/components/blocks/animated/CtaBannerBlock"), export: "CtaBannerBlock" },
+  "floating-dock": { load: () => import("@/components/blocks/animated/FloatingDockBlock"), export: "FloatingDockBlock" },
+  "social-connect": { load: () => import("@/components/blocks/SocialConnectBlock"), export: "SocialConnectBlock" },
+  "team-social": { load: () => import("@/components/blocks/TeamSocialBlock"), export: "TeamSocialBlock" },
+  "footer-social": { load: () => import("@/components/blocks/FooterSocialBlock"), export: "FooterSocialBlock" },
+  "social-proof-feed": { load: () => import("@/components/blocks/SocialProofFeedBlock"), export: "SocialProofFeedBlock" },
+  "social-buttons": { load: () => import("@/components/blocks/SocialButtonsBlock"), export: "SocialButtonsBlock" },
+};
+
+// Approximate placeholder heights — keep the fallback close to the real block
+// size so there is no layout shift while a chunk resolves.
+const LAZY_BLOCK_FALLBACK: Record<string, string> = {
+  "animated-hero": "h-96 bg-neutral-900",
+  "animated-text": "h-32",
+  "bento-grid": "h-96",
+  "animated-cards": "h-96",
+  "marquee": "h-24",
+  "logo-marquee": "h-32",
+  "animated-counter": "h-48",
+  "card-grid": "h-96",
+  "gradient-section": "h-96 bg-neutral-900",
+  "grid-background": "h-96",
+  "parallax-scroll": "h-96",
+  "feature-showcase": "h-96",
+  "timeline": "h-96",
+  "tabs-content": "h-64",
+  "accordion": "h-64",
+  "image-comparison": "h-96",
+  "cta-banner": "h-64 bg-neutral-900",
+  "floating-dock": "h-32",
+  "social-connect": "h-32",
+  "team-social": "h-64",
+  "footer-social": "h-64",
+  "social-proof-feed": "h-64",
+  "social-buttons": "h-16",
+};
+
+const LazyBlockComponents: Record<string, React.LazyExoticComponent<React.ComponentType<{ props: any }>>> = {};
+for (const [type, { load, export: exportName }] of Object.entries(LAZY_BLOCK_LOADERS)) {
+  LazyBlockComponents[type] = lazy(() =>
+    load().then((m) => ({ default: m[exportName] as React.ComponentType<{ props: any }> }))
+  );
+}
+
+/**
+ * Warm the chunk(s) for the given block types in parallel. Called before render
+ * so grouped chunks are already in flight by the time React reaches the blocks.
+ * Idempotent — the browser/Vite dedupe repeat `import()` calls.
+ */
+export function preloadBlocks(types: Iterable<string>) {
+  const seen = new Set<string>();
+  for (const type of types) {
+    if (seen.has(type)) continue;
+    seen.add(type);
+    LAZY_BLOCK_LOADERS[type]?.load();
+  }
+}
+
+function renderLazyBlock(type: string, props: any) {
+  const LazyComp = LazyBlockComponents[type];
+  if (!LazyComp) return null;
+  const fallbackClass = LAZY_BLOCK_FALLBACK[type] ?? "h-64";
+  return (
+    <Suspense fallback={<div className={fallbackClass} />}>
+      <LazyComp props={props} />
+    </Suspense>
+  );
+}
 
 function renderBlockContent(block: Block, editorProps?: any) {
   switch (block.type) {
-    // Original blocks
+    // Core blocks — eager (small, used on most pages)
     case "hero": return <HeroBlock props={block.props} />;
     case "cta": return <CtaBlock props={block.props} />;
     case "features": return <FeaturesBlock props={block.props} />;
@@ -76,34 +146,12 @@ function renderBlockContent(block: Block, editorProps?: any) {
     case "card": return <CardBlock props={block.props} editorProps={editorProps} blockId={block.id} />;
     case "alert": return <AlertBlock props={block.props} editorProps={editorProps} blockId={block.id} />;
     case "divider": return <DividerBlock props={block.props} />;
-    case "social-buttons": return <Suspense fallback={<div className="h-16" />}><SocialButtonsBlock props={block.props} /></Suspense>;
     case "navbar": return <NavbarBlock props={block.props} />;
     case "newsletter": return <NewsletterBlock props={block.props} />;
     case "contact": return <ContactBlock props={block.props} />;
     case "button": return <ButtonBlock props={block.props} />;
-    // Animated blocks (lazy-loaded)
-    case "animated-hero": return <Suspense fallback={<div className="h-96 bg-neutral-900" />}><AnimatedHeroBlock props={block.props} /></Suspense>;
-    case "animated-text": return <Suspense fallback={<div className="h-32" />}><AnimatedTextBlock props={block.props} /></Suspense>;
-    case "bento-grid": return <Suspense fallback={<div className="h-96" />}><BentoGridBlock props={block.props} /></Suspense>;
-    case "animated-cards": return <Suspense fallback={<div className="h-96" />}><AnimatedCardsBlock props={block.props} /></Suspense>;
-    case "marquee": return <Suspense fallback={<div className="h-24" />}><MarqueeBlock props={block.props} /></Suspense>;
-    case "logo-marquee": return <Suspense fallback={<div className="h-32" />}><LogoMarqueeBlock props={block.props} /></Suspense>;
-    case "animated-counter": return <Suspense fallback={<div className="h-48" />}><AnimatedCounterBlock props={block.props} /></Suspense>;
-    case "card-grid": return <Suspense fallback={<div className="h-96" />}><CardGridBlock props={block.props} /></Suspense>;
-    case "gradient-section": return <Suspense fallback={<div className="h-96 bg-neutral-900" />}><GradientSectionBlock props={block.props} /></Suspense>;
-    case "grid-background": return <Suspense fallback={<div className="h-96" />}><GridBackgroundBlock props={block.props} /></Suspense>;
-    case "parallax-scroll": return <Suspense fallback={<div className="h-96" />}><ParallaxScrollBlock props={block.props} /></Suspense>;
-    case "feature-showcase": return <Suspense fallback={<div className="h-96" />}><FeatureShowcaseBlock props={block.props} /></Suspense>;
-    case "timeline": return <Suspense fallback={<div className="h-96" />}><TimelineBlock props={block.props} /></Suspense>;
-    case "tabs-content": return <Suspense fallback={<div className="h-64" />}><TabsContentBlock props={block.props} /></Suspense>;
-    case "accordion": return <Suspense fallback={<div className="h-64" />}><AccordionBlock props={block.props} /></Suspense>;
-    case "image-comparison": return <Suspense fallback={<div className="h-96" />}><ImageComparisonBlock props={block.props} /></Suspense>;
-    case "cta-banner": return <Suspense fallback={<div className="h-64 bg-neutral-900" />}><CtaBannerBlock props={block.props} /></Suspense>;
-    case "floating-dock": return <Suspense fallback={<div className="h-32" />}><FloatingDockBlock props={block.props} /></Suspense>;
-    case "social-connect": return <Suspense fallback={<div className="h-32" />}><SocialConnectBlock props={block.props} /></Suspense>;
-    case "team-social": return <Suspense fallback={<div className="h-64" />}><TeamSocialBlock props={block.props} /></Suspense>;
-    case "footer-social": return <Suspense fallback={<div className="h-64" />}><FooterSocialBlock props={block.props} /></Suspense>;
-    case "social-proof-feed": return <Suspense fallback={<div className="h-64" />}><SocialProofFeedBlock props={block.props} /></Suspense>;
+    // Animated + social blocks — lazy, grouped into blocks-animated / blocks-social
+    default: return renderLazyBlock(block.type, block.props);
   }
 }
 
@@ -156,7 +204,10 @@ export function BlockRenderer({ content }: { content: string | null }) {
 
   const blocks = parseBlocks(content);
   if (blocks) {
-    return <>{blocks.map(renderBlock)}</>;
+    // Fire the grouped chunk requests up front, in parallel, so they are
+    // already loading while the eager blocks render.
+    preloadBlocks(blocks.map((b) => b.type));
+    return <>{blocks.map((b) => renderBlock(b))}</>;
   }
 
   // Fallback for legacy HTML content

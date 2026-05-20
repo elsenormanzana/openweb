@@ -1,6 +1,5 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { motion } from "framer-motion";
 import type { NavMenuItem, NavDropdownLink } from "@/lib/api";
 
 export type NavVariantProps = {
@@ -446,12 +445,10 @@ function DesktopNav({
             } else {
               containerClass += "text-neutral-600 hover:bg-neutral-100/50 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-white/10 dark:hover:text-white ";
             }
+            // CSS-only active pill — keeps framer-motion out of the navbar so
+            // it never loads on pages without animated blocks.
             underlineElement = isActive ? (
-              <motion.span
-                layoutId="activePill"
-                className="absolute inset-0 bg-primary/10 rounded-full -z-10"
-                transition={{ type: "spring", stiffness: 380, damping: 30 }}
-              />
+              <span className="absolute inset-0 bg-primary/10 rounded-full -z-10 transition-colors duration-200" />
             ) : null;
           } else if (navLinkStyle === "art-gradient") {
             containerClass += "font-bold ";
