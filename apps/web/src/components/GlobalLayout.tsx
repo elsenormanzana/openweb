@@ -49,10 +49,17 @@ function buildJsonLd(settings: SiteSettings): object | null {
 // ── GlobalLayout ──────────────────────────────────────────────────────────────
 
 export function GlobalLayout({ children }: { children: React.ReactNode }) {
-  const [settings, setSettings] = useState<SiteSettings | null>(null);
+  const [settings, setSettings] = useState<SiteSettings | null>(() => {
+    if (typeof window !== "undefined" && window.__INITIAL_SITE_SETTINGS__) {
+      return window.__INITIAL_SITE_SETTINGS__;
+    }
+    return null;
+  });
 
   useEffect(() => {
-    api.siteSettings.get().then(setSettings).catch(() => {});
+    if (!settings) {
+      api.siteSettings.get().then(setSettings).catch(() => {});
+    }
   }, []);
 
   // Inject enabled client plugins

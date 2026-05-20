@@ -1220,6 +1220,59 @@ function assembleHtml(
     html = html.replace("</body>", `${hydratedMountToken}</body>`);
   }
 
+  // Inject preloader right after <body> tag
+  const preloaderHtml = `
+<div id="openweb-preloader" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: var(--palette-background, #0b0f19); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 999999; transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.4s cubic-bezier(0.4, 0, 0.2, 1);">
+  <div style="display: flex; flex-direction: column; align-items: center; gap: 1.5rem;">
+    <div style="position: relative; width: 64px; height: 64px;">
+      <div style="box-sizing: border-box; display: block; position: absolute; width: 64px; height: 64px; border: 4px solid transparent; border-radius: 50%; border-top-color: var(--palette-primary, #6366f1); animation: openweb-spin 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;"></div>
+      <div style="box-sizing: border-box; display: block; position: absolute; width: 64px; height: 64px; border: 4px solid transparent; border-radius: 50%; border-top-color: var(--palette-accent, #f59e0b); animation: openweb-spin-reverse 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite; animation-delay: -0.6s;"></div>
+    </div>
+    <div style="color: var(--palette-text, #f8fafc); font-family: system-ui, -apple-system, sans-serif; font-size: 0.875rem; letter-spacing: 0.15em; font-weight: 600; text-transform: uppercase; animation: openweb-pulse 1.8s ease-in-out infinite;">Loading</div>
+  </div>
+</div>
+<style>
+@keyframes openweb-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+@keyframes openweb-spin-reverse {
+  0% { transform: rotate(360deg); }
+  100% { transform: rotate(0deg); }
+}
+@keyframes openweb-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+</style>
+<script>
+(function() {
+  function fadeOutPreloader() {
+    const preloader = document.getElementById('openweb-preloader');
+    if (preloader) {
+      preloader.style.opacity = '0';
+      preloader.style.visibility = 'hidden';
+      setTimeout(function() {
+        preloader.remove();
+      }, 400);
+    }
+  }
+  if (document.readyState === 'complete') {
+    fadeOutPreloader();
+  } else {
+    window.addEventListener('load', fadeOutPreloader);
+    setTimeout(fadeOutPreloader, 3000);
+  }
+})();
+</script>
+  `;
+
+  if (html.includes("<body>")) {
+    html = html.replace("<body>", `<body>${preloaderHtml}`);
+  } else {
+    html = html.replace(/<body([^>]*)>/i, `<body$1>${preloaderHtml}`);
+  }
+
   return html;
 }
 
