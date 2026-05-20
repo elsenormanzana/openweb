@@ -57,9 +57,8 @@ export function GlobalLayout({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    if (!settings) {
-      api.siteSettings.get().then(setSettings).catch(() => {});
-    }
+    // Always fetch from API on mount — SSR data is an optimistic seed only (may have stale or partially parsed fields)
+    api.siteSettings.get().then(setSettings).catch(() => {});
   }, []);
 
   // Inject enabled client plugins

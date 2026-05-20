@@ -1188,11 +1188,19 @@ function assembleHtml(
     `;
   }
 
+  // Build a parsed version of settingsData so GlobalLayout gets proper objects (not raw strings)
+  const parsedSettingsData = settingsData ? {
+    ...settingsData,
+    navConfig: typeof settingsData.navConfig === "string" ? (() => { try { return JSON.parse(settingsData.navConfig); } catch { return {}; } })() : (settingsData.navConfig ?? {}),
+    footerConfig: typeof settingsData.footerConfig === "string" ? (() => { try { return JSON.parse(settingsData.footerConfig); } catch { return {}; } })() : (settingsData.footerConfig ?? {}),
+    seoConfig: typeof settingsData.seoConfig === "string" ? (() => { try { return JSON.parse(settingsData.seoConfig); } catch { return {}; } })() : (settingsData.seoConfig ?? {}),
+  } : null;
+
   // Inject initial state variables for hydrating Vite client SPA
   let bodyStateScripts = `
     <script>
       window.__INITIAL_PAGE_DATA__ = ${JSON.stringify(pageData)};
-      window.__INITIAL_SITE_SETTINGS__ = ${JSON.stringify(settingsData)};
+      window.__INITIAL_SITE_SETTINGS__ = ${JSON.stringify(parsedSettingsData)};
   `;
 
   for (const [k, v] of Object.entries(extraGlobalData)) {
