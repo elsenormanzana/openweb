@@ -15,7 +15,7 @@ import fastifyStatic from "@fastify/static";
 import { existsSync, mkdirSync } from "node:fs";
 import { createReadStream } from "node:fs";
 import { writeFile, unlink, readdir, stat, rm, mkdtemp, cp, readFile } from "node:fs/promises";
-import { join, extname, dirname } from "node:path";
+import { join, extname, dirname, basename } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -1604,6 +1604,25 @@ async function restoreDatabaseFromFile(databaseUrl: string, inputPath: string) {
   ], { PGPASSWORD: cfg.password });
 }
 
+async function deleteImageCache(providerPath: string) {
+  try {
+    const filename = basename(providerPath);
+    const ext = extname(filename);
+    const baseName = filename.substring(0, filename.length - ext.length);
+    const cacheDir = join(dirname(providerPath), ".cache");
+    if (existsSync(cacheDir)) {
+      const cachedFiles = await readdir(cacheDir);
+      for (const file of cachedFiles) {
+        if (file.startsWith(baseName)) {
+          await unlink(join(cacheDir, file)).catch(() => {});
+        }
+      }
+    }
+  } catch (e) {
+    // Ignore errors
+  }
+}
+
 app.get("/api/media", async (req) => {
   const rows = await db.select().from(mediaItems)
     .where(eq(mediaItems.siteId, req.siteId))
@@ -1618,7 +1637,10 @@ app.delete<{ Params: { id: string } }>("/api/media/:id", { preHandler: requireAu
     .where(and(eq(mediaItems.id, id), eq(mediaItems.siteId, req.siteId)))
     .limit(1);
   if (!row) return reply.status(404).send({ error: "Media not found" });
-  if (row.providerPath) await unlink(row.providerPath).catch(() => { });
+  if (row.providerPath) {
+    await unlink(row.providerPath).catch(() => { });
+    await deleteImageCache(row.providerPath);
+  }
   await db.delete(mediaItems).where(eq(mediaItems.id, id));
   return { ok: true };
 });
@@ -1631,6 +1653,94 @@ await app.register(fastifyStatic, {
   setHeaders: (res, _path) => {
     res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
   },
+});
+
+const MIME_TYPES: Record<string, string> = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".avif": "image/avif",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+};
+
+app.get<{ Params: { filename: string }, Querystring: { w?: string; q?: string; f?: string } }>("/uploads/:filename", async (req, reply) => {
+  const { filename } = req.params;
+  if (filename.includes("..") || filename.includes("/") || filename.includes("\\")) {
+    return reply.status(400).send({ error: "Invalid filename" });
+  }
+
+  const originalPath = join(UPLOADS_DIR, filename);
+  if (!existsSync(originalPath)) {
+    return reply.status(404).send({ error: "File not found" });
+  }
+
+  const ext = extname(filename).toLowerCase();
+  const resizableExts = [".jpg", ".jpeg", ".png", ".webp", ".avif", ".tiff"];
+  
+  if (!resizableExts.includes(ext)) {
+    reply.header("Content-Type", MIME_TYPES[ext] || "application/octet-stream");
+    reply.header("Cache-Control", "public, max-age=31536000, immutable");
+    return reply.send(createReadStream(originalPath));
+  }
+
+  const w = req.query.w ? parseInt(req.query.w, 10) : undefined;
+  const q = req.query.q ? parseInt(req.query.q, 10) : 80;
+  
+  const acceptHeader = req.headers.accept || "";
+  const supportsWebp = acceptHeader.includes("image/webp");
+  const targetFormat = (req.query.f || (supportsWebp ? "webp" : ext.replace(".", ""))) as "webp" | "jpeg" | "png" | "avif";
+  
+  const cacheDir = join(UPLOADS_DIR, ".cache");
+  if (!existsSync(cacheDir)) {
+    mkdirSync(cacheDir, { recursive: true });
+  }
+
+  const targetExt = `.${targetFormat}`;
+  const baseName = filename.substring(0, filename.length - ext.length);
+  const cacheFilename = `${baseName}_w${w || "orig"}_q${q}${targetExt}`;
+  const cachePath = join(cacheDir, cacheFilename);
+
+  if (existsSync(cachePath)) {
+    reply.header("Content-Type", MIME_TYPES[targetExt] || "application/octet-stream");
+    reply.header("Cache-Control", "public, max-age=31536000, immutable");
+    return reply.send(createReadStream(cachePath));
+  }
+
+  try {
+    let pipeline = sharp(originalPath);
+    const metadata = await pipeline.metadata();
+
+    if (w && metadata.width && metadata.width > w) {
+      pipeline = pipeline.resize({ width: w, withoutEnlargement: true });
+    } else if (!w && metadata.width && metadata.width > 1920) {
+      pipeline = pipeline.resize({ width: 1920, withoutEnlargement: true });
+    }
+
+    if (targetFormat === "webp") {
+      pipeline = pipeline.webp({ quality: q });
+    } else if (targetFormat === "png") {
+      pipeline = pipeline.png({ quality: q });
+    } else if (targetFormat === "avif") {
+      pipeline = pipeline.avif({ quality: q });
+    } else {
+      pipeline = pipeline.jpeg({ quality: q, progressive: true });
+    }
+
+    const processedBuffer = await pipeline.toBuffer();
+    await writeFile(cachePath, processedBuffer);
+
+    reply.header("Content-Type", MIME_TYPES[targetExt] || "application/octet-stream");
+    reply.header("Cache-Control", "public, max-age=31536000, immutable");
+    return reply.send(createReadStream(cachePath));
+  } catch (error) {
+    app.log.error(error, `Failed to optimize image: ${filename}`);
+    reply.header("Content-Type", MIME_TYPES[ext] || "application/octet-stream");
+    reply.header("Cache-Control", "public, max-age=31536000, immutable");
+    return reply.send(createReadStream(originalPath));
+  }
 });
 
 app.post("/api/media/upload", { preHandler: requireAuth(["admin", "page_developer"]) }, async (req, reply) => {
@@ -2168,7 +2278,12 @@ app.delete<{ Params: { id: string } }>("/api/sites/:id", { preHandler: requireAu
   if (!existing) return reply.status(404).send({ error: "Site not found" });
   if (existing.isDefault) return reply.status(400).send({ error: "Cannot delete the default site" });
   const files = await db.select().from(mediaItems).where(eq(mediaItems.siteId, id));
-  await Promise.all(files.map((f) => f.providerPath ? unlink(f.providerPath).catch(() => { }) : Promise.resolve()));
+  await Promise.all(files.map(async (f) => {
+    if (f.providerPath) {
+      await unlink(f.providerPath).catch(() => { });
+      await deleteImageCache(f.providerPath);
+    }
+  }));
   await db.delete(sites).where(eq(sites.id, id));
   return { ok: true };
 });
@@ -4001,6 +4116,7 @@ async function loadPlugins() {
 
 // ── SSR Wildcard Routes ────────────────────────────────────────────────────────
 app.get("/", async (req, reply) => {
+  reply.header("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=60");
   const cacheKey = `${req.siteId}:_homepage`;
   if (ssrCache.has(cacheKey)) {
     reply.type("text/html");
@@ -4036,6 +4152,7 @@ app.get("/", async (req, reply) => {
 });
 
 app.get("/blog", async (req, reply) => {
+  reply.header("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=60");
   const cacheKey = `${req.siteId}:_blog_list`;
   if (ssrCache.has(cacheKey)) {
     reply.type("text/html");
@@ -4060,6 +4177,7 @@ app.get("/blog", async (req, reply) => {
 });
 
 app.get<{ Params: { slug: string } }>("/blog/:slug", async (req, reply) => {
+  reply.header("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=60");
   const slug = req.params.slug.trim().toLowerCase();
   const cacheKey = `${req.siteId}:_blog:${slug}`;
   if (ssrCache.has(cacheKey)) {
@@ -4094,6 +4212,7 @@ app.get<{ Params: { slug: string } }>("/:slug", async (req, reply) => {
     return reply.status(404).send({ error: "Not found" });
   }
 
+  reply.header("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=60");
   const cacheKey = `${req.siteId}:${slug}`;
   if (ssrCache.has(cacheKey)) {
     reply.type("text/html");

@@ -14,3 +14,14 @@ export function slugify(title: string): string {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "") || "";
 }
+
+export function getOptimizedImageUrl(url: string | null | undefined, options?: { width?: number; quality?: number; format?: string }) {
+  if (!url) return "";
+  if (!url.startsWith("/uploads/")) return url;
+  const params = new URLSearchParams();
+  if (options?.width) params.set("w", String(options.width));
+  if (options?.quality) params.set("q", String(options.quality));
+  if (options?.format) params.set("f", options.format);
+  const queryString = params.toString();
+  return queryString ? `${url}?${queryString}` : url;
+}
