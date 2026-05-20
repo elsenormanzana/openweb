@@ -526,6 +526,7 @@ export const api = {
   },
   plugins: {
     list: () => request<Plugin[]>("/api/plugins"),
+    listActiveClient: () => request<Array<{ slug: string; hasClient: boolean }>>("/api/plugins/client-active"),
     upload: async (file: File): Promise<Plugin> => {
       const form = new FormData();
       form.append("file", file);

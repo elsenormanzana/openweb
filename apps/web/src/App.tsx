@@ -1,7 +1,10 @@
-import { Suspense, lazy, type ReactNode } from "react";
+import { Suspense, lazy, useEffect, type ReactNode } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/lib/auth";
 import { RequireAuth } from "@/components/RequireAuth";
+
+// Preloader dismiss — injected by SSR, exposed globally
+declare global { interface Window { __dismissPreloader?: () => void; } }
 
 const AdminLayout = lazy(() => import("@/pages/AdminLayout").then((m) => ({ default: m.AdminLayout })));
 const AdminIndex = lazy(() => import("@/pages/AdminIndex").then((m) => ({ default: m.AdminIndex })));
@@ -40,6 +43,13 @@ function RouteLoader({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
+  // Dismiss SSR preloader after first React mount
+  useEffect(() => {
+    if (typeof window.__dismissPreloader === "function") {
+      window.__dismissPreloader();
+    }
+  }, []);
+
   return (
     <AuthProvider>
       <BrowserRouter>

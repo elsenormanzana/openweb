@@ -1247,21 +1247,25 @@ function assembleHtml(
 </style>
 <script>
 (function() {
+  var dismissed = false;
   function fadeOutPreloader() {
-    const preloader = document.getElementById('openweb-preloader');
+    if (dismissed) return;
+    dismissed = true;
+    var preloader = document.getElementById('openweb-preloader');
     if (preloader) {
       preloader.style.opacity = '0';
       preloader.style.visibility = 'hidden';
-      setTimeout(function() {
-        preloader.remove();
-      }, 400);
+      setTimeout(function() { if (preloader.parentNode) preloader.parentNode.removeChild(preloader); }, 420);
     }
   }
+  // Expose so React App can call it after first mount
+  window.__dismissPreloader = fadeOutPreloader;
+  // Safety fallback: dismiss on load or after 4s
   if (document.readyState === 'complete') {
-    fadeOutPreloader();
+    setTimeout(fadeOutPreloader, 100);
   } else {
-    window.addEventListener('load', fadeOutPreloader);
-    setTimeout(fadeOutPreloader, 3000);
+    window.addEventListener('load', function() { setTimeout(fadeOutPreloader, 100); });
+    setTimeout(fadeOutPreloader, 4000);
   }
 })();
 </script>

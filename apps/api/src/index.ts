@@ -3812,6 +3812,16 @@ function resolvePluginExtractRoot(baseDir: string) {
   });
 }
 
+// Public endpoint — returns only enabled plugins that have a client script (no auth required)
+app.get("/api/plugins/client-active", async (req) => {
+  const rows = await db.select({ slug: plugins.slug, clientCode: plugins.clientCode, enabled: plugins.enabled })
+    .from(plugins)
+    .where(eq(plugins.siteId, req.siteId));
+  return rows
+    .filter((r) => r.enabled && r.clientCode && r.clientCode.trim().length > 0)
+    .map((r) => ({ slug: r.slug, hasClient: true }));
+});
+
 app.get("/api/plugins", { preHandler: requireAuth(["admin"]) }, async (req) => {
   const rows = await db.select().from(plugins).where(eq(plugins.siteId, req.siteId)).orderBy(asc(plugins.name));
   return Promise.all(rows.map(mapPluginRow));

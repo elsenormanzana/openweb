@@ -65,9 +65,8 @@ export function GlobalLayout({ children }: { children: React.ReactNode }) {
   // Inject enabled client plugins
   useEffect(() => {
     let scripts: HTMLScriptElement[] = [];
-    api.plugins.list().then((list) => {
+    api.plugins.listActiveClient().then((list) => {
       scripts = list
-        .filter((p) => p.enabled && p.hasClient)
         .map((p) => {
           const el = document.createElement("script");
           el.src = `/api/plugins/${p.slug}/client.js`;
