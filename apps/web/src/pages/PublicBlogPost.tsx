@@ -8,14 +8,29 @@ import { buildPageTitle } from "@/lib/seoTitle";
 
 export function PublicBlogPost() {
   const { slug } = useParams<{ slug: string }>();
-  const [post, setPost] = useState<BlogPost | null>(null);
-  const [seoConfig, setSeoConfig] = useState<SeoConfig>({});
+  const [post, setPost] = useState<BlogPost | null>(() => {
+    if (typeof window !== "undefined" && window.__INITIAL_BLOG_POST__) {
+      const initData = window.__INITIAL_BLOG_POST__;
+      if (initData && initData.slug === slug) {
+        return initData;
+      }
+    }
+    return null;
+  });
+  const [seoConfig, setSeoConfig] = useState<SeoConfig>(() => {
+    if (typeof window !== "undefined" && window.__INITIAL_SITE_SETTINGS__) {
+      return window.__INITIAL_SITE_SETTINGS__.seoConfig ?? {};
+    }
+    return {};
+  });
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!slug) return;
-    api.blog.public.getBySlug(slug).then(setPost).catch((e) => setError(e.message));
-    api.siteSettings.get().then((s) => setSeoConfig(s.seoConfig ?? {})).catch(() => {});
+    if (!post || post.slug !== slug) {
+      api.blog.public.getBySlug(slug).then(setPost).catch((e) => setError(e.message));
+      api.siteSettings.get().then((s) => setSeoConfig(s.seoConfig ?? {})).catch(() => {});
+    }
   }, [slug]);
 
   const pageTitle = post ? buildPageTitle({ title: post.title, seoTitle: null }, seoConfig) : "";

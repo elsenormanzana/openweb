@@ -7,8 +7,18 @@ import { buildPageTitle } from "@/lib/seoTitle";
 import { onDataChange } from "@/lib/dataEvents";
 
 export function PublicBlogList() {
-  const [posts, setPosts] = useState<BlogPost[]>([]);
-  const [seoConfig, setSeoConfig] = useState<SeoConfig>({});
+  const [posts, setPosts] = useState<BlogPost[]>(() => {
+    if (typeof window !== "undefined" && window.__INITIAL_BLOG_POSTS__) {
+      return window.__INITIAL_BLOG_POSTS__;
+    }
+    return [];
+  });
+  const [seoConfig, setSeoConfig] = useState<SeoConfig>(() => {
+    if (typeof window !== "undefined" && window.__INITIAL_SITE_SETTINGS__) {
+      return window.__INITIAL_SITE_SETTINGS__.seoConfig ?? {};
+    }
+    return {};
+  });
   const [query, setQuery] = useState("");
 
   useEffect(() => {
@@ -16,7 +26,11 @@ export function PublicBlogList() {
       api.blog.public.list().then(setPosts).catch(() => {});
       api.siteSettings.get().then((s) => setSeoConfig(s.seoConfig ?? {})).catch(() => {});
     };
-    load();
+
+    if (posts.length === 0) {
+      load();
+    }
+
     return onDataChange((event) => {
       if (event.path.startsWith("/api/blog/") || event.path.startsWith("/api/site-settings")) load();
     });

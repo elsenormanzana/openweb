@@ -9,8 +9,21 @@ import { onDataChange } from "@/lib/dataEvents";
 
 export function PublicPage() {
   const { slug } = useParams<{ slug: string }>();
-  const [page, setPage] = useState<Page | null | undefined>(undefined);
-  const [seoConfig, setSeoConfig] = useState<SeoConfig>({});
+  const [page, setPage] = useState<Page | null | undefined>(() => {
+    if (typeof window !== "undefined" && window.__INITIAL_PAGE_DATA__) {
+      const initData = window.__INITIAL_PAGE_DATA__;
+      if (initData && initData.slug === slug) {
+        return initData;
+      }
+    }
+    return undefined;
+  });
+  const [seoConfig, setSeoConfig] = useState<SeoConfig>(() => {
+    if (typeof window !== "undefined" && window.__INITIAL_SITE_SETTINGS__) {
+      return window.__INITIAL_SITE_SETTINGS__.seoConfig ?? {};
+    }
+    return {};
+  });
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -29,7 +42,11 @@ export function PublicPage() {
           else setError(e.message);
         });
     };
-    load();
+
+    if (page === undefined || page?.slug !== slug) {
+      load();
+    }
+
     return onDataChange((event) => {
       if (event.path.startsWith("/api/pages") || event.path.startsWith("/api/site-settings")) load();
     });

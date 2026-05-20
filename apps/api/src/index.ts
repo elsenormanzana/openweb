@@ -24,6 +24,48 @@ import { createRequire } from "node:module";
 import postgres from "postgres";
 import sharp from "sharp";
 import { hashPassword, verifyPassword, requireAuth, type JwtPayload } from "./auth.js";
+import { renderPageHtml, renderBlogListHtml, renderBlogPostHtml } from "./ssr.js";
+
+// ── SSR Cache and Invalidation ───────────────────────────────────────────────
+const ssrCache = new Map<string, string>();
+
+function clearSsrCache(siteId?: number) {
+  if (siteId) {
+    for (const key of ssrCache.keys()) {
+      if (key.startsWith(`${siteId}:`)) {
+        ssrCache.delete(key);
+      }
+    }
+  } else {
+    ssrCache.clear();
+  }
+}
+
+let cachedIndexTemplate: string | null = null;
+async function getIndexTemplate(): Promise<string> {
+  if (cachedIndexTemplate) return cachedIndexTemplate;
+  try {
+    const res = await fetch("http://web:80/index.html");
+    if (res.ok) {
+      cachedIndexTemplate = await res.text();
+      return cachedIndexTemplate;
+    }
+  } catch (e) {
+    app.log.error(e, "Failed to fetch index.html from web container, falling back to minimal template");
+  }
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OpenWeb</title>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>`;
+}
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -41,6 +83,12 @@ await app.register(fastifyRateLimit, {
 await app.register(jwt, {
   secret: process.env.JWT_SECRET ?? "CHANGE_ME",
   sign: { expiresIn: "24h" },
+});
+
+app.addHook("onResponse", async (request, reply) => {
+  if (["POST", "PUT", "DELETE", "PATCH"].includes(request.method) && request.url.startsWith("/api/")) {
+    clearSsrCache(request.siteId);
+  }
 });
 
 // Runtime compatibility patch: ensure latest pages column exists even if migration was missed.
@@ -3950,6 +3998,126 @@ async function loadPlugins() {
     }
   }
 }
+
+// ── SSR Wildcard Routes ────────────────────────────────────────────────────────
+app.get("/", async (req, reply) => {
+  const cacheKey = `${req.siteId}:_homepage`;
+  if (ssrCache.has(cacheKey)) {
+    reply.type("text/html");
+    return ssrCache.get(cacheKey)!;
+  }
+
+  const [settings] = await db.select().from(siteSettings).where(eq(siteSettings.siteId, req.siteId)).limit(1);
+  const activeSettings = settings || defaultSiteSettings();
+
+  const [page] = await db.select().from(pages)
+    .where(and(eq(pages.siteId, req.siteId), eq(pages.isHomepage, true)))
+    .limit(1);
+
+  if (!page) {
+    const [firstPage] = await db.select().from(pages).where(eq(pages.siteId, req.siteId)).limit(1);
+    if (!firstPage) {
+      reply.type("text/html");
+      return "Welcome to OpenWeb! Please configure a homepage or create a page in the admin panel.";
+    }
+    const template = await getIndexTemplate();
+    const html = renderPageHtml(firstPage, activeSettings, template, "/");
+    ssrCache.set(cacheKey, html);
+    reply.type("text/html");
+    return html;
+  }
+
+  const template = await getIndexTemplate();
+  const html = renderPageHtml(page, activeSettings, template, "/");
+  ssrCache.set(cacheKey, html);
+
+  reply.type("text/html");
+  return html;
+});
+
+app.get("/blog", async (req, reply) => {
+  const cacheKey = `${req.siteId}:_blog_list`;
+  if (ssrCache.has(cacheKey)) {
+    reply.type("text/html");
+    return ssrCache.get(cacheKey)!;
+  }
+
+  const [settings] = await db.select().from(siteSettings).where(eq(siteSettings.siteId, req.siteId)).limit(1);
+  const activeSettings = settings || defaultSiteSettings();
+
+  const rows = await db.select().from(blogPosts)
+    .where(and(eq(blogPosts.siteId, req.siteId), eq(blogPosts.status, "published")))
+    .orderBy(desc(blogPosts.datePublished), desc(blogPosts.createdAt));
+
+  const hydrated = await Promise.all(rows.map(async (post) => ({ ...post, ...(await attachBlogRelations(post.id, req.siteId)) })));
+
+  const template = await getIndexTemplate();
+  const html = renderBlogListHtml(hydrated, activeSettings, template, "/blog");
+  ssrCache.set(cacheKey, html);
+
+  reply.type("text/html");
+  return html;
+});
+
+app.get<{ Params: { slug: string } }>("/blog/:slug", async (req, reply) => {
+  const slug = req.params.slug.trim().toLowerCase();
+  const cacheKey = `${req.siteId}:_blog:${slug}`;
+  if (ssrCache.has(cacheKey)) {
+    reply.type("text/html");
+    return ssrCache.get(cacheKey)!;
+  }
+
+  const [settings] = await db.select().from(siteSettings).where(eq(siteSettings.siteId, req.siteId)).limit(1);
+  const activeSettings = settings || defaultSiteSettings();
+
+  const [post] = await db.select().from(blogPosts)
+    .where(and(eq(blogPosts.siteId, req.siteId), eq(blogPosts.slug, slug), eq(blogPosts.status, "published")))
+    .limit(1);
+
+  if (!post) {
+    return reply.status(404).send("Blog post not found");
+  }
+
+  const hydrated = { ...post, ...(await attachBlogRelations(post.id, req.siteId)) };
+
+  const template = await getIndexTemplate();
+  const html = renderBlogPostHtml(hydrated, activeSettings, template, `/blog/${slug}`);
+  ssrCache.set(cacheKey, html);
+
+  reply.type("text/html");
+  return html;
+});
+
+app.get<{ Params: { slug: string } }>("/:slug", async (req, reply) => {
+  const slug = req.params.slug.trim().toLowerCase();
+  if (slug.startsWith("api") || slug.startsWith("uploads") || slug === "health" || slug === "sitemap.xml" || slug === "robots.txt") {
+    return reply.status(404).send({ error: "Not found" });
+  }
+
+  const cacheKey = `${req.siteId}:${slug}`;
+  if (ssrCache.has(cacheKey)) {
+    reply.type("text/html");
+    return ssrCache.get(cacheKey)!;
+  }
+
+  const [settings] = await db.select().from(siteSettings).where(eq(siteSettings.siteId, req.siteId)).limit(1);
+  const activeSettings = settings || defaultSiteSettings();
+
+  const [page] = await db.select().from(pages)
+    .where(and(eq(pages.siteId, req.siteId), eq(pages.slug, slug)))
+    .limit(1);
+
+  if (!page) {
+    return reply.status(404).send("Page not found");
+  }
+
+  const template = await getIndexTemplate();
+  const html = renderPageHtml(page, activeSettings, template, `/${slug}`);
+  ssrCache.set(cacheKey, html);
+
+  reply.type("text/html");
+  return html;
+});
 
 await loadPlugins();
 startSslAutoRenewScheduler();

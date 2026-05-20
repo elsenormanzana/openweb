@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { SocialButtonsBlockProps, SocialConnectItem } from "@/lib/blocks";
 import { Field, SelectField, ColorField } from "./shared";
 import { Input } from "@/components/ui/input";
@@ -25,11 +24,6 @@ export function SocialButtonsForm({ props, onChange }: { props: SocialButtonsBlo
 
   const items = props.items || [];
 
-  const [isAdding, setIsAdding] = useState(false);
-  const [newPlatform, setNewPlatform] = useState("Google");
-  const [newUsername, setNewUsername] = useState("");
-  const [newLabel, setNewLabel] = useState("Google");
-
   const updateItem = (index: number, updates: Partial<SocialConnectItem>) => {
     const next = [...items];
     next[index] = { ...next[index], ...updates };
@@ -49,25 +43,36 @@ export function SocialButtonsForm({ props, onChange }: { props: SocialButtonsBlo
     set("items", next);
   };
 
-  const handlePlatformChange = (p: string) => {
-    setNewPlatform(p);
-    const found = PLATFORMS.find((item) => item.value === p);
-    if (found) {
-      setNewLabel(found.label);
-    }
-  };
+  const handleAddClick = () => {
+    const platformInput = window.prompt(
+      "Which social media platform would you like to add?\n\n" +
+      "Options:\n" +
+      "Google, Facebook, Instagram, X, GitHub, LinkedIn, YouTube, Discord, TikTok, WhatsApp, Reddit, Pinterest, or Custom"
+    );
+    if (platformInput === null) return;
+    
+    const inputClean = platformInput.trim();
+    if (!inputClean) return;
 
-  const handleConfirmAdd = () => {
-    const found = PLATFORMS.find((item) => item.value === newPlatform);
+    // Resolve matching platform option
+    const found = PLATFORMS.find(
+      (p) => p.value.toLowerCase() === inputClean.toLowerCase() || 
+             p.label.toLowerCase() === inputClean.toLowerCase()
+    );
+    const platform = found ? found.value : "Custom";
     const defaultColor = found ? found.defaultColor : "#6366F1";
     const defaultIcon = found ? found.defaultIcon : "Globe";
+    const label = found ? found.label : inputClean;
 
+    const usernameInput = window.prompt(`Enter your username/handle or full link for ${label}:`);
+    if (usernameInput === null) return;
+    
+    const u = usernameInput.trim();
     let url = "";
-    const u = newUsername.trim();
     if (u.startsWith("http://") || u.startsWith("https://")) {
       url = u;
     } else {
-      switch (newPlatform) {
+      switch (platform) {
         case "Google": url = u ? `https://google.com/search?q=${encodeURIComponent(u)}` : "https://google.com"; break;
         case "Facebook": url = u ? `https://facebook.com/${encodeURIComponent(u)}` : "https://facebook.com"; break;
         case "Instagram": url = u ? `https://instagram.com/${encodeURIComponent(u)}` : "https://instagram.com"; break;
@@ -86,15 +91,13 @@ export function SocialButtonsForm({ props, onChange }: { props: SocialButtonsBlo
 
     const next = [...items, {
       id: `soc-btn-${Date.now()}`,
-      platform: newPlatform,
-      label: newLabel || newPlatform,
+      platform,
+      label,
       href: url,
       icon: defaultIcon,
       color: defaultColor,
     }];
     set("items", next);
-    setIsAdding(false);
-    setNewUsername("");
   };
 
   const removeItem = (index: number) => {
@@ -154,34 +157,10 @@ export function SocialButtonsForm({ props, onChange }: { props: SocialButtonsBlo
       <div className="space-y-3">
         <div className="flex items-center justify-between font-semibold text-muted-foreground">
           <span className="flex items-center gap-1.5"><Share2 className="size-4 text-blue-500" /> Social Buttons ({items.length})</span>
-          {!isAdding && (
-            <button type="button" onClick={() => setIsAdding(true)} className="flex items-center gap-1 px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded font-medium transition shadow-sm">
-              <Plus className="size-3.5" /> Add Button
-            </button>
-          )}
+          <button type="button" onClick={handleAddClick} className="flex items-center gap-1 px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded font-medium transition shadow-sm">
+            <Plus className="size-3.5" /> Add Button
+          </button>
         </div>
-
-        {isAdding && (
-          <div className="p-3 bg-muted/30 rounded-lg border border-blue-500/50 space-y-3 animate-in fade-in-50 duration-200">
-            <div className="font-semibold text-foreground flex items-center justify-between border-b border-border pb-2">
-              <span>Add New Social Button</span>
-              <button type="button" onClick={() => setIsAdding(false)} className="text-muted-foreground hover:text-foreground text-xs">Cancel</button>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <SelectField label="Platform" value={newPlatform} onChange={handlePlatformChange} options={PLATFORMS.map((p) => ({ value: p.value, label: p.label }))} />
-              <Field label="Display Label">
-                <Input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="e.g. Follow us" />
-              </Field>
-            </div>
-            <Field label="Username / Handle / URL">
-              <Input value={newUsername} onChange={(e) => setNewUsername(e.target.value)} placeholder="e.g. openweb (or full https://...)" />
-            </Field>
-            <div className="flex justify-end gap-2 pt-1">
-              <button type="button" onClick={() => setIsAdding(false)} className="px-3 py-1.5 bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground rounded font-medium transition">Cancel</button>
-              <button type="button" onClick={handleConfirmAdd} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded font-medium transition shadow-sm">Confirm & Add</button>
-            </div>
-          </div>
-        )}
 
         <div className="space-y-3 pl-1">
           {items.map((item, index) => (

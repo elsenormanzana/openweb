@@ -8,8 +8,20 @@ import { buildHomepageTitle } from "@/lib/seoTitle";
 import { onDataChange } from "@/lib/dataEvents";
 
 export function PublicHomePage() {
-  const [page, setPage] = useState<Page | null | undefined>(undefined);
-  const [seoConfig, setSeoConfig] = useState<SeoConfig>({});
+  const [page, setPage] = useState<Page | null | undefined>(() => {
+    if (typeof window !== "undefined" && window.__INITIAL_PAGE_DATA__) {
+      if (window.__INITIAL_PAGE_DATA__.isHomepage) {
+        return window.__INITIAL_PAGE_DATA__;
+      }
+    }
+    return undefined;
+  });
+  const [seoConfig, setSeoConfig] = useState<SeoConfig>(() => {
+    if (typeof window !== "undefined" && window.__INITIAL_SITE_SETTINGS__) {
+      return window.__INITIAL_SITE_SETTINGS__.seoConfig ?? {};
+    }
+    return {};
+  });
   const [hasPublishedBlogs, setHasPublishedBlogs] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,7 +35,13 @@ export function PublicHomePage() {
         .catch((e) => setError(e.message));
       api.blog.public.list().then((posts) => setHasPublishedBlogs(posts.length > 0)).catch(() => {});
     };
-    load();
+
+    if (page === undefined) {
+      load();
+    } else {
+      api.blog.public.list().then((posts) => setHasPublishedBlogs(posts.length > 0)).catch(() => {});
+    }
+
     return onDataChange((event) => {
       if (event.path.startsWith("/api/pages") || event.path.startsWith("/api/homepage") || event.path.startsWith("/api/blog/") || event.path.startsWith("/api/site-settings")) {
         load();
