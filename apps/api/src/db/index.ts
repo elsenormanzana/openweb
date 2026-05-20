@@ -20,6 +20,13 @@ export function getDatabaseUrl() {
   throw new Error("Database configuration missing. Set DATABASE_URL or POSTGRES_HOST/POSTGRES_PORT/POSTGRES_DB/POSTGRES_USER/POSTGRES_PASSWORD.");
 }
 
-const connection = postgres(getDatabaseUrl());
+const connection = postgres(getDatabaseUrl(), {
+  // Connection pool tuning
+  max: 20,                // max simultaneous connections (default is 10)
+  idle_timeout: 20,       // close idle connections after 20s
+  connect_timeout: 5,     // fail fast if DB unreachable
+  max_lifetime: 1800,     // recycle connections every 30min to avoid stale sockets
+  prepare: false,         // disable prepared statements — required when running behind PgBouncer in transaction mode
+});
 export const db = drizzle(connection, { schema });
 export * from "./schema.js";

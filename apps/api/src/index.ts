@@ -44,15 +44,19 @@ function clearSsrCache(siteId?: number) {
 let cachedIndexTemplate: string | null = null;
 async function getIndexTemplate(): Promise<string> {
   if (cachedIndexTemplate) return cachedIndexTemplate;
-  try {
-    const res = await fetch("http://web:80/index.html");
-    if (res.ok) {
-      cachedIndexTemplate = await res.text();
-      return cachedIndexTemplate;
+  // Retry up to 5 times with backoff — the web container may not be ready yet on cold start
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const res = await fetch("http://web:80/index.html", { signal: AbortSignal.timeout(3000) });
+      if (res.ok) {
+        cachedIndexTemplate = await res.text();
+        return cachedIndexTemplate;
+      }
+    } catch (_e) {
+      if (attempt < 4) await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
     }
-  } catch (e) {
-    app.log.error(e, "Failed to fetch index.html from web container, falling back to minimal template");
   }
+  app.log.error("Failed to fetch index.html from web container after retries, using minimal fallback");
   return `<!DOCTYPE html>
 <html lang="en">
   <head>
@@ -3684,7 +3688,7 @@ type PluginCronJob = {
 const PLUGINS_DIR = join(UPLOADS_DIR, "plugins");
 const pluginCronJobs: PluginCronJob[] = [];
 let pluginCronTimer: NodeJS.Timeout | null = null;
-const pluginSql = postgres(getDatabaseUrl());
+const pluginSql = postgres(getDatabaseUrl(), { max: 5, idle_timeout: 20, prepare: false });
 
 function ensurePluginsDir() {
   if (!existsSync(PLUGINS_DIR)) mkdirSync(PLUGINS_DIR, { recursive: true });
@@ -4133,12 +4137,14 @@ app.get("/", async (req, reply) => {
     return ssrCache.get(cacheKey)!;
   }
 
-  const [settings] = await db.select().from(siteSettings).where(eq(siteSettings.siteId, req.siteId)).limit(1);
-  const activeSettings = settings || defaultSiteSettings();
-
-  const [page] = await db.select().from(pages)
-    .where(and(eq(pages.siteId, req.siteId), eq(pages.isHomepage, true)))
-    .limit(1);
+  // Fetch settings, page, and template all in parallel
+  const [settingsRows, pageRows, template] = await Promise.all([
+    db.select().from(siteSettings).where(eq(siteSettings.siteId, req.siteId)).limit(1),
+    db.select().from(pages).where(and(eq(pages.siteId, req.siteId), eq(pages.isHomepage, true))).limit(1),
+    getIndexTemplate(),
+  ]);
+  const activeSettings = settingsRows[0] || defaultSiteSettings();
+  let page = pageRows[0];
 
   if (!page) {
     const [firstPage] = await db.select().from(pages).where(eq(pages.siteId, req.siteId)).limit(1);
@@ -4146,17 +4152,11 @@ app.get("/", async (req, reply) => {
       reply.type("text/html");
       return "Welcome to OpenWeb! Please configure a homepage or create a page in the admin panel.";
     }
-    const template = await getIndexTemplate();
-    const html = renderPageHtml(firstPage, activeSettings, template, "/");
-    ssrCache.set(cacheKey, html);
-    reply.type("text/html");
-    return html;
+    page = firstPage;
   }
 
-  const template = await getIndexTemplate();
   const html = renderPageHtml(page, activeSettings, template, "/");
   ssrCache.set(cacheKey, html);
-
   reply.type("text/html");
   return html;
 });
@@ -4169,19 +4169,19 @@ app.get("/blog", async (req, reply) => {
     return ssrCache.get(cacheKey)!;
   }
 
-  const [settings] = await db.select().from(siteSettings).where(eq(siteSettings.siteId, req.siteId)).limit(1);
-  const activeSettings = settings || defaultSiteSettings();
-
-  const rows = await db.select().from(blogPosts)
-    .where(and(eq(blogPosts.siteId, req.siteId), eq(blogPosts.status, "published")))
-    .orderBy(desc(blogPosts.datePublished), desc(blogPosts.createdAt));
-
+  // Fetch settings, posts, and template all in parallel
+  const [settingsRows, rows, template] = await Promise.all([
+    db.select().from(siteSettings).where(eq(siteSettings.siteId, req.siteId)).limit(1),
+    db.select().from(blogPosts)
+      .where(and(eq(blogPosts.siteId, req.siteId), eq(blogPosts.status, "published")))
+      .orderBy(desc(blogPosts.datePublished), desc(blogPosts.createdAt)),
+    getIndexTemplate(),
+  ]);
+  const activeSettings = settingsRows[0] || defaultSiteSettings();
   const hydrated = await Promise.all(rows.map(async (post) => ({ ...post, ...(await attachBlogRelations(post.id, req.siteId)) })));
 
-  const template = await getIndexTemplate();
   const html = renderBlogListHtml(hydrated, activeSettings, template, "/blog");
   ssrCache.set(cacheKey, html);
-
   reply.type("text/html");
   return html;
 });
@@ -4195,23 +4195,24 @@ app.get<{ Params: { slug: string } }>("/blog/:slug", async (req, reply) => {
     return ssrCache.get(cacheKey)!;
   }
 
-  const [settings] = await db.select().from(siteSettings).where(eq(siteSettings.siteId, req.siteId)).limit(1);
-  const activeSettings = settings || defaultSiteSettings();
-
-  const [post] = await db.select().from(blogPosts)
-    .where(and(eq(blogPosts.siteId, req.siteId), eq(blogPosts.slug, slug), eq(blogPosts.status, "published")))
-    .limit(1);
+  // Fetch settings, post, and template all in parallel
+  const [settingsRows, postRows, template] = await Promise.all([
+    db.select().from(siteSettings).where(eq(siteSettings.siteId, req.siteId)).limit(1),
+    db.select().from(blogPosts)
+      .where(and(eq(blogPosts.siteId, req.siteId), eq(blogPosts.slug, slug), eq(blogPosts.status, "published")))
+      .limit(1),
+    getIndexTemplate(),
+  ]);
+  const activeSettings = settingsRows[0] || defaultSiteSettings();
+  const post = postRows[0];
 
   if (!post) {
     return reply.status(404).send("Blog post not found");
   }
 
   const hydrated = { ...post, ...(await attachBlogRelations(post.id, req.siteId)) };
-
-  const template = await getIndexTemplate();
   const html = renderBlogPostHtml(hydrated, activeSettings, template, `/blog/${slug}`);
   ssrCache.set(cacheKey, html);
-
   reply.type("text/html");
   return html;
 });
@@ -4229,21 +4230,21 @@ app.get<{ Params: { slug: string } }>("/:slug", async (req, reply) => {
     return ssrCache.get(cacheKey)!;
   }
 
-  const [settings] = await db.select().from(siteSettings).where(eq(siteSettings.siteId, req.siteId)).limit(1);
-  const activeSettings = settings || defaultSiteSettings();
-
-  const [page] = await db.select().from(pages)
-    .where(and(eq(pages.siteId, req.siteId), eq(pages.slug, slug)))
-    .limit(1);
+  // Fetch settings, page, and template all in parallel
+  const [settingsRows, pageRows, template] = await Promise.all([
+    db.select().from(siteSettings).where(eq(siteSettings.siteId, req.siteId)).limit(1),
+    db.select().from(pages).where(and(eq(pages.siteId, req.siteId), eq(pages.slug, slug))).limit(1),
+    getIndexTemplate(),
+  ]);
+  const activeSettings = settingsRows[0] || defaultSiteSettings();
+  const page = pageRows[0];
 
   if (!page) {
     return reply.status(404).send("Page not found");
   }
 
-  const template = await getIndexTemplate();
   const html = renderPageHtml(page, activeSettings, template, `/${slug}`);
   ssrCache.set(cacheKey, html);
-
   reply.type("text/html");
   return html;
 });
@@ -4253,3 +4254,49 @@ startSslAutoRenewScheduler();
 
 const port = Number(process.env.PORT) || 3000;
 await app.listen({ port, host: "0.0.0.0" });
+
+// ── Pre-warm SSR cache on startup ─────────────────────────────────────────────
+// Renders all public pages into memory immediately so the first visitor never
+// waits for a cold DB query + HTML render. Runs in the background.
+(async () => {
+  try {
+    // Small delay to let web container finish starting up
+    await new Promise((r) => setTimeout(r, 2000));
+    const template = await getIndexTemplate();
+    const allSites = await db.select().from(sites);
+    for (const site of allSites) {
+      try {
+        const [settingsRow] = await db.select().from(siteSettings).where(eq(siteSettings.siteId, site.id)).limit(1);
+        const activeSettings = settingsRow || defaultSiteSettings();
+
+        // Pre-render homepage
+        const [homePage] = await db.select().from(pages)
+          .where(and(eq(pages.siteId, site.id), eq(pages.isHomepage, true))).limit(1);
+        if (homePage) {
+          const cacheKey = `${site.id}:_homepage`;
+          if (!ssrCache.has(cacheKey)) {
+            const html = renderPageHtml(homePage, activeSettings, template, "/");
+            ssrCache.set(cacheKey, html);
+            app.log.info(`[prewarm] Cached homepage for site ${site.id}`);
+          }
+        }
+
+        // Pre-render all other pages
+        const allPages = await db.select().from(pages).where(eq(pages.siteId, site.id));
+        for (const page of allPages) {
+          if (page.isHomepage) continue;
+          const cacheKey = `${site.id}:${page.slug}`;
+          if (!ssrCache.has(cacheKey)) {
+            const html = renderPageHtml(page, activeSettings, template, `/${page.slug}`);
+            ssrCache.set(cacheKey, html);
+          }
+        }
+        app.log.info(`[prewarm] SSR cache ready for site ${site.id} (${allPages.length} pages)`);
+      } catch (e) {
+        app.log.warn(`[prewarm] Failed to pre-warm site ${site.id}: ${e}`);
+      }
+    }
+  } catch (e) {
+    app.log.warn(`[prewarm] SSR pre-warm skipped: ${e}`);
+  }
+})();

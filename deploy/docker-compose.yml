@@ -27,7 +27,8 @@ services:
       dockerfile: apps/api/Dockerfile
     environment:
       PORT: 3000
-      POSTGRES_HOST: postgres
+      # Connect through PgBouncer instead of directly to postgres
+      POSTGRES_HOST: pgbouncer
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-openweb}
       POSTGRES_USER: ${POSTGRES_USER:-openweb}
@@ -44,7 +45,7 @@ services:
       NGINX_VALIDATE_COMMAND: docker ps -q --filter label=com.docker.compose.service=proxy | head -n1 | xargs -r -I{} docker exec {} nginx -t
       NGINX_RELOAD_COMMAND: docker ps -q --filter label=com.docker.compose.service=proxy | head -n1 | xargs -r -I{} docker exec {} nginx -s reload
     depends_on:
-      - postgres
+      - pgbouncer
     volumes:
       - uploads_data:/app/apps/api/uploads
       - backups_data:/app/apps/api/backups
@@ -52,6 +53,32 @@ services:
       - letsencrypt_www:/var/www/certbot
       - letsencrypt_etc:/etc/letsencrypt
       - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+  # ── PgBouncer: internal connection pooler ─────────────────────────────────────
+  # Sits between the API and PostgreSQL. Not exposed to the host.
+  # Uses transaction pooling — maximum throughput with minimum connections to PG.
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-openweb}
+      DB_USER: ${POSTGRES_USER:-openweb}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-openweb}
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 200
+      DEFAULT_POOL_SIZE: 20
+      MIN_POOL_SIZE: 5
+      RESERVE_POOL_SIZE: 5
+      RESERVE_POOL_TIMEOUT: 2
+      SERVER_IDLE_TIMEOUT: 300
+      CLIENT_IDLE_TIMEOUT: 60
+      LOG_CONNECTIONS: 0
+      LOG_DISCONNECTIONS: 0
+      AUTH_TYPE: scram-sha-256
+    depends_on:
+      - postgres
     restart: unless-stopped
 
   certbot:
