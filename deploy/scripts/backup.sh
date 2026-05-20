@@ -22,9 +22,8 @@ git -C "$ROOT_DIR" rev-parse HEAD > "$DEST/git-commit.txt"
 # Postgres SQL backup
 API_CONTAINER="$(docker compose -f "$COMPOSE_FILE" ps -q api)"
 POSTGRES_CONTAINER="$(docker compose -f "$COMPOSE_FILE" ps -q postgres)"
-REDIS_CONTAINER="$(docker compose -f "$COMPOSE_FILE" ps -q redis)"
 
-if [ -z "$POSTGRES_CONTAINER" ] || [ -z "$REDIS_CONTAINER" ] || [ -z "$API_CONTAINER" ]; then
+if [ -z "$POSTGRES_CONTAINER" ] || [ -z "$API_CONTAINER" ]; then
   echo "[backup] required services are not running. start stack first with docker compose up -d"
   exit 1
 fi
@@ -33,12 +32,6 @@ docker compose -f "$COMPOSE_FILE" exec -T postgres pg_dump -U "$DB_USER" -d "$DB
 
 # Uploads snapshot
 docker cp "$API_CONTAINER":/app/apps/api/uploads "$DEST/uploads"
-
-# Redis snapshot
-# Trigger snapshot and copy the generated dump file.
-docker compose -f "$COMPOSE_FILE" exec -T redis redis-cli BGSAVE >/dev/null
-sleep 2
-docker cp "$REDIS_CONTAINER":/data/dump.rdb "$DEST/redis.dump.rdb"
 
 cat > "$DEST/metadata.txt" <<META
 timestamp=$TS

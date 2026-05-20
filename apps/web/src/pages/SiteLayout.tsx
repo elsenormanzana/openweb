@@ -81,6 +81,9 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
 export function SiteLayout() {
   const [navType, setNavType] = useState("navbar");
   const [navVariant, setNavVariant] = useState<NavVariant>("minimal");
+  const [navLinkStyle, setNavLinkStyle] = useState<"classic" | "underline" | "pill" | "art-gradient">("classic");
+  const [dropdownStyle, setDropdownStyle] = useState<"minimal" | "modern-card" | "gradient-border" | "glassmorphic">("minimal");
+  const [dropdownAnimation, setDropdownAnimation] = useState<"fade" | "slide-up" | "scale-up" | "fade-slide">("fade");
   const [logoText, setLogoText] = useState("Logo");
   const [logoImage, setLogoImage] = useState("");
   const [logoHref, setLogoHref] = useState("/");
@@ -110,6 +113,9 @@ export function SiteLayout() {
       .then((s) => {
         setNavType(s.navType ?? "navbar");
         setNavVariant((s.navConfig?.navVariant as NavVariant) ?? "minimal");
+        setNavLinkStyle((s.navConfig?.navLinkStyle as any) ?? "classic");
+        setDropdownStyle((s.navConfig?.dropdownStyle as any) ?? "minimal");
+        setDropdownAnimation((s.navConfig?.dropdownAnimation as any) ?? "fade");
         setLogoText(s.navConfig?.logoText ?? "Logo");
         setLogoImage(s.navConfig?.logoImage ?? "");
         setLogoHref(s.navConfig?.logoHref ?? "/");
@@ -140,10 +146,10 @@ export function SiteLayout() {
       .update({
         navType,
         navConfig: {
-        logoText, logoImage, logoHref, navLinks, navVariant, headerStyle, headerBg, headerTextColor,
-        ctaPrimaryText, ctaPrimaryHref, ctaSecondaryText, ctaSecondaryHref,
-        heroBadge, heroHeadline, heroDescription, palette,
-      },
+          logoText, logoImage, logoHref, navLinks, navVariant, navLinkStyle, dropdownStyle, dropdownAnimation, headerStyle, headerBg, headerTextColor,
+          ctaPrimaryText, ctaPrimaryHref, ctaSecondaryText, ctaSecondaryHref,
+          heroBadge, heroHeadline, heroDescription, palette,
+        },
         footerConfig: { copyright, links: footerLinks, columns: footerColumns },
       })
       .then(() => { setSaved(true); setTimeout(() => setSaved(false), 2000); })
@@ -383,6 +389,42 @@ export function SiteLayout() {
               <option value="elevated">Elevated — floating card</option>
               <option value="saas-cta">SaaS CTA — hero with dual buttons</option>
               <option value="saas-email">SaaS Email — hero with email capture</option>
+            </select>
+          </Field>
+          <Field label="Navbar Link Art Style">
+            <select
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={navLinkStyle}
+              onChange={(e) => setNavLinkStyle(e.target.value as any)}
+            >
+              <option value="classic">Classic — Minimal color transition</option>
+              <option value="underline">Underline — Animated brand bottom border</option>
+              <option value="pill">Pill — Premium translucent chip</option>
+              <option value="art-gradient">Art Gradient — Neon glow gradient text & underline</option>
+            </select>
+          </Field>
+          <Field label="Dropdown Panel Design Style">
+            <select
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={dropdownStyle}
+              onChange={(e) => setDropdownStyle(e.target.value as any)}
+            >
+              <option value="minimal">Minimal — Clean flat container</option>
+              <option value="modern-card">Modern Card — Premium padded layout with gradient accent</option>
+              <option value="gradient-border">Gradient Border — Neon glow tinted card boundaries</option>
+              <option value="glassmorphic">Glassmorphism — Frosted glass texture with high blur</option>
+            </select>
+          </Field>
+          <Field label="Dropdown Entrance Animation">
+            <select
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={dropdownAnimation}
+              onChange={(e) => setDropdownAnimation(e.target.value as any)}
+            >
+              <option value="fade">Fade — Smooth transparency transition</option>
+              <option value="slide-up">Slide Up — Modern translation upwards</option>
+              <option value="scale-up">Scale Up — Cinematic zoom effect</option>
+              <option value="fade-slide">Fade & Slide — Combined cinematic reveal</option>
             </select>
           </Field>
           <div className="grid grid-cols-2 gap-3">

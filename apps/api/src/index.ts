@@ -1,8 +1,9 @@
 import "dotenv/config";
 import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
+import fastifyRateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
-import { db } from "./db/index.js";
+import { db, getDatabaseUrl } from "./db/index.js";
 import { asc, desc, eq, ne, and, isNull, sql } from "drizzle-orm";
 import {
   pages, themePacks, siteSettings, storageConfig, mediaItems, sites, users, plugins,
@@ -30,9 +31,13 @@ declare module "fastify" {
   }
 }
 
-const app = Fastify({ logger: true });
+const app = Fastify({ logger: true, bodyLimit: 104857600 });
 
 await app.register(cors, { origin: true });
+await app.register(fastifyRateLimit, {
+  max: 100,
+  timeWindow: '1 minute'
+});
 await app.register(jwt, {
   secret: process.env.JWT_SECRET ?? "CHANGE_ME",
   sign: { expiresIn: "24h" },
@@ -59,9 +64,98 @@ await db.execute(sql.raw(`
   WHERE "auth_provider" IS NOT NULL AND "auth_provider_id" IS NOT NULL
 `));
 
+// ── CRM deep-relational schema patches ────────────────────────────────────────
+
+await db.execute(sql.raw(`ALTER TABLE "crm_channels" ADD COLUMN IF NOT EXISTS "channel_type" text NOT NULL DEFAULT 'custom'`));
+await db.execute(sql.raw(`ALTER TABLE "crm_leads" ADD COLUMN IF NOT EXISTS "archived" boolean NOT NULL DEFAULT false`));
+await db.execute(sql.raw(`ALTER TABLE "crm_leads" ADD COLUMN IF NOT EXISTS "tags" text NOT NULL DEFAULT '[]'`));
+await db.execute(sql.raw(`ALTER TABLE "crm_leads" ADD COLUMN IF NOT EXISTS "custom_fields" text NOT NULL DEFAULT '{}'`));
+await db.execute(sql.raw(`ALTER TABLE "crm_leads" ADD COLUMN IF NOT EXISTS "score" integer NOT NULL DEFAULT 0`));
+await db.execute(sql.raw(`
+  CREATE TABLE IF NOT EXISTS "crm_lead_activities" (
+    "id" serial PRIMARY KEY,
+    "lead_id" integer NOT NULL REFERENCES "crm_leads"("id") ON DELETE CASCADE,
+    "site_id" integer NOT NULL,
+    "type" text NOT NULL DEFAULT 'note',
+    "content" text,
+    "created_by" integer REFERENCES "users"("id") ON DELETE SET NULL,
+    "created_at" timestamp DEFAULT now() NOT NULL
+  )
+`));
+
+await db.execute(sql.raw(`
+  CREATE TABLE IF NOT EXISTS "crm_channels" (
+    "id" serial PRIMARY KEY,
+    "site_id" integer NOT NULL,
+    "name" text NOT NULL,
+    "slug" text NOT NULL,
+    "description" text,
+    "is_active" boolean NOT NULL DEFAULT true,
+    "channel_type" text NOT NULL DEFAULT 'custom',
+    "created_at" timestamp NOT NULL DEFAULT now(),
+    "updated_at" timestamp NOT NULL DEFAULT now()
+  )
+`));
+
+await db.execute(sql.raw(`
+  CREATE TABLE IF NOT EXISTS "crm_leads" (
+    "id" serial PRIMARY KEY,
+    "site_id" integer NOT NULL,
+    "form_id" integer,
+    "channel_id" integer,
+    "source" text NOT NULL DEFAULT 'custom',
+    "status" text NOT NULL DEFAULT 'new',
+    "name" text,
+    "email" text,
+    "phone" text,
+    "company" text,
+    "notes" text,
+    "payload" text NOT NULL DEFAULT '{}',
+    "archived" boolean NOT NULL DEFAULT false,
+    "tags" text NOT NULL DEFAULT '[]',
+    "custom_fields" text NOT NULL DEFAULT '{}',
+    "score" integer NOT NULL DEFAULT 0,
+    "created_at" timestamp NOT NULL DEFAULT now(),
+    "updated_at" timestamp NOT NULL DEFAULT now()
+  )
+`));
+
+await db.execute(sql.raw(`
+  CREATE TABLE IF NOT EXISTS "ssl_server_configs" (
+    "id" serial PRIMARY KEY,
+    "site_id" integer NOT NULL REFERENCES "sites"("id") ON DELETE CASCADE,
+    "host" text NOT NULL,
+    "enabled" boolean NOT NULL DEFAULT false,
+    "created_at" timestamp NOT NULL DEFAULT now(),
+    "updated_at" timestamp NOT NULL DEFAULT now(),
+    UNIQUE ("site_id")
+  )
+`));
+
+
+
 // ── Site detection hook ────────────────────────────────────────────────────────
 
 app.addHook("onRequest", async (req) => {
+  const allSites = await db.select().from(sites);
+  const host = req.hostname.toLowerCase();
+
+  // 1. Determine natural site ID based on domain or subdomain
+  let naturalSiteId = allSites.find((s) => s.isDefault)?.id ?? 1;
+  const byDomain = allSites.find((s) => s.domain?.toLowerCase() === host);
+  const sub = host.split(".")[0];
+  const bySub = allSites.find((s) => s.subDomain?.toLowerCase() === sub);
+
+  if (byDomain) {
+    naturalSiteId = byDomain.id;
+  } else if (bySub) {
+    naturalSiteId = bySub.id;
+  }
+
+  // 2. (Removed) Nginx cache mapping
+
+  // 3. Set the context site ID, applying the X-Site-ID header override if present
+  req.siteId = naturalSiteId;
   const headerSite = req.headers["x-site-id"];
   const siteHeaderRaw = Array.isArray(headerSite) ? headerSite[0] : headerSite;
   const siteFromHeader = Number(siteHeaderRaw);
@@ -69,17 +163,8 @@ app.addHook("onRequest", async (req) => {
     const [siteFromId] = await db.select().from(sites).where(eq(sites.id, siteFromHeader)).limit(1);
     if (siteFromId) {
       req.siteId = siteFromHeader;
-      return;
     }
   }
-  const allSites = await db.select().from(sites);
-  const host = req.hostname.toLowerCase();
-  const byDomain = allSites.find((s) => s.domain?.toLowerCase() === host);
-  if (byDomain) { req.siteId = byDomain.id; return; }
-  const sub = host.split(".")[0];
-  const bySub = allSites.find((s) => s.subDomain?.toLowerCase() === sub);
-  if (bySub) { req.siteId = bySub.id; return; }
-  req.siteId = allSites.find((s) => s.isDefault)?.id ?? 1;
 });
 
 app.get("/health", async () => ({ ok: true }));
@@ -91,7 +176,14 @@ app.get("/api/setup/needed", async () => {
   return { needed: !user };
 });
 
-app.post("/api/setup", async (req, reply) => {
+app.post("/api/setup", {
+  config: {
+    rateLimit: {
+      max: 10,
+      timeWindow: '1 minute'
+    }
+  }
+}, async (req, reply) => {
   const [existing] = await db.select().from(users).limit(1);
   if (existing) return reply.status(400).send({ error: "Setup already complete" });
   const body = req.body as { email: string; password: string };
@@ -109,7 +201,14 @@ app.post("/api/setup", async (req, reply) => {
   return { token, user: { id: user.id, email: user.email, role: user.role, siteId: user.siteId } };
 });
 
-app.post("/api/auth/login", async (req, reply) => {
+app.post("/api/auth/login", {
+  config: {
+    rateLimit: {
+      max: 10,
+      timeWindow: '1 minute'
+    }
+  }
+}, async (req, reply) => {
   const body = req.body as { email: string; password: string };
   if (!body.email?.trim() || !body.password?.trim()) {
     return reply.status(400).send({ error: "email and password required" });
@@ -444,13 +543,14 @@ app.put("/api/homepage", { preHandler: requireAuth(["admin", "page_developer"]) 
 // ── Pages CRUD ─────────────────────────────────────────────────────────────────
 
 app.get("/api/pages", async (req) => {
-  return db.select().from(pages)
+  const rows = await db.select().from(pages)
     .where(eq(pages.siteId, req.siteId))
     .orderBy(desc(pages.updatedAt));
+  return rows;
 });
 
 app.get<{ Params: { slug: string } }>("/api/pages/by-slug/:slug", async (req, reply) => {
-  const slug = req.params.slug;
+  const slug = req.params.slug.trim().toLowerCase();
   const [row] = await db.select().from(pages)
     .where(and(eq(pages.siteId, req.siteId), eq(pages.slug, slug)))
     .limit(1);
@@ -468,6 +568,40 @@ app.get<{ Params: { id: string } }>("/api/pages/:id", async (req, reply) => {
   return row;
 });
 
+async function validatePageContentNativeFormLinks(siteId: number, content: string | undefined) {
+  if (content == null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    // legacy HTML content
+    return null;
+  }
+  if (!Array.isArray(parsed)) return null;
+
+  const blocks = parsed as Array<{ type?: unknown; props?: { formSlug?: unknown; formSource?: unknown } }>;
+  const contactBlocks = blocks.filter((b) => b?.type === "contact");
+  if (contactBlocks.length === 0) return null;
+
+  const seen = new Set<string>();
+  for (const block of contactBlocks) {
+    if (block.props?.formSource === "google") continue;
+    const formSlug = typeof block.props?.formSlug === "string" ? block.props.formSlug.trim() : "";
+    if (!formSlug) {
+      return "Contact blocks using native forms must be linked to a native active form";
+    }
+    if (seen.has(formSlug)) continue;
+    seen.add(formSlug);
+    const [form] = await db.select().from(forms)
+      .where(and(eq(forms.siteId, siteId), eq(forms.slug, formSlug), eq(forms.status, "active")))
+      .limit(1);
+    if (!form) {
+      return `Linked form '${formSlug}' was not found or is inactive`;
+    }
+  }
+  return null;
+}
+
 app.post("/api/pages", { preHandler: requireAuth(["admin", "page_developer"]) }, async (req, reply) => {
   const body = req.body as { title: string; slug: string; content?: string };
   if (!body.title?.trim() || !body.slug?.trim()) {
@@ -475,6 +609,8 @@ app.post("/api/pages", { preHandler: requireAuth(["admin", "page_developer"]) },
   }
   const slug = body.slug.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
   if (!slug) return reply.status(400).send({ error: "Invalid slug" });
+  const contentValidationError = await validatePageContentNativeFormLinks(req.siteId, body.content);
+  if (contentValidationError) return reply.status(400).send({ error: contentValidationError });
   const [created] = await db.insert(pages).values({
     siteId: req.siteId,
     title: body.title.trim(),
@@ -499,6 +635,10 @@ app.put<{ Params: { id: string } }>("/api/pages/:id", { preHandler: requireAuth(
     .where(and(eq(pages.id, id), eq(pages.siteId, req.siteId)))
     .limit(1);
   if (!existing) return reply.status(404).send({ error: "Page not found" });
+  if (body.content !== undefined) {
+    const contentValidationError = await validatePageContentNativeFormLinks(req.siteId, body.content);
+    if (contentValidationError) return reply.status(400).send({ error: contentValidationError });
+  }
   const updates: Record<string, unknown> = { updatedAt: new Date() };
   if (body.title !== undefined) updates.title = body.title.trim();
   if (body.content !== undefined) updates.content = body.content ?? null;
@@ -556,21 +696,24 @@ app.get("/api/site-settings", async (req) => {
     .limit(1);
   const def = defaultSiteSettings();
   if (!row) {
-    return {
+    const [siteRow] = await db.select().from(sites).where(eq(sites.id, req.siteId)).limit(1);
+    const defaults = {
       navType: def.navType,
       navConfig: JSON.parse(def.navConfig),
       footerConfig: JSON.parse(def.footerConfig),
-      seoConfig: {},
+      seoConfig: { siteName: siteRow?.name ?? "", siteTitle: siteRow?.name ?? "" },
       blogApprovalMode: def.blogApprovalMode,
     };
+    return defaults;
   }
-  return {
+  const settings = {
     navType: row.navType ?? "navbar",
     navConfig: (() => { try { return JSON.parse(row.navConfig ?? "{}"); } catch { return JSON.parse(def.navConfig); } })(),
     footerConfig: (() => { try { return JSON.parse(row.footerConfig ?? "{}"); } catch { return JSON.parse(def.footerConfig); } })(),
     seoConfig: (() => { try { return JSON.parse(row.seoConfig ?? "{}"); } catch { return {}; } })(),
     blogApprovalMode: row.blogApprovalMode ?? false,
   };
+  return settings;
 });
 
 app.put("/api/site-settings", { preHandler: requireAuth(["admin", "page_developer"]) }, async (req, reply) => {
@@ -584,22 +727,25 @@ app.put("/api/site-settings", { preHandler: requireAuth(["admin", "page_develope
   const seoConfigStr = body.seoConfig !== undefined ? JSON.stringify(body.seoConfig) : undefined;
   if (!row) {
     const def = defaultSiteSettings();
+    const [siteRow] = await db.select().from(sites).where(eq(sites.id, req.siteId)).limit(1);
+    const defaultSeo = JSON.stringify({ siteName: siteRow?.name ?? "", siteTitle: siteRow?.name ?? "" });
     const [created] = await db.insert(siteSettings).values({
       siteId: req.siteId,
       navType: body.navType ?? "navbar",
       navConfig: navConfigStr ?? def.navConfig,
       footerConfig: footerConfigStr ?? def.footerConfig,
-      seoConfig: seoConfigStr ?? def.seoConfig,
+      seoConfig: seoConfigStr ?? defaultSeo,
       blogApprovalMode: body.blogApprovalMode ?? def.blogApprovalMode,
       updatedAt: now,
     }).returning();
-    return {
+    const payload = {
       navType: created.navType,
       navConfig: JSON.parse(created.navConfig ?? "{}"),
       footerConfig: JSON.parse(created.footerConfig ?? "{}"),
       seoConfig: JSON.parse(created.seoConfig ?? "{}"),
       blogApprovalMode: created.blogApprovalMode ?? false,
     };
+    return payload;
   }
   const [updated] = await db.update(siteSettings).set({
     navType: body.navType ?? row.navType,
@@ -609,13 +755,14 @@ app.put("/api/site-settings", { preHandler: requireAuth(["admin", "page_develope
     blogApprovalMode: body.blogApprovalMode ?? row.blogApprovalMode,
     updatedAt: now,
   }).where(eq(siteSettings.id, row.id)).returning();
-  return {
+  const payload = {
     navType: updated.navType,
     navConfig: JSON.parse(updated.navConfig ?? "{}"),
     footerConfig: JSON.parse(updated.footerConfig ?? "{}"),
     seoConfig: JSON.parse(updated.seoConfig ?? "{}"),
     blogApprovalMode: updated.blogApprovalMode ?? false,
   };
+  return payload;
 });
 
 // ── Sitemap & Robots ───────────────────────────────────────────────────────────
@@ -655,20 +802,25 @@ app.get("/robots.txt", async (req, reply) => {
     .where(eq(siteSettings.siteId, req.siteId))
     .limit(1);
   const seoConfig = (() => { try { return JSON.parse(settingsRow?.seoConfig ?? "{}"); } catch { return {} as Record<string, string | boolean>; } })();
-  if (seoConfig.robotsTxt) return reply.type("text/plain").send(seoConfig.robotsTxt as string);
+  if (seoConfig.robotsTxt) {
+    const robotsTxt = seoConfig.robotsTxt as string;
+    return reply.type("text/plain").send(robotsTxt);
+  }
   const siteUrl = (seoConfig.siteUrl as string | undefined)?.replace(/\/$/, "") ?? `${req.protocol}://${req.hostname}`;
   const enableSitemap = seoConfig.enableSitemap !== false;
   const lines = ["User-agent: *", "Allow: /", "Disallow: /admin"];
   if (enableSitemap) lines.push(`\nSitemap: ${siteUrl}/sitemap.xml`);
-  return reply.type("text/plain").send(lines.join("\n"));
+  const robots = lines.join("\n");
+  return reply.type("text/plain").send(robots);
 });
 
 // ── Theme packs CRUD ──────────────────────────────────────────────────────────
 
 app.get("/api/theme-packs", async (req) => {
-  return db.select().from(themePacks)
+  const rows = await db.select().from(themePacks)
     .where(eq(themePacks.siteId, req.siteId))
     .orderBy(asc(themePacks.name));
+  return rows;
 });
 
 app.get<{ Params: { id: string } }>("/api/theme-packs/:id", async (req, reply) => {
@@ -764,6 +916,18 @@ app.put("/api/storage-config", { preHandler: requireAuth(["admin"], { globalOnly
   return { provider: updated.provider, config: JSON.parse(updated.config ?? "{}") };
 });
 
+type SslRenewState = {
+  lastRunAt: string | null;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+};
+
+const sslRenewState: SslRenewState = {
+  lastRunAt: null,
+  lastSuccessAt: null,
+  lastError: null,
+};
+
 // ── Google OAuth ───────────────────────────────────────────────────────────────
 
 const GOOGLE_SCOPES: Record<string, string> = {
@@ -779,7 +943,7 @@ async function getGoogleOAuthConfig(siteId: number) {
   try {
     const cfg = JSON.parse(row.config ?? "{}");
     if (cfg.clientId && cfg.clientSecret) return { clientId: cfg.clientId, clientSecret: cfg.clientSecret, provider: row.provider, config: cfg };
-  } catch {}
+  } catch { }
   return null;
 }
 
@@ -835,12 +999,40 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = join(__dirname, "..", "uploads");
 const BACKUPS_DIR = join(__dirname, "..", "backups");
 const PROJECT_ROOT = join(__dirname, "..", "..", "..");
+const LETSENCRYPT_LIVE_DIR = process.env.LETSENCRYPT_LIVE_DIR?.trim() || "/etc/letsencrypt/live";
+const LETSENCRYPT_WEBROOT = process.env.LETSENCRYPT_WEBROOT?.trim() || "/var/www/certbot";
+const LETSENCRYPT_CERTBOT_BIN = process.env.LETSENCRYPT_CERTBOT_BIN?.trim() || "certbot";
+const CERTBOT_COMMAND = process.env.CERTBOT_COMMAND?.trim() || "";
+const NGINX_MANAGED_CONFIG_PATH = process.env.NGINX_MANAGED_CONFIG_PATH?.trim() || "/app/nginx-managed/openweb-ssl.conf";
+const SSL_AUTO_RENEW_ENABLED = process.env.SSL_AUTO_RENEW_ENABLED?.trim() !== "false";
+const SSL_AUTO_RENEW_INTERVAL_HOURS = Math.max(1, Number(process.env.SSL_AUTO_RENEW_INTERVAL_HOURS ?? "12"));
+const SSL_RENEW_POST_HOOK = process.env.SSL_RENEW_POST_HOOK?.trim() || "";
+const OPENWEB_BASE_DOMAIN = process.env.OPENWEB_BASE_DOMAIN?.trim().toLowerCase() || "";
+const NGINX_VALIDATE_COMMAND = process.env.NGINX_VALIDATE_COMMAND?.trim() || "";
+const NGINX_RELOAD_COMMAND = process.env.NGINX_RELOAD_COMMAND?.trim() || "";
+
+
+type SslCertificateMeta = {
+  provider: "letsencrypt" | "cloudflared";
+  organization?: string | null;
+  organizationUnit?: string | null;
+  email?: string | null;
+  createdAt?: string | null;
+  domains?: string[] | null;
+};
 function ensureUploadsDir() {
   if (!existsSync(UPLOADS_DIR)) mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 function ensureBackupsDir() {
   if (!existsSync(BACKUPS_DIR)) mkdirSync(BACKUPS_DIR, { recursive: true });
 }
+
+async function clearDirectoryContents(dir: string) {
+  if (!existsSync(dir)) return;
+  const entries = await readdir(dir);
+  await Promise.all(entries.map((entry) => rm(join(dir, entry), { recursive: true, force: true })));
+}
+
 ensureUploadsDir();
 ensureBackupsDir();
 
@@ -854,9 +1046,95 @@ function isSafeBackupName(name: string) {
   return /^[a-zA-Z0-9._-]+\.zip$/.test(name);
 }
 
+function resolveCommandPath(cmd: string) {
+  if (cmd.includes("/")) return existsSync(cmd) ? cmd : null;
+  const searchDirs = new Set<string>([
+    ...(process.env.PATH ?? "").split(":").filter(Boolean),
+    "/opt/homebrew/bin",
+    "/opt/homebrew/opt/libpq/bin",
+    "/usr/local/opt/libpq/bin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+  ]);
+  for (const dir of searchDirs) {
+    const full = join(dir, cmd);
+    if (existsSync(full)) return full;
+  }
+  return null;
+}
+
 async function runCommand(cmd: string, args: string[], cwd?: string) {
+  const resolvedCmd = resolveCommandPath(cmd);
+  if (!resolvedCmd) {
+    if (cmd === "pg_dump" || cmd === "psql") {
+      throw new Error(`Required command '${cmd}' was not found. Install PostgreSQL client tools (pg_dump/psql) in the API runtime image.`);
+    }
+    if (cmd === "zip" || cmd === "unzip") {
+      throw new Error(`Required command '${cmd}' was not found. Install zip/unzip tools in the API runtime image.`);
+    }
+    throw new Error(`Required command '${cmd}' was not found in PATH.`);
+  }
+
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(resolvedCmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (d) => { stderr += d.toString(); });
+    child.on("error", (err) => {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
+        reject(new Error(`Required command '${cmd}' is missing in runtime.`));
+        return;
+      }
+      reject(err);
+    });
+    child.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(stderr || `${cmd} exited with code ${code}`));
+    });
+  });
+}
+
+type DbCliConfig = {
+  host: string;
+  port: string;
+  database: string;
+  user: string;
+  password: string;
+};
+
+function getDbCliConfig(databaseUrl: string): DbCliConfig {
+  const envDb = process.env.POSTGRES_DB?.trim();
+  const envUser = process.env.POSTGRES_USER?.trim();
+  if (envDb && envUser) {
+    return {
+      host: process.env.POSTGRES_HOST?.trim() || "localhost",
+      port: process.env.POSTGRES_PORT?.trim() || "5432",
+      database: envDb,
+      user: envUser,
+      password: process.env.POSTGRES_PASSWORD ?? "",
+    };
+  }
+
+  const parsed = new URL(databaseUrl);
+  return {
+    host: parsed.hostname || "localhost",
+    port: parsed.port || "5432",
+    database: decodeURIComponent(parsed.pathname.replace(/^\//, "")),
+    user: decodeURIComponent(parsed.username || "openweb"),
+    password: decodeURIComponent(parsed.password || ""),
+  };
+}
+
+async function runCommandWithEnv(cmd: string, args: string[], extraEnv: Record<string, string>, cwd?: string) {
+  const resolvedCmd = resolveCommandPath(cmd);
+  if (!resolvedCmd) throw new Error(`Required command '${cmd}' was not found in PATH.`);
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(resolvedCmd, args, {
+      cwd,
+      env: { ...process.env, ...extraEnv },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     let stderr = "";
     child.stderr.on("data", (d) => { stderr += d.toString(); });
     child.on("error", reject);
@@ -867,10 +1145,422 @@ async function runCommand(cmd: string, args: string[], cwd?: string) {
   });
 }
 
+async function runCommandCapture(cmd: string, args: string[], cwd?: string) {
+  const resolvedCmd = resolveCommandPath(cmd);
+  if (!resolvedCmd) throw new Error(`Required command '${cmd}' was not found in PATH.`);
+  return await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+    const child = spawn(resolvedCmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (d) => { stdout += d.toString(); });
+    child.stderr.on("data", (d) => { stderr += d.toString(); });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve({ stdout, stderr });
+      else reject(new Error(stderr || stdout || `${cmd} exited with code ${code}`));
+    });
+  });
+}
+
+function isValidDnsName(domain: string) {
+  const normalized = domain.trim().toLowerCase();
+  if (normalized.length < 3 || normalized.length > 253) return false;
+  const labels = normalized.split(".");
+  if (labels.length < 2) return false;
+  return labels.every((label) => /^[a-z0-9-]{1,63}$/.test(label) && !label.startsWith("-") && !label.endsWith("-"));
+}
+
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function safeDomainPathPart(domain: string) {
+  const normalized = domain.trim().toLowerCase();
+  if (!isValidDnsName(normalized)) return null;
+  return normalized;
+}
+
+function clipOutput(value: string, max = 4000) {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max)}\n...output truncated...`;
+}
+
+function shellEscape(value: string) {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+
+
+async function runCertbotCapture(args: string[]) {
+  if (CERTBOT_COMMAND) {
+    const cmd = `${CERTBOT_COMMAND} ${args.map(shellEscape).join(" ")}`.trim();
+    return runCommandCapture("sh", ["-lc", cmd]);
+  }
+  return runCommandCapture(LETSENCRYPT_CERTBOT_BIN, args);
+}
+
+async function ensureCertbotReachable() {
+  if (CERTBOT_COMMAND) {
+    await runCertbotCapture(["--version"]);
+    return;
+  }
+  if (!resolveCommandPath(LETSENCRYPT_CERTBOT_BIN)) {
+    throw new Error(`Required command '${LETSENCRYPT_CERTBOT_BIN}' was not found in PATH.`);
+  }
+}
+
+async function getCertificateExpiry(certPath: string): Promise<string | null> {
+  try {
+    const { stdout } = await runCommandCapture("openssl", ["x509", "-enddate", "-noout", "-in", certPath]);
+    const raw = stdout.trim();
+    const prefix = "notAfter=";
+    if (!raw.startsWith(prefix)) return null;
+    const parsed = new Date(raw.slice(prefix.length).trim());
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  } catch {
+    return null;
+  }
+}
+
+function certificateMetaPath(domain: string) {
+  return join(LETSENCRYPT_LIVE_DIR, domain, "openweb-meta.json");
+}
+
+async function readSslCertificateMeta(domain: string): Promise<SslCertificateMeta | null> {
+  try {
+    const metaText = await readFile(certificateMetaPath(domain), "utf8");
+    const parsed = JSON.parse(metaText) as Partial<SslCertificateMeta>;
+    if (!parsed || (parsed.provider !== "letsencrypt" && parsed.provider !== "cloudflared")) return null;
+    return {
+      provider: parsed.provider,
+      organization: typeof parsed.organization === "string" ? parsed.organization : null,
+      organizationUnit: typeof parsed.organizationUnit === "string" ? parsed.organizationUnit : null,
+      email: typeof parsed.email === "string" ? parsed.email : null,
+      createdAt: typeof parsed.createdAt === "string" ? parsed.createdAt : null,
+      domains: Array.isArray(parsed.domains) ? parsed.domains.filter((d): d is string => typeof d === "string") : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function writeSslCertificateMeta(domain: string, meta: SslCertificateMeta) {
+  const dir = join(LETSENCRYPT_LIVE_DIR, domain);
+  mkdirSync(dir, { recursive: true });
+  await writeFile(certificateMetaPath(domain), JSON.stringify(meta, null, 2), "utf8");
+}
+
+function isAllowedCertificateFile(name: string) {
+  return name === "fullchain.pem" || name === "privkey.pem" || name === "openweb-meta.json";
+}
+
+function parseDomainList(raw: string) {
+  return [...new Set(raw
+    .split(",")
+    .map((d) => d.trim().toLowerCase())
+    .filter((d) => d.length > 0))];
+}
+
+async function getCertificateCoverageMap() {
+  const coverage = new Map<string, string>();
+  if (!existsSync(LETSENCRYPT_LIVE_DIR)) return coverage;
+  const entries = await readdir(LETSENCRYPT_LIVE_DIR, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const certName = safeDomainPathPart(entry.name);
+    if (!certName) continue;
+    const fullchainPath = join(LETSENCRYPT_LIVE_DIR, certName, "fullchain.pem");
+    const privkeyPath = join(LETSENCRYPT_LIVE_DIR, certName, "privkey.pem");
+    if (!existsSync(fullchainPath) || !existsSync(privkeyPath)) continue;
+    const meta = await readSslCertificateMeta(certName);
+    const covered = new Set<string>([certName]);
+    for (const d of (meta?.domains ?? [])) {
+      const normalized = safeDomainPathPart(d);
+      if (normalized) covered.add(normalized);
+    }
+    for (const host of covered) {
+      if (!coverage.has(host)) coverage.set(host, certName);
+    }
+  }
+  return coverage;
+}
+
+type SslServerConfigRow = {
+  siteId: number;
+  siteName: string;
+  domain: string | null;
+  subDomain: string | null;
+  host: string;
+  enabled: boolean;
+};
+
+function deriveSiteSslHost(site: { domain?: string | null; subDomain?: string | null }) {
+  const domain = site.domain?.trim().toLowerCase();
+  if (domain) return domain;
+  const sub = site.subDomain?.trim().toLowerCase();
+  if (sub && OPENWEB_BASE_DOMAIN) return `${sub}.${OPENWEB_BASE_DOMAIN}`;
+  return "";
+}
+
+async function listSslServerConfigs(): Promise<SslServerConfigRow[]> {
+  const rows = await db.execute(sql`
+    SELECT
+      s.id AS "siteId",
+      s.name AS "siteName",
+      s.domain AS "domain",
+      s.sub_domain AS "subDomain",
+      COALESCE(cfg.host, '') AS "configuredHost",
+      COALESCE(cfg.enabled, false) AS "enabled"
+    FROM "sites" s
+    LEFT JOIN "ssl_server_configs" cfg ON cfg.site_id = s.id
+    ORDER BY s.name ASC
+  `) as unknown as SslServerConfigRow[] | { rows: (SslServerConfigRow & { configuredHost?: string })[] };
+  const rowsNormalized = Array.isArray(rows)
+    ? rows as (SslServerConfigRow & { configuredHost?: string })[]
+    : (rows.rows ?? []);
+  return rowsNormalized.map((row) => {
+    const configured = (row as unknown as { configuredHost?: string }).configuredHost?.trim().toLowerCase() ?? "";
+    const fallback = deriveSiteSslHost({ domain: row.domain, subDomain: row.subDomain });
+    return {
+      siteId: row.siteId,
+      siteName: row.siteName,
+      domain: row.domain,
+      subDomain: row.subDomain,
+      host: configured || fallback,
+      enabled: !!row.enabled,
+    };
+  });
+}
+
+async function generateManagedNginxSslConfig(configs: SslServerConfigRow[], coverage?: Map<string, string>) {
+  const enabled = configs
+    .filter((c) => c.enabled)
+    .map((c) => ({ ...c, host: c.host.trim().toLowerCase() }))
+    .filter((c) => isValidDnsName(c.host));
+  const uniqueHosts = [...new Set(enabled.map((c) => c.host))];
+  const lines: string[] = [];
+  lines.push("# Managed by OpenWeb Admin");
+  lines.push(`# Generated: ${new Date().toISOString()}`);
+  for (const host of uniqueHosts) {
+    const certName = coverage?.get(host) ?? host;
+
+    // ── HTTP → HTTPS redirect ────────────────────────────────────────────
+    lines.push("");
+    lines.push("server {");
+    lines.push("  listen 80;");
+    lines.push(`  server_name ${host};`);
+    lines.push("  # Allow Let's Encrypt HTTP-01 challenges to pass through");
+    lines.push("  location ^~ /.well-known/acme-challenge/ {");
+    lines.push("    root /var/www/certbot;");
+    lines.push("    try_files $uri =404;");
+    lines.push("  }");
+    lines.push("  location / { return 301 https://$host$request_uri; }");
+    lines.push("}");
+
+    // ── HTTPS server ─────────────────────────────────────────────────────
+    lines.push("");
+    lines.push("server {");
+    lines.push("  listen 443 ssl http2;");
+    lines.push(`  server_name ${host};`);
+    lines.push("");
+    lines.push(`  ssl_certificate     /etc/letsencrypt/live/${certName}/fullchain.pem;`);
+    lines.push(`  ssl_certificate_key /etc/letsencrypt/live/${certName}/privkey.pem;`);
+    lines.push("  ssl_protocols       TLSv1.2 TLSv1.3;");
+    lines.push("  ssl_ciphers         ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256;");
+    lines.push("  ssl_prefer_server_ciphers off;");
+    lines.push("  ssl_session_cache   shared:SSL:10m;");
+    lines.push("  ssl_session_timeout 1d;");
+    lines.push("  ssl_session_tickets off;");
+    lines.push(`  add_header Strict-Transport-Security "max-age=63072000" always;`);
+    lines.push("");
+    lines.push("  client_max_body_size 50m;");
+    lines.push("");
+    lines.push("  proxy_set_header Host              $host;");
+    lines.push("  proxy_set_header X-Real-IP         $remote_addr;");
+    lines.push("  proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;");
+    lines.push("  proxy_set_header X-Forwarded-Proto https;");
+    lines.push("  proxy_set_header Upgrade           $http_upgrade;");
+    lines.push("  proxy_set_header Connection        $connection_upgrade;");
+    lines.push("  proxy_http_version 1.1;");
+    lines.push("");
+    lines.push(`  set $x_cache_status "BYPASS";`);
+    lines.push("  add_header X-Cache $x_cache_status always;");
+    lines.push("");
+    lines.push("  location /api/ {");
+    lines.push("    proxy_pass http://api_upstream;");
+    lines.push("  }");
+    lines.push("");
+    lines.push("  # Vite assets — content-hashed filenames, safe to cache for 1 year");
+    lines.push("  location /assets/ {");
+    lines.push("    proxy_pass http://web_upstream;");
+    lines.push(`    more_set_headers "Cache-Control: public, max-age=31536000, immutable";`);
+    lines.push("  }");
+    lines.push("");
+    lines.push("  # Uploaded media — 7-day browser cache with ETag revalidation");
+    lines.push("  location /uploads/ {");
+    lines.push("    proxy_pass http://api_upstream;");
+    lines.push(`    more_set_headers "Cache-Control: public, max-age=604800";`);
+    lines.push("  }");
+    lines.push("");
+    lines.push("  location = /health {");
+    lines.push("    proxy_pass http://api_upstream;");
+    lines.push("    proxy_buffering off;");
+    lines.push("  }");
+    lines.push("");
+    lines.push("  location ^~ /.well-known/acme-challenge/ {");
+    lines.push("    root /var/www/certbot;");
+    lines.push("    try_files $uri =404;");
+    lines.push("  }");
+    lines.push("");
+    lines.push("  location = /robots.txt {");
+    lines.push("    proxy_pass http://api_upstream;");
+    lines.push("  }");
+    lines.push("");
+    lines.push("  location = /sitemap.xml {");
+    lines.push("    proxy_pass http://api_upstream;");
+    lines.push("  }");
+    lines.push("");
+    lines.push("  # HTML — no content hash, must revalidate on every request");
+    lines.push("  location / {");
+    lines.push("    proxy_pass http://web_upstream;");
+    lines.push(`    more_set_headers "Cache-Control: no-cache";`);
+    lines.push("  }");
+    lines.push("}");
+  }
+  return { configText: lines.join("\n"), hosts: uniqueHosts };
+}
+
+async function runCertbotRenew(dryRun = false) {
+  const lockRaw = await db.execute(sql`SELECT pg_try_advisory_lock(88018211) AS locked`) as unknown as { rows?: { locked: boolean }[] } | { locked: boolean }[];
+  const lockRows = Array.isArray(lockRaw) ? lockRaw : (lockRaw.rows ?? []);
+  if (!lockRows[0]?.locked) return { skipped: true, reason: "renew already running in another process" };
+  try {
+    sslRenewState.lastRunAt = new Date().toISOString();
+    const args = ["renew", "--non-interactive"];
+    if (dryRun) args.push("--dry-run");
+    const output = await runCertbotCapture(args);
+    await reloadNginxFromCommands();
+    if (SSL_RENEW_POST_HOOK) await runCommandCapture("sh", ["-lc", SSL_RENEW_POST_HOOK]);
+    sslRenewState.lastSuccessAt = new Date().toISOString();
+    sslRenewState.lastError = null;
+    return { skipped: false, output };
+  } catch (error) {
+    sslRenewState.lastError = (error as Error).message || "renew failed";
+    throw error;
+  } finally {
+    await db.execute(sql`SELECT pg_advisory_unlock(88018211)`);
+  }
+}
+
+async function runShellCommandCapture(cmd: string) {
+  return runCommandCapture("sh", ["-lc", cmd]);
+}
+
+async function reloadNginxFromCommands() {
+  if (NGINX_VALIDATE_COMMAND) await runShellCommandCapture(NGINX_VALIDATE_COMMAND);
+  if (NGINX_RELOAD_COMMAND) await runShellCommandCapture(NGINX_RELOAD_COMMAND);
+}
+
+async function applyManagedNginxConfigWithRollback(newContent: string) {
+  const targetDir = dirname(NGINX_MANAGED_CONFIG_PATH);
+  mkdirSync(targetDir, { recursive: true });
+
+  let previous = "";
+  try {
+    previous = await readFile(NGINX_MANAGED_CONFIG_PATH, "utf8");
+  } catch {
+    previous = "";
+  }
+
+  const writeNew = async () => writeFile(NGINX_MANAGED_CONFIG_PATH, `${newContent}\n`, "utf8");
+  const restorePrevious = async () => writeFile(NGINX_MANAGED_CONFIG_PATH, previous, "utf8");
+
+  await writeNew();
+  try {
+    const validateOutput = NGINX_VALIDATE_COMMAND ? await runShellCommandCapture(NGINX_VALIDATE_COMMAND) : { stdout: "", stderr: "" };
+    const reloadOutput = NGINX_RELOAD_COMMAND ? await runShellCommandCapture(NGINX_RELOAD_COMMAND) : { stdout: "", stderr: "" };
+    return {
+      ok: true as const,
+      rolledBack: false,
+      validateOutput,
+      reloadOutput,
+    };
+  } catch (error) {
+    const firstError = (error as Error).message || "NGINX validate/reload failed";
+    try {
+      await restorePrevious();
+      if (NGINX_VALIDATE_COMMAND) await runShellCommandCapture(NGINX_VALIDATE_COMMAND);
+      if (NGINX_RELOAD_COMMAND) await runShellCommandCapture(NGINX_RELOAD_COMMAND);
+      return {
+        ok: false as const,
+        rolledBack: true,
+        error: firstError,
+      };
+    } catch (rollbackError) {
+      return {
+        ok: false as const,
+        rolledBack: true,
+        error: `${firstError}\nRollback reload failed: ${(rollbackError as Error).message || "unknown rollback error"}`,
+      };
+    }
+  }
+}
+
+function startSslAutoRenewScheduler() {
+  if (!SSL_AUTO_RENEW_ENABLED) return;
+  const runOnce = () => {
+    runCertbotRenew(false)
+      .then((res) => {
+        if (!res.skipped) app.log.info("SSL auto-renew completed");
+      })
+      .catch((error) => app.log.error({ error }, "SSL auto-renew failed"));
+  };
+  // Run once shortly after startup, then by interval.
+  setTimeout(runOnce, 30_000);
+  setInterval(runOnce, SSL_AUTO_RENEW_INTERVAL_HOURS * 60 * 60 * 1000);
+}
+
+async function dumpDatabaseToFile(databaseUrl: string, outputPath: string) {
+  const cfg = getDbCliConfig(databaseUrl);
+  await runCommandWithEnv("pg_dump", [
+    "--clean",
+    "--if-exists",
+    "--no-owner",
+    "--no-privileges",
+    "-h",
+    cfg.host,
+    "-p",
+    cfg.port,
+    "-U",
+    cfg.user,
+    "-d",
+    cfg.database,
+    "--file",
+    outputPath,
+  ], { PGPASSWORD: cfg.password });
+}
+
+async function restoreDatabaseFromFile(databaseUrl: string, inputPath: string) {
+  const cfg = getDbCliConfig(databaseUrl);
+  await runCommandWithEnv("psql", [
+    "-h",
+    cfg.host,
+    "-p",
+    cfg.port,
+    "-U",
+    cfg.user,
+    "-d",
+    cfg.database,
+    "-f",
+    inputPath,
+  ], { PGPASSWORD: cfg.password });
+}
+
 app.get("/api/media", async (req) => {
-  return db.select().from(mediaItems)
+  const rows = await db.select().from(mediaItems)
     .where(eq(mediaItems.siteId, req.siteId))
     .orderBy(desc(mediaItems.createdAt));
+  return rows;
 });
 
 app.delete<{ Params: { id: string } }>("/api/media/:id", { preHandler: requireAuth(["admin", "page_developer"]) }, async (req, reply) => {
@@ -880,13 +1570,20 @@ app.delete<{ Params: { id: string } }>("/api/media/:id", { preHandler: requireAu
     .where(and(eq(mediaItems.id, id), eq(mediaItems.siteId, req.siteId)))
     .limit(1);
   if (!row) return reply.status(404).send({ error: "Media not found" });
-  if (row.providerPath) await unlink(row.providerPath).catch(() => {});
+  if (row.providerPath) await unlink(row.providerPath).catch(() => { });
   await db.delete(mediaItems).where(eq(mediaItems.id, id));
   return { ok: true };
 });
 
 await app.register(fastifyMultipart, { limits: { fileSize: 100_000_000 } });
-await app.register(fastifyStatic, { root: UPLOADS_DIR, prefix: "/uploads/", decorateReply: false });
+await app.register(fastifyStatic, {
+  root: UPLOADS_DIR,
+  prefix: "/uploads/",
+  decorateReply: false,
+  setHeaders: (res, _path) => {
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  },
+});
 
 app.post("/api/media/upload", { preHandler: requireAuth(["admin", "page_developer"]) }, async (req, reply) => {
   ensureUploadsDir();
@@ -945,8 +1642,11 @@ app.get("/api/backups", { preHandler: requireAuth(["admin"], { globalOnly: true 
 });
 
 app.post("/api/backups", { preHandler: requireAuth(["admin"], { globalOnly: true }) }, async (_req, reply) => {
-  if (!process.env.DATABASE_URL?.trim()) {
-    return reply.status(500).send({ error: "DATABASE_URL is required for backups" });
+  let databaseUrl = "";
+  try {
+    databaseUrl = getDatabaseUrl();
+  } catch (error) {
+    return reply.status(500).send({ error: (error as Error).message || "Database configuration is required for backups" });
   }
 
   ensureUploadsDir();
@@ -960,7 +1660,7 @@ app.post("/api/backups", { preHandler: requireAuth(["admin"], { globalOnly: true
     mkdirSync(payloadDir, { recursive: true });
 
     const dbDumpPath = join(payloadDir, "database.sql");
-    await runCommand("pg_dump", ["--clean", "--if-exists", "--no-owner", "--no-privileges", "--file", dbDumpPath, process.env.DATABASE_URL]);
+    await dumpDatabaseToFile(databaseUrl, dbDumpPath);
 
     if (existsSync(UPLOADS_DIR)) {
       await cp(UPLOADS_DIR, join(payloadDir, "uploads"), { recursive: true, force: true });
@@ -1023,8 +1723,11 @@ app.get<{ Params: { name: string } }>("/api/backups/:name/download", { preHandle
 });
 
 app.post("/api/backups/restore", { preHandler: requireAuth(["admin"], { globalOnly: true }) }, async (req, reply) => {
-  if (!process.env.DATABASE_URL?.trim()) {
-    return reply.status(500).send({ error: "DATABASE_URL is required for restore" });
+  let databaseUrl = "";
+  try {
+    databaseUrl = getDatabaseUrl();
+  } catch (error) {
+    return reply.status(500).send({ error: (error as Error).message || "Database configuration is required for restore" });
   }
 
   ensureUploadsDir();
@@ -1045,12 +1748,12 @@ app.post("/api/backups/restore", { preHandler: requireAuth(["admin"], { globalOn
 
     const dbDumpPath = join(extractDir, "database.sql");
     if (!existsSync(dbDumpPath)) return reply.status(400).send({ error: "Invalid backup: missing database.sql" });
-    await runCommand("psql", [process.env.DATABASE_URL, "-f", dbDumpPath]);
+    await restoreDatabaseFromFile(databaseUrl, dbDumpPath);
 
     const uploadsBackupDir = join(extractDir, "uploads");
     if (existsSync(uploadsBackupDir)) {
-      await rm(UPLOADS_DIR, { recursive: true, force: true });
-      mkdirSync(UPLOADS_DIR, { recursive: true });
+      // Keep mounted uploads root directory; clear contents to avoid EBUSY on volume mount points.
+      await clearDirectoryContents(UPLOADS_DIR);
       await cp(uploadsBackupDir, UPLOADS_DIR, { recursive: true, force: true });
     }
 
@@ -1060,6 +1763,292 @@ app.post("/api/backups/restore", { preHandler: requireAuth(["admin"], { globalOn
     return reply.status(500).send({ error: (error as Error).message || "Backup restore failed" });
   } finally {
     await rm(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+// ── SSL certificates (admin global only) ─────────────────────────────────────
+
+app.get("/api/ssl/certificates", { preHandler: requireAuth(["admin"], { globalOnly: true }) }, async () => {
+  if (!existsSync(LETSENCRYPT_LIVE_DIR)) return [];
+  const entries = await readdir(LETSENCRYPT_LIVE_DIR, { withFileTypes: true });
+  const certs = await Promise.all(entries
+    .filter((entry) => entry.isDirectory())
+    .map(async (entry) => {
+      const domain = safeDomainPathPart(entry.name);
+      if (!domain) return null;
+      const fullchainPath = join(LETSENCRYPT_LIVE_DIR, domain, "fullchain.pem");
+      const privkeyPath = join(LETSENCRYPT_LIVE_DIR, domain, "privkey.pem");
+      if (!existsSync(fullchainPath) || !existsSync(privkeyPath)) return null;
+      const info = await stat(fullchainPath);
+      const expiresAt = await getCertificateExpiry(fullchainPath);
+      const meta = await readSslCertificateMeta(domain);
+      const domains = [domain, ...(meta?.domains ?? [])]
+        .map((d) => d.trim().toLowerCase())
+        .filter((d, i, arr) => d && arr.indexOf(d) === i);
+      return {
+        domain,
+        domains,
+        fullchainPath,
+        privkeyPath,
+        createdAt: info.mtime.toISOString(),
+        expiresAt,
+        provider: meta?.provider ?? "letsencrypt",
+        organization: meta?.organization ?? null,
+        organizationUnit: meta?.organizationUnit ?? null,
+      };
+    }));
+  return certs.filter((item): item is NonNullable<typeof item> => !!item)
+    .sort((a, b) => (a.domain < b.domain ? -1 : 1));
+});
+
+app.post("/api/ssl/certificates", { preHandler: requireAuth(["admin"], { globalOnly: true }) }, async (req, reply) => {
+  const body = req.body as {
+    domain?: string;
+    email?: string;
+    staging?: boolean;
+    mode?: "webroot" | "standalone";
+    webrootPath?: string;
+    provider?: "letsencrypt" | "cloudflared";
+    organization?: string;
+    organizationUnit?: string;
+    certificatePem?: string;
+    privateKeyPem?: string;
+  };
+  const domains = parseDomainList(body.domain?.trim().toLowerCase() ?? "");
+  const domain = domains[0] ?? "";
+  const provider = body.provider === "cloudflared" ? "cloudflared" : "letsencrypt";
+  const email = body.email?.trim() ?? "";
+  const organization = body.organization?.trim() ?? "";
+  const organizationUnit = body.organizationUnit?.trim() ?? "";
+  const mode = body.mode === "standalone" ? "standalone" : "webroot";
+  const staging = !!body.staging;
+  const webrootPath = (body.webrootPath?.trim() || LETSENCRYPT_WEBROOT).trim();
+
+  if (domains.length === 0) return reply.status(400).send({ error: "At least one valid domain is required" });
+  if (!domains.every((d) => isValidDnsName(d))) return reply.status(400).send({ error: "One or more domains are invalid" });
+  if (provider === "letsencrypt" && !isValidEmail(email)) return reply.status(400).send({ error: "A valid email is required" });
+  if (provider === "letsencrypt" && mode === "webroot" && !webrootPath) {
+    return reply.status(400).send({ error: "webrootPath is required for webroot mode" });
+  }
+
+  try {
+    let stdout = "";
+    let stderr = "";
+    if (provider === "letsencrypt") {
+      await ensureCertbotReachable();
+      const args = [
+        "certonly",
+        "--non-interactive",
+        "--agree-tos",
+        "--email", email,
+        "--cert-name", domain,
+        "--keep-until-expiring",
+      ];
+      for (const d of domains) args.push("-d", d);
+      if (staging) args.push("--staging");
+      if (mode === "webroot") args.push("--webroot", "-w", webrootPath);
+      else args.push("--standalone");
+      const output = await runCertbotCapture(args);
+      stdout = output.stdout;
+      stderr = output.stderr;
+    } else {
+      const certPem = body.certificatePem?.trim() ?? "";
+      const keyPem = body.privateKeyPem?.trim() ?? "";
+      if (!certPem.includes("BEGIN CERTIFICATE")) return reply.status(400).send({ error: "Cloudflared certificate PEM is required" });
+      if (!keyPem.includes("BEGIN")) return reply.status(400).send({ error: "Cloudflared private key PEM is required" });
+      const certDir = join(LETSENCRYPT_LIVE_DIR, domain);
+      mkdirSync(certDir, { recursive: true });
+      await writeFile(join(certDir, "fullchain.pem"), certPem.endsWith("\n") ? certPem : `${certPem}\n`, "utf8");
+      await writeFile(join(certDir, "privkey.pem"), keyPem.endsWith("\n") ? keyPem : `${keyPem}\n`, "utf8");
+      stdout = "Cloudflared certificate files were saved.";
+      stderr = "";
+    }
+
+    const fullchainPath = join(LETSENCRYPT_LIVE_DIR, domain, "fullchain.pem");
+    const privkeyPath = join(LETSENCRYPT_LIVE_DIR, domain, "privkey.pem");
+    if (!existsSync(fullchainPath) || !existsSync(privkeyPath)) {
+      return reply.status(500).send({
+        error: "Certbot completed but certificate files were not found in the expected path.",
+        output: { stdout: clipOutput(stdout), stderr: clipOutput(stderr) },
+      });
+    }
+    const fullchainStat = await stat(fullchainPath);
+    const expiresAt = await getCertificateExpiry(fullchainPath);
+    await writeSslCertificateMeta(domain, {
+      provider,
+      organization: organization || null,
+      organizationUnit: organizationUnit || null,
+      email: email || null,
+      createdAt: new Date().toISOString(),
+      domains,
+    });
+    return {
+      ok: true,
+      certificate: {
+        domain,
+        domains,
+        fullchainPath,
+        privkeyPath,
+        createdAt: fullchainStat.mtime.toISOString(),
+        expiresAt,
+        provider,
+        organization: organization || null,
+        organizationUnit: organizationUnit || null,
+      },
+      output: { stdout: clipOutput(stdout), stderr: clipOutput(stderr) },
+    };
+  } catch (error) {
+    app.log.error({ error, domain, provider }, "SSL certificate creation failed");
+    return reply.status(500).send({ error: (error as Error).message || "Certificate creation failed" });
+  }
+});
+
+app.delete<{ Params: { domain: string } }>("/api/ssl/certificates/:domain", { preHandler: requireAuth(["admin"], { globalOnly: true }) }, async (req, reply) => {
+  const raw = decodeURIComponent(req.params.domain || "").trim().toLowerCase();
+  const domain = safeDomainPathPart(raw);
+  if (!domain) return reply.status(400).send({ error: "A valid domain is required" });
+
+  const fullchainPath = join(LETSENCRYPT_LIVE_DIR, domain, "fullchain.pem");
+  const privkeyPath = join(LETSENCRYPT_LIVE_DIR, domain, "privkey.pem");
+  if (!existsSync(fullchainPath) || !existsSync(privkeyPath)) return reply.status(404).send({ error: "Certificate not found" });
+
+  const meta = await readSslCertificateMeta(domain);
+  try {
+    if (meta?.provider === "cloudflared") {
+      await rm(join(LETSENCRYPT_LIVE_DIR, domain), { recursive: true, force: true });
+      return { ok: true, removedBy: "cloudflared", domain };
+    }
+    await ensureCertbotReachable();
+    await runCertbotCapture(["delete", "--non-interactive", "--cert-name", domain]);
+    await rm(certificateMetaPath(domain), { force: true });
+    return { ok: true, removedBy: "letsencrypt", domain };
+  } catch (error) {
+    return reply.status(500).send({ error: (error as Error).message || "Failed to delete certificate" });
+  }
+});
+
+app.get<{ Params: { domain: string; file: string } }>("/api/ssl/certificates/:domain/download/:file", { preHandler: requireAuth(["admin"], { globalOnly: true }) }, async (req, reply) => {
+  const rawDomain = decodeURIComponent(req.params.domain || "").trim().toLowerCase();
+  const domain = safeDomainPathPart(rawDomain);
+  if (!domain) return reply.status(400).send({ error: "A valid domain is required" });
+  const file = decodeURIComponent(req.params.file || "").trim();
+  if (!isAllowedCertificateFile(file)) return reply.status(400).send({ error: "Invalid certificate file" });
+
+  const fullPath = join(LETSENCRYPT_LIVE_DIR, domain, file);
+  if (!existsSync(fullPath)) return reply.status(404).send({ error: "Certificate file not found" });
+  const contentType = file.endsWith(".json") ? "application/json" : "application/x-pem-file";
+  reply.header("Content-Type", contentType);
+  reply.header("Content-Disposition", `attachment; filename="${domain}-${file}"`);
+  return reply.send(createReadStream(fullPath));
+});
+
+app.get("/api/ssl/auto-renew", { preHandler: requireAuth(["admin"], { globalOnly: true }) }, async () => {
+  return {
+    enabled: SSL_AUTO_RENEW_ENABLED,
+    intervalHours: SSL_AUTO_RENEW_INTERVAL_HOURS,
+    state: sslRenewState,
+    postHookConfigured: !!SSL_RENEW_POST_HOOK,
+    nginxValidateConfigured: !!NGINX_VALIDATE_COMMAND,
+    nginxReloadConfigured: !!NGINX_RELOAD_COMMAND,
+  };
+});
+
+app.post("/api/ssl/auto-renew/run", { preHandler: requireAuth(["admin"], { globalOnly: true }) }, async (req, reply) => {
+  const body = req.body as { dryRun?: boolean };
+  try {
+    const res = await runCertbotRenew(!!body?.dryRun);
+    if (res.skipped || !res.output) return { ok: true, skipped: true, reason: res.reason ?? "Renew was skipped" };
+    return {
+      ok: true,
+      skipped: false,
+      output: {
+        stdout: clipOutput(res.output.stdout),
+        stderr: clipOutput(res.output.stderr),
+      },
+      state: sslRenewState,
+    };
+  } catch (error) {
+    return reply.status(500).send({ error: (error as Error).message || "SSL renew failed" });
+  }
+});
+
+app.get("/api/nginx/ssl-servers", { preHandler: requireAuth(["admin"], { globalOnly: true }) }, async () => {
+  const items = await listSslServerConfigs();
+  return {
+    items,
+    baseDomain: OPENWEB_BASE_DOMAIN || null,
+    managedConfigPath: NGINX_MANAGED_CONFIG_PATH,
+  };
+});
+
+app.put<{ Params: { siteId: string } }>("/api/nginx/ssl-servers/:siteId", { preHandler: requireAuth(["admin"], { globalOnly: true }) }, async (req, reply) => {
+  const siteId = Number(req.params.siteId);
+  if (Number.isNaN(siteId) || siteId <= 0) return reply.status(400).send({ error: "Invalid siteId" });
+  const body = req.body as { host?: string; enabled?: boolean };
+  const [site] = await db.select().from(sites).where(eq(sites.id, siteId)).limit(1);
+  if (!site) return reply.status(404).send({ error: "Site not found" });
+
+  const fallbackHost = deriveSiteSslHost(site);
+  const existingRaw = await db.execute(sql`SELECT host, enabled FROM "ssl_server_configs" WHERE site_id = ${siteId} LIMIT 1`) as unknown as { rows?: { host: string; enabled: boolean }[] } | { host: string; enabled: boolean }[];
+  const existingRows = Array.isArray(existingRaw) ? existingRaw : (existingRaw.rows ?? []);
+  const existing = existingRows[0];
+  const enabled = body.enabled ?? existing?.enabled ?? false;
+
+  const providedHost = body.host !== undefined ? body.host.trim().toLowerCase() : undefined;
+  const candidateHost = (providedHost ?? existing?.host ?? fallbackHost ?? "").trim();
+  const validHost = !!candidateHost && isValidDnsName(candidateHost);
+  if (enabled && !validHost) {
+    return reply.status(400).send({ error: "A valid SSL host is required before enabling this server." });
+  }
+  const host = validHost ? candidateHost : (existing?.host ?? fallbackHost ?? "").trim();
+
+  await db.execute(sql`
+    INSERT INTO "ssl_server_configs" (site_id, host, enabled, created_at, updated_at)
+    VALUES (${siteId}, ${host}, ${enabled}, now(), now())
+    ON CONFLICT (site_id)
+    DO UPDATE SET host = EXCLUDED.host, enabled = EXCLUDED.enabled, updated_at = now()
+  `);
+  const items = await listSslServerConfigs();
+  const item = items.find((x) => x.siteId === siteId);
+  return item ?? { siteId, siteName: site.name, domain: site.domain, subDomain: site.subDomain, host, enabled };
+});
+
+app.post("/api/nginx/ssl-servers/apply", { preHandler: requireAuth(["admin"], { globalOnly: true }) }, async (req, reply) => {
+  try {
+    const items = await listSslServerConfigs();
+    const coverage = await getCertificateCoverageMap();
+    const { configText, hosts } = await generateManagedNginxSslConfig(items, coverage);
+    const missingCertHosts = hosts.filter((host) => !coverage.has(host));
+    if (missingCertHosts.length > 0) {
+      return reply.status(400).send({
+        error: `Cannot apply NGINX SSL config. Missing certificate files for: ${missingCertHosts.join(", ")}`,
+      });
+    }
+
+    const applyRes = await applyManagedNginxConfigWithRollback(configText);
+    if (!applyRes.ok) {
+      return reply.status(500).send({
+        error: `NGINX rejected the new SSL config. Changes were reverted.\n${applyRes.error}`,
+      });
+    }
+
+    return {
+      ok: true,
+      path: NGINX_MANAGED_CONFIG_PATH,
+      hosts,
+      reloadCommand: NGINX_RELOAD_COMMAND || "not configured",
+      validateCommand: NGINX_VALIDATE_COMMAND || "not configured",
+      configPreview: clipOutput(configText, 8000),
+      nginx: {
+        validated: true,
+        reloaded: true,
+        validateStderr: clipOutput(applyRes.validateOutput.stderr),
+        reloadStderr: clipOutput(applyRes.reloadOutput.stderr),
+      },
+    };
+  } catch (error) {
+    app.log.error({ error }, "Failed to apply managed NGINX SSL config");
+    return reply.status(500).send({ error: (error as Error).message || "Failed to apply NGINX SSL config" });
   }
 });
 
@@ -1094,6 +2083,16 @@ app.post("/api/sites", { preHandler: requireAuth(["admin"], { globalOnly: true }
     const { passwordHash: _, ...safe } = row;
     adminUser = safe;
   }
+  const def = defaultSiteSettings();
+  await db.insert(siteSettings).values({
+    siteId: created.id,
+    navType: def.navType,
+    navConfig: JSON.stringify({ logoText: body.name.trim(), logoHref: "/", navLinks: [{ label: "Home", href: "/" }] }),
+    footerConfig: def.footerConfig,
+    seoConfig: JSON.stringify({ siteName: body.name.trim(), siteTitle: body.name.trim() }),
+    blogApprovalMode: def.blogApprovalMode,
+    updatedAt: new Date(),
+  });
   return adminUser ? { ...created, adminUser } : created;
 });
 
@@ -1121,7 +2120,7 @@ app.delete<{ Params: { id: string } }>("/api/sites/:id", { preHandler: requireAu
   if (!existing) return reply.status(404).send({ error: "Site not found" });
   if (existing.isDefault) return reply.status(400).send({ error: "Cannot delete the default site" });
   const files = await db.select().from(mediaItems).where(eq(mediaItems.siteId, id));
-  await Promise.all(files.map((f) => f.providerPath ? unlink(f.providerPath).catch(() => {}) : Promise.resolve()));
+  await Promise.all(files.map((f) => f.providerPath ? unlink(f.providerPath).catch(() => { }) : Promise.resolve()));
   await db.delete(sites).where(eq(sites.id, id));
   return { ok: true };
 });
@@ -1568,15 +2567,18 @@ app.get("/api/blog/public/posts", async (req) => {
   const rows = await db.select().from(blogPosts)
     .where(and(eq(blogPosts.siteId, req.siteId), eq(blogPosts.status, "published")))
     .orderBy(desc(blogPosts.datePublished), desc(blogPosts.createdAt));
-  return Promise.all(rows.map(async (post) => ({ ...post, ...(await attachBlogRelations(post.id, req.siteId)) })));
+  const hydrated = await Promise.all(rows.map(async (post) => ({ ...post, ...(await attachBlogRelations(post.id, req.siteId)) })));
+  return hydrated;
 });
 
 app.get<{ Params: { slug: string } }>("/api/blog/public/posts/:slug", async (req, reply) => {
+  const slug = req.params.slug.trim().toLowerCase();
   const [post] = await db.select().from(blogPosts)
-    .where(and(eq(blogPosts.siteId, req.siteId), eq(blogPosts.slug, req.params.slug), eq(blogPosts.status, "published")))
+    .where(and(eq(blogPosts.siteId, req.siteId), eq(blogPosts.slug, slug), eq(blogPosts.status, "published")))
     .limit(1);
   if (!post) return reply.status(404).send({ error: "Post not found" });
-  return { ...post, ...(await attachBlogRelations(post.id, req.siteId)) };
+  const hydrated = { ...post, ...(await attachBlogRelations(post.id, req.siteId)) };
+  return hydrated;
 });
 
 // ── Forms, Newsletter, CRM ───────────────────────────────────────────────────
@@ -1664,11 +2666,73 @@ function mapSubscriberRow(row: typeof newsletterSubscribers.$inferSelect) {
   };
 }
 
-function mapLeadRow(row: typeof crmLeads.$inferSelect) {
+function mapLeadRow(row: typeof crmLeads.$inferSelect & { archived?: boolean; tags?: string | null; custom_fields?: string | null; score?: number }) {
   return {
     ...row,
     payload: parseJsonObject(row.payload),
+    archived: (row as unknown as { archived?: boolean }).archived ?? false,
+    tags: parseJsonArraySafe<string>((row as unknown as { tags?: string }).tags),
+    customFields: (() => { try { return JSON.parse((row as unknown as { custom_fields?: string }).custom_fields ?? "{}") as Record<string, string>; } catch { return {}; } })(),
+    score: (row as unknown as { score?: number }).score ?? 0,
   };
+}
+
+function parseJsonArraySafe<T = unknown>(value: string | null | undefined): T[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? (parsed as T[]) : [];
+  } catch { return []; }
+}
+
+type CrmColumnSupport = {
+  leadsArchived: boolean;
+  leadsTags: boolean;
+  leadsCustomFields: boolean;
+  leadsScore: boolean;
+  channelsType: boolean;
+};
+
+let crmColumnSupportCache: { value: CrmColumnSupport; expiresAt: number } | null = null;
+
+function extractRows<T>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  const maybe = result as { rows?: unknown };
+  if (maybe && Array.isArray(maybe.rows)) return maybe.rows as T[];
+  return [];
+}
+
+function firstRow<T>(result: unknown): T | undefined {
+  const rows = extractRows<T>(result);
+  return rows[0];
+}
+
+async function getCrmColumnSupport(forceRefresh = false): Promise<CrmColumnSupport> {
+  const now = Date.now();
+  if (!forceRefresh && crmColumnSupportCache && crmColumnSupportCache.expiresAt > now) {
+    return crmColumnSupportCache.value;
+  }
+
+  const rows = extractRows<{ table_name: string; column_name: string }>(await db.execute(sql`
+    SELECT table_name, column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND (
+        (table_name = 'crm_leads' AND column_name IN ('archived', 'tags', 'custom_fields', 'score'))
+        OR (table_name = 'crm_channels' AND column_name IN ('channel_type'))
+      )
+  `));
+
+  const has = (table: string, column: string) => rows.some((r) => r.table_name === table && r.column_name === column);
+  const value: CrmColumnSupport = {
+    leadsArchived: has("crm_leads", "archived"),
+    leadsTags: has("crm_leads", "tags"),
+    leadsCustomFields: has("crm_leads", "custom_fields"),
+    leadsScore: has("crm_leads", "score"),
+    channelsType: has("crm_channels", "channel_type"),
+  };
+  crmColumnSupportCache = { value, expiresAt: now + 30_000 };
+  return value;
 }
 
 function mapFormResponseRow(row: typeof crmLeads.$inferSelect) {
@@ -2004,13 +3068,15 @@ app.delete<{ Params: { id: string } }>("/api/newsletter/subscribers/:id", { preH
 });
 
 app.get("/api/crm/channels", { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) }, async (req) => {
-  return db.select().from(crmChannels)
-    .where(eq(crmChannels.siteId, req.siteId))
-    .orderBy(asc(crmChannels.name));
+  const support = await getCrmColumnSupport();
+  const rowsRaw = support.channelsType
+    ? await db.execute(sql`SELECT *, channel_type AS "channelType" FROM "crm_channels" WHERE site_id = ${req.siteId} ORDER BY name ASC`)
+    : await db.execute(sql`SELECT *, 'custom'::text AS "channelType" FROM "crm_channels" WHERE site_id = ${req.siteId} ORDER BY name ASC`);
+  return extractRows(rowsRaw);
 });
 
 app.post("/api/crm/channels", { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) }, async (req, reply) => {
-  const body = req.body as { name: string; slug?: string; description?: string | null; isActive?: boolean };
+  const body = req.body as { name: string; slug?: string; description?: string | null; isActive?: boolean; channelType?: string };
   if (!body.name?.trim()) return reply.status(400).send({ error: "name required" });
   const slug = slugifyText(body.slug ?? body.name) || "channel";
   const [created] = await db.insert(crmChannels).values({
@@ -2022,13 +3088,17 @@ app.post("/api/crm/channels", { preHandler: requireAuth(["admin", "page_develope
     createdAt: new Date(),
     updatedAt: new Date(),
   }).returning();
-  return created;
+  const support = await getCrmColumnSupport();
+  if (support.channelsType) {
+    await db.execute(sql`UPDATE "crm_channels" SET "channel_type" = ${body.channelType ?? "custom"} WHERE "id" = ${created.id}`);
+  }
+  return { ...created, channelType: body.channelType ?? "custom" };
 });
 
 app.put<{ Params: { id: string } }>("/api/crm/channels/:id", { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) }, async (req, reply) => {
   const id = Number(req.params.id);
   if (Number.isNaN(id)) return reply.status(400).send({ error: "Invalid id" });
-  const body = req.body as { name?: string; slug?: string; description?: string | null; isActive?: boolean };
+  const body = req.body as { name?: string; slug?: string; description?: string | null; isActive?: boolean; channelType?: string };
   const [existing] = await db.select().from(crmChannels)
     .where(and(eq(crmChannels.id, id), eq(crmChannels.siteId, req.siteId)))
     .limit(1);
@@ -2040,7 +3110,14 @@ app.put<{ Params: { id: string } }>("/api/crm/channels/:id", { preHandler: requi
     isActive: body.isActive !== undefined ? body.isActive : existing.isActive,
     updatedAt: new Date(),
   }).where(eq(crmChannels.id, id)).returning();
-  return updated;
+  const support = await getCrmColumnSupport();
+  if (body.channelType !== undefined && support.channelsType) {
+    await db.execute(sql`UPDATE "crm_channels" SET "channel_type" = ${body.channelType} WHERE "id" = ${id}`);
+  }
+  const channelType = support.channelsType
+    ? (firstRow<{ channel_type: string }>(await db.execute(sql`SELECT channel_type FROM "crm_channels" WHERE "id" = ${id}`))?.channel_type ?? "custom")
+    : "custom";
+  return { ...updated, channelType };
 });
 
 app.delete<{ Params: { id: string } }>("/api/crm/channels/:id", { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) }, async (req, reply) => {
@@ -2058,18 +3135,45 @@ app.delete<{ Params: { id: string } }>("/api/crm/channels/:id", { preHandler: re
 });
 
 app.get("/api/crm/leads", { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) }, async (req) => {
-  const statusQuery = typeof (req.query as { status?: string }).status === "string"
-    ? (req.query as { status?: string }).status
-    : undefined;
-  const baseWhere = eq(crmLeads.siteId, req.siteId);
-  const rows = await db.select().from(crmLeads)
-    .where(statusQuery ? and(baseWhere, eq(crmLeads.status, statusQuery)) : baseWhere)
-    .orderBy(desc(crmLeads.createdAt));
-  const channelRows = await db.select().from(crmChannels).where(eq(crmChannels.siteId, req.siteId));
+  const q = req.query as { status?: string; archived?: string; search?: string; channelId?: string };
+  const showArchived = q.archived === "true";
+  const searchTerm = q.search?.trim().toLowerCase() ?? "";
+  const channelIdFilter = q.channelId ? Number(q.channelId) : undefined;
+  const support = await getCrmColumnSupport();
+  if (showArchived && !support.leadsArchived) return [];
+
+  const rawRows = await db.execute(sql`
+    SELECT *,
+      ${support.leadsArchived ? sql`archived` : sql`false`} AS archived,
+      ${support.leadsTags ? sql`tags` : sql`'[]'::text`} AS tags,
+      ${support.leadsCustomFields ? sql`custom_fields` : sql`'{}'::text`} AS custom_fields,
+      ${support.leadsScore ? sql`score` : sql`0`} AS score
+    FROM "crm_leads"
+    WHERE site_id = ${req.siteId}
+      ${support.leadsArchived ? sql`AND archived = ${showArchived}` : sql``}
+      ${q.status ? sql`AND status = ${q.status}` : sql``}
+      ${channelIdFilter ? sql`AND channel_id = ${channelIdFilter}` : sql``}
+    ORDER BY created_at DESC
+  `);
+  const rows = extractRows<typeof crmLeads.$inferSelect & { archived: boolean; tags: string; custom_fields: string; score: number }>(rawRows);
+  const filteredRows = searchTerm
+    ? rows.filter((r) =>
+      (r.name ?? "").toLowerCase().includes(searchTerm) ||
+      (r.email ?? "").toLowerCase().includes(searchTerm) ||
+      (r.company ?? "").toLowerCase().includes(searchTerm) ||
+      (r.phone ?? "").toLowerCase().includes(searchTerm)
+    )
+    : rows;
+
+  const channelRaw = support.channelsType
+    ? await db.execute(sql`SELECT *, channel_type AS "channelType" FROM "crm_channels" WHERE site_id = ${req.siteId}`)
+    : await db.execute(sql`SELECT *, 'custom'::text AS "channelType" FROM "crm_channels" WHERE site_id = ${req.siteId}`);
+  const channelRows = extractRows<typeof crmChannels.$inferSelect & { channelType: string }>(channelRaw);
   const channelsById = new Map(channelRows.map((c) => [c.id, c]));
-  return rows.map((row) => ({
+
+  return filteredRows.map((row) => ({
     ...mapLeadRow(row),
-    channel: row.channelId ? channelsById.get(row.channelId) ?? null : null,
+    channel: row.channelId ? (channelsById.get(row.channelId) ?? null) : null,
   }));
 });
 
@@ -2084,6 +3188,9 @@ app.post("/api/crm/leads", { preHandler: requireAuth(["admin", "page_developer",
     company?: string | null;
     notes?: string | null;
     payload?: Record<string, unknown>;
+    tags?: string[];
+    customFields?: Record<string, string>;
+    score?: number;
   };
   let channelId = body.channelId ?? null;
   if (!channelId) {
@@ -2106,7 +3213,20 @@ app.post("/api/crm/leads", { preHandler: requireAuth(["admin", "page_developer",
     createdAt: new Date(),
     updatedAt: new Date(),
   }).returning();
-  return mapLeadRow(created);
+  const tags = JSON.stringify(body.tags ?? []);
+  const customFields = JSON.stringify(body.customFields ?? {});
+  const score = body.score ?? 0;
+  const support = await getCrmColumnSupport();
+  if (support.leadsTags || support.leadsCustomFields || support.leadsScore) {
+    const updates: string[] = [];
+    if (support.leadsTags) updates.push(`tags = '${tags.replace(/'/g, "''")}'`);
+    if (support.leadsCustomFields) updates.push(`custom_fields = '${customFields.replace(/'/g, "''")}'`);
+    if (support.leadsScore) updates.push(`score = ${Math.max(0, Math.min(100, score))}`);
+    if (updates.length > 0) {
+      await db.execute(sql.raw(`UPDATE "crm_leads" SET ${updates.join(", ")} WHERE id = ${created.id}`));
+    }
+  }
+  return { ...mapLeadRow(created), tags: body.tags ?? [], customFields: body.customFields ?? {}, score, archived: false };
 });
 
 app.put<{ Params: { id: string } }>("/api/crm/leads/:id", { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) }, async (req, reply) => {
@@ -2120,6 +3240,9 @@ app.put<{ Params: { id: string } }>("/api/crm/leads/:id", { preHandler: requireA
     phone?: string | null;
     company?: string | null;
     channelId?: number | null;
+    tags?: string[];
+    customFields?: Record<string, string>;
+    score?: number;
   };
   const [existing] = await db.select().from(crmLeads)
     .where(and(eq(crmLeads.id, id), eq(crmLeads.siteId, req.siteId)))
@@ -2135,7 +3258,31 @@ app.put<{ Params: { id: string } }>("/api/crm/leads/:id", { preHandler: requireA
     channelId: body.channelId !== undefined ? body.channelId : existing.channelId,
     updatedAt: new Date(),
   }).where(eq(crmLeads.id, id)).returning();
-  return mapLeadRow(updated);
+  const support = await getCrmColumnSupport();
+  const extraUpdates: string[] = [];
+  if (support.leadsTags && body.tags !== undefined) extraUpdates.push(`tags = '${JSON.stringify(body.tags).replace(/'/g, "''")}'`);
+  if (support.leadsCustomFields && body.customFields !== undefined) extraUpdates.push(`custom_fields = '${JSON.stringify(body.customFields).replace(/'/g, "''")}'`);
+  if (support.leadsScore && body.score !== undefined) extraUpdates.push(`score = ${Math.max(0, Math.min(100, body.score))}`);
+  if (extraUpdates.length > 0) {
+    await db.execute(sql.raw(`UPDATE "crm_leads" SET ${extraUpdates.join(", ")} WHERE id = ${id}`));
+  }
+  const fresh = support.leadsArchived || support.leadsTags || support.leadsCustomFields || support.leadsScore
+    ? firstRow<{ archived: boolean; tags: string; custom_fields: string; score: number }>(await db.execute(sql`
+      SELECT
+        ${support.leadsArchived ? sql`archived` : sql`false`} AS archived,
+        ${support.leadsTags ? sql`tags` : sql`'[]'::text`} AS tags,
+        ${support.leadsCustomFields ? sql`custom_fields` : sql`'{}'::text`} AS custom_fields,
+        ${support.leadsScore ? sql`score` : sql`0`} AS score
+      FROM "crm_leads" WHERE id = ${id}
+    `))
+    : undefined;
+  return {
+    ...mapLeadRow(updated),
+    archived: fresh?.archived ?? false,
+    tags: parseJsonArraySafe<string>(fresh?.tags),
+    customFields: (() => { try { return JSON.parse(fresh?.custom_fields ?? "{}") as Record<string, string>; } catch { return {}; } })(),
+    score: fresh?.score ?? 0,
+  };
 });
 
 app.delete<{ Params: { id: string } }>("/api/crm/leads/:id", { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) }, async (req, reply) => {
@@ -2147,6 +3294,201 @@ app.delete<{ Params: { id: string } }>("/api/crm/leads/:id", { preHandler: requi
   if (!existing) return reply.status(404).send({ error: "Lead not found" });
   await db.delete(crmLeads).where(eq(crmLeads.id, id));
   return { ok: true };
+});
+
+app.post<{ Params: { id: string } }>("/api/crm/leads/:id/archive", { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) }, async (req, reply) => {
+  const id = Number(req.params.id);
+  if (Number.isNaN(id)) return reply.status(400).send({ error: "Invalid id" });
+  const [existing] = await db.select().from(crmLeads).where(and(eq(crmLeads.id, id), eq(crmLeads.siteId, req.siteId))).limit(1);
+  if (!existing) return reply.status(404).send({ error: "Lead not found" });
+  const support = await getCrmColumnSupport();
+  if (support.leadsArchived) {
+    await db.execute(sql`UPDATE "crm_leads" SET archived = true, updated_at = now() WHERE id = ${id}`);
+  }
+  return { ok: true };
+});
+
+app.post<{ Params: { id: string } }>("/api/crm/leads/:id/unarchive", { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) }, async (req, reply) => {
+  const id = Number(req.params.id);
+  if (Number.isNaN(id)) return reply.status(400).send({ error: "Invalid id" });
+  const [existing] = await db.select().from(crmLeads).where(and(eq(crmLeads.id, id), eq(crmLeads.siteId, req.siteId))).limit(1);
+  if (!existing) return reply.status(404).send({ error: "Lead not found" });
+  const support = await getCrmColumnSupport();
+  if (support.leadsArchived) {
+    await db.execute(sql`UPDATE "crm_leads" SET archived = false, updated_at = now() WHERE id = ${id}`);
+  }
+  return { ok: true };
+});
+
+app.get<{ Params: { id: string } }>("/api/crm/leads/:id/activities", { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) }, async (req, reply) => {
+  const id = Number(req.params.id);
+  if (Number.isNaN(id)) return reply.status(400).send({ error: "Invalid id" });
+  const [lead] = await db.select().from(crmLeads).where(and(eq(crmLeads.id, id), eq(crmLeads.siteId, req.siteId))).limit(1);
+  if (!lead) return reply.status(404).send({ error: "Lead not found" });
+  const raw = await db.execute(sql`
+    SELECT a.*, u.email AS created_by_email
+    FROM "crm_lead_activities" a
+    LEFT JOIN "users" u ON u.id = a.created_by
+    WHERE a.lead_id = ${id} AND a.site_id = ${req.siteId}
+    ORDER BY a.created_at DESC
+  `);
+  return extractRows(raw);
+});
+
+app.post<{ Params: { id: string } }>("/api/crm/leads/:id/activities", { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) }, async (req, reply) => {
+  const id = Number(req.params.id);
+  if (Number.isNaN(id)) return reply.status(400).send({ error: "Invalid id" });
+  const body = req.body as { type?: string; content?: string };
+  const [lead] = await db.select().from(crmLeads).where(and(eq(crmLeads.id, id), eq(crmLeads.siteId, req.siteId))).limit(1);
+  if (!lead) return reply.status(404).send({ error: "Lead not found" });
+  const me = req.user as import("./auth.js").JwtPayload;
+  const raw = await db.execute(sql`
+    INSERT INTO "crm_lead_activities" (lead_id, site_id, type, content, created_by, created_at)
+    VALUES (${id}, ${req.siteId}, ${body.type ?? "note"}, ${body.content ?? null}, ${me.sub}, now())
+    RETURNING *
+  `);
+  return firstRow(raw) ?? null;
+});
+
+app.get("/api/crm/analytics", { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) }, async (req) => {
+  const support = await getCrmColumnSupport();
+  const activeCond = support.leadsArchived ? sql`NOT archived` : sql`true`;
+  const archivedCond = support.leadsArchived ? sql`archived` : sql`false`;
+  const activeLeadCond = support.leadsArchived ? sql`NOT l.archived` : sql`true`;
+  const qualifiedLeadCond = support.leadsArchived ? sql`NOT l.archived AND l.status = 'qualified'` : sql`l.status = 'qualified'`;
+  const [totals] = extractRows<Record<string, string>>(await db.execute(sql`
+    SELECT
+      COUNT(*) FILTER (WHERE ${activeCond}) AS active_leads,
+      COUNT(*) FILTER (WHERE ${archivedCond}) AS archived_leads,
+      COUNT(*) FILTER (WHERE ${activeCond} AND status = 'new') AS new_leads,
+      COUNT(*) FILTER (WHERE ${activeCond} AND status = 'contacted') AS contacted_leads,
+      COUNT(*) FILTER (WHERE ${activeCond} AND status = 'qualified') AS qualified_leads,
+      COUNT(*) FILTER (WHERE ${activeCond} AND status = 'lost') AS lost_leads,
+      ROUND(AVG(${support.leadsScore ? sql`score` : sql`0`}) FILTER (WHERE ${activeCond}), 1) AS avg_score,
+      COUNT(*) FILTER (WHERE ${activeCond} AND created_at >= now() - interval '30 days') AS leads_last_30d,
+      COUNT(*) FILTER (WHERE ${activeCond} AND created_at >= now() - interval '7 days') AS leads_last_7d
+    FROM "crm_leads" WHERE site_id = ${req.siteId}
+  `));
+
+  const byChannel = extractRows(await db.execute(sql`
+    SELECT c.name AS channel_name, ${support.channelsType ? sql`c.channel_type` : sql`'custom'::text`} AS channel_type, c.slug,
+      COUNT(l.id) FILTER (WHERE ${activeLeadCond}) AS leads,
+      COUNT(l.id) FILTER (WHERE ${qualifiedLeadCond}) AS qualified
+    FROM "crm_channels" c
+    LEFT JOIN "crm_leads" l ON l.channel_id = c.id AND l.site_id = ${req.siteId}
+    WHERE c.site_id = ${req.siteId}
+    GROUP BY c.id, c.name, c.slug${support.channelsType ? sql`, c.channel_type` : sql``}
+    ORDER BY leads DESC
+  `));
+
+  const trend30d = extractRows(await db.execute(sql`
+    SELECT date_trunc('day', created_at) AS day, COUNT(*) AS leads
+    FROM "crm_leads"
+    WHERE site_id = ${req.siteId} AND ${activeCond} AND created_at >= now() - interval '30 days'
+    GROUP BY day ORDER BY day ASC
+  `));
+
+  return {
+    totals: {
+      activeLeads: Number(totals?.active_leads ?? 0),
+      archivedLeads: Number(totals?.archived_leads ?? 0),
+      newLeads: Number(totals?.new_leads ?? 0),
+      contactedLeads: Number(totals?.contacted_leads ?? 0),
+      qualifiedLeads: Number(totals?.qualified_leads ?? 0),
+      lostLeads: Number(totals?.lost_leads ?? 0),
+      avgScore: Number(totals?.avg_score ?? 0),
+      leadsLast30d: Number(totals?.leads_last_30d ?? 0),
+      leadsLast7d: Number(totals?.leads_last_7d ?? 0),
+    },
+    byChannel,
+    trend30d,
+  };
+});
+
+app.get("/api/crm/ai-context", { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) }, async (req) => {
+  const support = await getCrmColumnSupport();
+  const activeCond = support.leadsArchived ? sql`NOT archived` : sql`true`;
+  const archivedCond = support.leadsArchived ? sql`archived` : sql`false`;
+  const activeLeadCond = support.leadsArchived ? sql`NOT l.archived` : sql`true`;
+  const qualifiedLeadCond = support.leadsArchived ? sql`NOT l.archived AND l.status = 'qualified'` : sql`l.status = 'qualified'`;
+  const lostLeadCond = support.leadsArchived ? sql`NOT l.archived AND l.status = 'lost'` : sql`l.status = 'lost'`;
+  const [totals] = extractRows<Record<string, string>>(await db.execute(sql`
+    SELECT
+      COUNT(*) FILTER (WHERE ${activeCond}) AS active_leads,
+      COUNT(*) FILTER (WHERE ${archivedCond}) AS archived_leads,
+      COUNT(*) FILTER (WHERE ${activeCond} AND status = 'new') AS new_leads,
+      COUNT(*) FILTER (WHERE ${activeCond} AND status = 'contacted') AS contacted_leads,
+      COUNT(*) FILTER (WHERE ${activeCond} AND status = 'qualified') AS qualified_leads,
+      COUNT(*) FILTER (WHERE ${activeCond} AND status = 'lost') AS lost_leads,
+      ROUND(AVG(${support.leadsScore ? sql`score` : sql`0`}) FILTER (WHERE ${activeCond}), 1) AS avg_score
+    FROM "crm_leads" WHERE site_id = ${req.siteId}
+  `));
+
+  const byChannel = extractRows(await db.execute(sql`
+    SELECT c.name AS channel_name, ${support.channelsType ? sql`c.channel_type` : sql`'custom'::text`} AS channel_type, c.slug,
+      COUNT(l.id) FILTER (WHERE ${activeLeadCond}) AS leads,
+      COUNT(l.id) FILTER (WHERE ${qualifiedLeadCond}) AS qualified,
+      COUNT(l.id) FILTER (WHERE ${lostLeadCond}) AS lost,
+      ROUND(AVG(${support.leadsScore ? sql`l.score` : sql`0`}) FILTER (WHERE ${activeLeadCond}), 1) AS avg_score
+    FROM "crm_channels" c
+    LEFT JOIN "crm_leads" l ON l.channel_id = c.id AND l.site_id = ${req.siteId}
+    WHERE c.site_id = ${req.siteId}
+    GROUP BY c.id, c.name, c.slug${support.channelsType ? sql`, c.channel_type` : sql``}
+    ORDER BY leads DESC
+  `));
+
+  const recentLeads = extractRows(await db.execute(sql`
+    SELECT l.id, l.name, l.email, l.company, l.status, l.source, ${support.leadsScore ? sql`l.score` : sql`0`} AS score,
+      c.name AS channel_name, ${support.channelsType ? sql`c.channel_type` : sql`'custom'::text`} AS channel_type,
+      l.created_at, l.updated_at
+    FROM "crm_leads" l
+    LEFT JOIN "crm_channels" c ON c.id = l.channel_id
+    WHERE l.site_id = ${req.siteId} AND ${activeLeadCond}
+    ORDER BY l.created_at DESC LIMIT 20
+  `));
+
+  const topLeadsByScore = extractRows(await db.execute(sql`
+    SELECT l.id, l.name, l.email, l.company, l.status, ${support.leadsScore ? sql`l.score` : sql`0`} AS score,
+      c.name AS channel_name
+    FROM "crm_leads" l
+    LEFT JOIN "crm_channels" c ON c.id = l.channel_id
+    WHERE l.site_id = ${req.siteId} AND ${activeLeadCond}
+    ORDER BY ${support.leadsScore ? sql`l.score` : sql`l.created_at`} DESC LIMIT 10
+  `));
+
+  const conversionRate = Number(totals?.qualified_leads ?? 0) / Math.max(1, Number(totals?.active_leads ?? 1));
+
+  return {
+    _meta: {
+      description: "OpenWeb CRM context for AI analysis. Contains pipeline summary, channel performance, and lead data.",
+      generatedAt: new Date().toISOString(),
+      siteId: req.siteId,
+    },
+    pipeline: {
+      totalActive: Number(totals?.active_leads ?? 0),
+      totalArchived: Number(totals?.archived_leads ?? 0),
+      byStatus: {
+        new: Number(totals?.new_leads ?? 0),
+        contacted: Number(totals?.contacted_leads ?? 0),
+        qualified: Number(totals?.qualified_leads ?? 0),
+        lost: Number(totals?.lost_leads ?? 0),
+      },
+      conversionRate: Math.round(conversionRate * 100) / 100,
+      avgLeadScore: Number(totals?.avg_score ?? 0),
+    },
+    channels: byChannel,
+    recentLeads,
+    topLeadsByScore,
+    insights: {
+      highestPerformingChannel: (byChannel as { channel_name: string; leads: string }[])[0]?.channel_name ?? null,
+      qualificationRate: Math.round(conversionRate * 100),
+      recommendations: [
+        Number(totals?.new_leads ?? 0) > 10 ? "You have many new leads — consider running a contact campaign." : null,
+        Number(totals?.contacted_leads ?? 0) > Number(totals?.qualified_leads ?? 0) * 3 ? "Contacted leads aren't converting — review your qualification criteria." : null,
+        Number(totals?.lost_leads ?? 0) > Number(totals?.active_leads ?? 0) * 0.4 ? "High lead loss rate — audit your follow-up timing and messaging." : null,
+      ].filter(Boolean),
+    },
+  };
 });
 
 // ── Plugins CRUD (admin only) ──────────────────────────────────────────────────
@@ -2179,7 +3521,7 @@ type PluginCronJob = {
 const PLUGINS_DIR = join(UPLOADS_DIR, "plugins");
 const pluginCronJobs: PluginCronJob[] = [];
 let pluginCronTimer: NodeJS.Timeout | null = null;
-const pluginSql = postgres(process.env.DATABASE_URL!);
+const pluginSql = postgres(getDatabaseUrl());
 
 function ensurePluginsDir() {
   if (!existsSync(PLUGINS_DIR)) mkdirSync(PLUGINS_DIR, { recursive: true });
@@ -2610,6 +3952,7 @@ async function loadPlugins() {
 }
 
 await loadPlugins();
+startSslAutoRenewScheduler();
 
 const port = Number(process.env.PORT) || 3000;
 await app.listen({ port, host: "0.0.0.0" });

@@ -1,5 +1,6 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
+import { motion } from "framer-motion";
 import type { NavMenuItem, NavDropdownLink } from "@/lib/api";
 
 export type NavVariantProps = {
@@ -7,6 +8,9 @@ export type NavVariantProps = {
   logoImage?: string;
   logoHref: string;
   navLinks: NavMenuItem[];
+  navLinkStyle?: "classic" | "underline" | "pill" | "art-gradient";
+  dropdownStyle?: "minimal" | "modern-card" | "gradient-border" | "glassmorphic";
+  dropdownAnimation?: "fade" | "slide-up" | "scale-up" | "fade-slide";
   ctaPrimaryText?: string;
   ctaPrimaryHref?: string;
   ctaSecondaryText?: string;
@@ -72,64 +76,421 @@ function LogoBrand({ logoText, logoImage, logoHref, linkStyle }: { logoText: str
   );
 }
 
-function DropdownPanel({ groups }: { groups: NonNullable<NavMenuItem["dropdown"]> }) {
-  return (
-    <div className="invisible opacity-0 pointer-events-none group-hover:visible group-hover:opacity-100 group-hover:pointer-events-auto absolute left-0 top-full pt-2 transition duration-150">
-      <div className="min-w-[280px] rounded-xl border bg-white p-3 shadow-xl">
-        <div className="space-y-3">
+function DropdownPanel({
+  groups,
+  dropdownStyle = "minimal",
+  dropdownAnimation = "fade",
+}: {
+  groups: NonNullable<NavMenuItem["dropdown"]>;
+  dropdownStyle?: "minimal" | "modern-card" | "gradient-border" | "glassmorphic";
+  dropdownAnimation?: "fade" | "slide-up" | "scale-up" | "fade-slide";
+}) {
+  const location = useLocation();
+
+  // Outer transition/animation styles
+  let animationClass = "";
+  if (dropdownAnimation === "slide-up") {
+    animationClass = "absolute left-0 top-full pt-2 z-50 pointer-events-none opacity-0 translate-y-3 transition-all duration-300 ease-out group-hover:pointer-events-auto group-hover:opacity-100 group-hover:translate-y-0";
+  } else if (dropdownAnimation === "scale-up") {
+    animationClass = "absolute left-0 top-full pt-2 z-50 pointer-events-none opacity-0 scale-95 origin-top transition-all duration-300 ease-out group-hover:pointer-events-auto group-hover:opacity-100 group-hover:scale-100";
+  } else if (dropdownAnimation === "fade-slide") {
+    animationClass = "absolute left-0 top-full pt-2 z-50 pointer-events-none opacity-0 translate-y-2 scale-[0.98] origin-top transition-all duration-300 ease-in-out group-hover:pointer-events-auto group-hover:opacity-100 group-hover:translate-y-0 group-hover:scale-100";
+  } else {
+    // default/fade
+    animationClass = "absolute left-0 top-full pt-2 z-50 pointer-events-none opacity-0 transition-opacity duration-300 group-hover:pointer-events-auto group-hover:opacity-100";
+  }
+
+  let container = null;
+  if (dropdownStyle === "modern-card") {
+    container = (
+      <div className="min-w-[320px] rounded-2xl border border-neutral-100 bg-white p-4 shadow-2xl relative overflow-hidden dark:bg-neutral-950 dark:border-neutral-900">
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary via-purple-500 to-indigo-500" />
+        <div className="space-y-3 mt-1">
           {groups.map((group, gi) => (
             <div key={gi} className="space-y-2">
-              {group.title ? <p className="px-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-500">{group.title}</p> : null}
+              {group.title ? (
+                <p className="px-3 text-[10px] font-bold uppercase tracking-widest text-neutral-400 dark:text-neutral-500">
+                  {group.title}
+                </p>
+              ) : null}
               <div className="space-y-1">
-                {group.links.map((entry, li) => (
-                  <div key={li} className="rounded-md px-2 py-1.5 hover:bg-neutral-50">
-                    {entry.title ? <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">{entry.title}</p> : null}
-                    <NavAnchor href={entry.href} className="block text-sm font-medium text-neutral-800 hover:text-neutral-600">
-                      {entry.label}
-                    </NavAnchor>
-                    {(entry.children ?? []).length > 0 ? (
-                      <div className="mt-1.5 space-y-1 pl-3 border-l border-neutral-200">
-                        {entry.children?.map((child, ci) => (
-                          <NavAnchor key={ci} href={child.href} className="block text-xs text-neutral-600 hover:text-neutral-800">
-                            {child.label}
-                          </NavAnchor>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
+                {group.links.map((entry, li) => {
+                  const isActive = isLinkActive(entry.href, location.pathname, location.hash);
+                  return (
+                    <div
+                      key={li}
+                      className={`rounded-xl px-3 py-2 transition-all border ${
+                        isActive
+                          ? "bg-primary/5 text-primary border-primary/20 shadow-sm font-semibold"
+                          : "border-transparent hover:bg-neutral-50 dark:hover:bg-neutral-900 hover:border-neutral-100 dark:hover:border-neutral-800"
+                      }`}
+                    >
+                      {entry.title ? (
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
+                          {entry.title}
+                        </p>
+                      ) : null}
+                      <NavAnchor
+                        href={entry.href}
+                        className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                          isActive ? "text-primary" : "text-neutral-800 hover:text-neutral-600 dark:text-neutral-200 dark:hover:text-neutral-400"
+                        }`}
+                      >
+                        {isActive && <span className="size-1.5 rounded-full bg-primary animate-pulse" />}
+                        <span>{entry.label}</span>
+                      </NavAnchor>
+                      {(entry.children ?? []).length > 0 ? (
+                        <div className="mt-1.5 space-y-1 pl-3 border-l border-neutral-200 dark:border-neutral-800">
+                          {entry.children?.map((child, ci) => {
+                            const isChildActive = isLinkActive(child.href, location.pathname, location.hash);
+                            return (
+                              <NavAnchor
+                                key={ci}
+                                href={child.href}
+                                className={`flex items-center gap-1 text-xs transition-colors py-0.5 ${
+                                  isChildActive
+                                    ? "text-primary font-semibold"
+                                    : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+                                }`}
+                              >
+                                {isChildActive && <span className="text-primary font-bold">›</span>}
+                                <span>{child.label}</span>
+                              </NavAnchor>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ))}
         </div>
       </div>
+    );
+  } else if (dropdownStyle === "gradient-border") {
+    container = (
+      <div className="min-w-[300px] p-[1px] bg-gradient-to-br from-pink-500 via-purple-500 to-indigo-500 rounded-xl shadow-2xl overflow-hidden">
+        <div className="bg-white dark:bg-neutral-950 p-3 rounded-[11px] space-y-3">
+          {groups.map((group, gi) => (
+            <div key={gi} className="space-y-2">
+              {group.title ? (
+                <p className="px-2.5 text-[10px] font-bold uppercase tracking-widest text-neutral-400 dark:text-neutral-500">
+                  {group.title}
+                </p>
+              ) : null}
+              <div className="space-y-1">
+                {group.links.map((entry, li) => {
+                  const isActive = isLinkActive(entry.href, location.pathname, location.hash);
+                  return (
+                    <div
+                      key={li}
+                      className={`rounded-lg px-2.5 py-1.5 transition-all ${
+                        isActive
+                          ? "bg-gradient-to-r from-pink-500/10 to-indigo-500/10 text-neutral-900 dark:text-white font-semibold border-r-2 border-indigo-500"
+                          : "hover:bg-neutral-50 dark:hover:bg-neutral-900"
+                      }`}
+                    >
+                      {entry.title ? (
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
+                          {entry.title}
+                        </p>
+                      ) : null}
+                      <NavAnchor
+                        href={entry.href}
+                        className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                          isActive
+                            ? "bg-gradient-to-r from-pink-500 to-indigo-500 bg-clip-text text-transparent"
+                            : "text-neutral-800 hover:text-neutral-600 dark:text-neutral-200 dark:hover:text-neutral-400"
+                        }`}
+                      >
+                        {isActive && <span className="size-1.5 rounded-full bg-gradient-to-r from-pink-500 to-indigo-500" />}
+                        <span>{entry.label}</span>
+                      </NavAnchor>
+                      {(entry.children ?? []).length > 0 ? (
+                        <div className="mt-1.5 space-y-1 pl-3 border-l border-neutral-200 dark:border-neutral-800">
+                          {entry.children?.map((child, ci) => {
+                            const isChildActive = isLinkActive(child.href, location.pathname, location.hash);
+                            return (
+                              <NavAnchor
+                                key={ci}
+                                href={child.href}
+                                className={`flex items-center gap-1 text-xs transition-colors py-0.5 ${
+                                  isChildActive
+                                    ? "text-purple-600 dark:text-purple-400 font-semibold"
+                                    : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+                                }`}
+                              >
+                                {isChildActive && <span className="text-purple-500 font-bold">›</span>}
+                                <span>{child.label}</span>
+                              </NavAnchor>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  } else if (dropdownStyle === "glassmorphic") {
+    container = (
+      <div className="min-w-[280px] rounded-2xl border border-white/20 bg-white/70 backdrop-blur-xl p-3 shadow-2xl dark:bg-neutral-900/60 dark:border-white/10">
+        <div className="space-y-3">
+          {groups.map((group, gi) => (
+            <div key={gi} className="space-y-2">
+              {group.title ? (
+                <p className="px-2 text-[10px] font-bold uppercase tracking-widest text-neutral-500 dark:text-neutral-400">
+                  {group.title}
+                </p>
+              ) : null}
+              <div className="space-y-0.5">
+                {group.links.map((entry, li) => {
+                  const isActive = isLinkActive(entry.href, location.pathname, location.hash);
+                  return (
+                    <div
+                      key={li}
+                      className={`rounded-lg px-2.5 py-1.5 transition-all ${
+                        isActive
+                          ? "bg-white/80 dark:bg-white/20 text-neutral-950 dark:text-white shadow-inner font-semibold border-l-2 border-indigo-500 -ml-2 pl-3.5"
+                          : "hover:bg-white/50 dark:hover:bg-white/10"
+                      }`}
+                    >
+                      {entry.title ? (
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
+                          {entry.title}
+                        </p>
+                      ) : null}
+                      <NavAnchor
+                        href={entry.href}
+                        className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                          isActive ? "text-neutral-950 dark:text-white" : "text-neutral-800 hover:text-neutral-600 dark:text-neutral-200 dark:hover:text-neutral-400"
+                        }`}
+                      >
+                        {isActive && <span className="size-1.5 rounded-full bg-indigo-500" />}
+                        <span>{entry.label}</span>
+                      </NavAnchor>
+                      {(entry.children ?? []).length > 0 ? (
+                        <div className="mt-1.5 space-y-1 pl-3 border-l border-neutral-200 dark:border-neutral-800">
+                          {entry.children?.map((child, ci) => {
+                            const isChildActive = isLinkActive(child.href, location.pathname, location.hash);
+                            return (
+                              <NavAnchor
+                                key={ci}
+                                href={child.href}
+                                className={`flex items-center gap-1 text-xs transition-colors py-0.5 ${
+                                  isChildActive
+                                    ? "text-indigo-600 dark:text-indigo-400 font-semibold"
+                                    : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+                                }`}
+                              >
+                                {isChildActive && <span className="text-indigo-500 font-bold">›</span>}
+                                <span>{child.label}</span>
+                              </NavAnchor>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  } else {
+    // minimal
+    container = (
+      <div className="min-w-[280px] rounded-xl border border-neutral-100 bg-white p-3 shadow-lg dark:bg-neutral-900 dark:border-neutral-800">
+        <div className="space-y-3">
+          {groups.map((group, gi) => (
+            <div key={gi} className="space-y-2">
+              {group.title ? (
+                <p className="px-2 text-[10px] font-bold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
+                  {group.title}
+                </p>
+              ) : null}
+              <div className="space-y-1">
+                {group.links.map((entry, li) => {
+                  const isActive = isLinkActive(entry.href, location.pathname, location.hash);
+                  return (
+                    <div
+                      key={li}
+                      className={`rounded-md px-2.5 py-1.5 transition-colors ${
+                        isActive
+                          ? "bg-neutral-50 dark:bg-neutral-800 text-primary font-semibold border-l-2 border-primary -ml-2 pl-3.5"
+                          : "hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                      }`}
+                    >
+                      {entry.title ? (
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
+                          {entry.title}
+                        </p>
+                      ) : null}
+                      <NavAnchor
+                        href={entry.href}
+                        className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                          isActive ? "text-primary" : "text-neutral-800 hover:text-neutral-600 dark:text-neutral-200 dark:hover:text-neutral-400"
+                        }`}
+                      >
+                        {isActive && <span className="size-1.5 rounded-full bg-primary" />}
+                        <span>{entry.label}</span>
+                      </NavAnchor>
+                      {(entry.children ?? []).length > 0 ? (
+                        <div className="mt-1.5 space-y-1 pl-3 border-l border-neutral-200 dark:border-neutral-800">
+                          {entry.children?.map((child, ci) => {
+                            const isChildActive = isLinkActive(child.href, location.pathname, location.hash);
+                            return (
+                              <NavAnchor
+                                key={ci}
+                                href={child.href}
+                                className={`flex items-center gap-1 text-xs transition-colors py-0.5 ${
+                                  isChildActive
+                                    ? "text-primary font-semibold"
+                                    : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+                                }`}
+                              >
+                                {isChildActive && <span className="text-primary font-bold">›</span>}
+                                <span>{child.label}</span>
+                              </NavAnchor>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={animationClass}>
+      {container}
     </div>
   );
 }
 
-function DesktopNav({ links, linkStyle }: { links: NavMenuItem[]; linkStyle?: CSSProperties }) {
+function isLinkActive(href?: string, pathname?: string, hash?: string): boolean {
+  if (!href) return false;
+  const path = pathname || "/";
+  const h = hash || "";
+  if (href.startsWith("#")) {
+    return h === href;
+  }
+  const cleanHref = href.replace(/\/+$/, "");
+  const cleanPath = path.replace(/\/+$/, "");
+  if (cleanHref === "" && cleanPath === "") {
+    return h === "";
+  }
+  return cleanPath === cleanHref;
+}
+
+function DesktopNav({
+  links,
+  linkStyle,
+  navLinkStyle = "classic",
+  dropdownStyle = "minimal",
+  dropdownAnimation = "fade",
+}: {
+  links: NavMenuItem[];
+  linkStyle?: CSSProperties;
+  navLinkStyle?: "classic" | "underline" | "pill" | "art-gradient";
+  dropdownStyle?: "minimal" | "modern-card" | "gradient-border" | "glassmorphic";
+  dropdownAnimation?: "fade" | "slide-up" | "scale-up" | "fade-slide";
+}) {
+  const location = useLocation();
+
   return (
     <nav className="hidden lg:block">
-      <ul className="flex items-center">
+      <ul className="flex items-center gap-x-1">
         {links.map((item, i) => {
           const hasDropdown = (item.dropdown ?? []).length > 0;
-          if (!hasDropdown) {
+          const isDirectActive = isLinkActive(item.href, location.pathname, location.hash);
+          
+          // Parent menu item highlighting: check if any dropdown links or child links are active
+          const hasActiveDropdownLink = item.dropdown?.some(group => 
+            group.links?.some(entry => 
+              isLinkActive(entry.href, location.pathname, location.hash) || 
+              entry.children?.some(child => isLinkActive(child.href, location.pathname, location.hash))
+            )
+          );
+          const isActive = isDirectActive || hasActiveDropdownLink;
+
+          let containerClass = "relative py-1.5 px-3 text-sm font-medium transition-all group/link flex items-center gap-1 rounded-md ";
+          let customLinkStyle = { ...linkStyle };
+          let underlineElement = null;
+
+          if (navLinkStyle === "underline") {
+            containerClass += isActive 
+              ? "text-neutral-900 dark:text-white font-semibold "
+              : "text-neutral-600 hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-white ";
+            underlineElement = (
+              <span className={`absolute bottom-0 left-3 right-3 h-[2px] bg-primary transition-all duration-300 ${isActive ? "w-[calc(100%-1.5rem)] opacity-100" : "w-0 opacity-0 group-hover/link:w-[calc(100%-1.5rem)] group-hover/link:opacity-100"}`} />
+            );
+          } else if (navLinkStyle === "pill") {
+            containerClass = "relative py-1.5 px-4 text-sm font-medium transition-all group/link flex items-center gap-1 rounded-full z-10 ";
+            if (isActive) {
+              containerClass += "text-primary font-semibold ";
+            } else {
+              containerClass += "text-neutral-600 hover:bg-neutral-100/50 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-white/10 dark:hover:text-white ";
+            }
+            underlineElement = isActive ? (
+              <motion.span
+                layoutId="activePill"
+                className="absolute inset-0 bg-primary/10 rounded-full -z-10"
+                transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              />
+            ) : null;
+          } else if (navLinkStyle === "art-gradient") {
+            containerClass += "font-bold ";
+            if (isActive) {
+              containerClass += "bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 bg-clip-text text-transparent ";
+            } else {
+              containerClass += "text-neutral-600 hover:bg-gradient-to-r hover:from-pink-500 hover:via-purple-500 hover:to-indigo-500 hover:bg-clip-text hover:text-transparent dark:text-neutral-300 ";
+            }
+            underlineElement = (
+              <span className={`absolute bottom-0 left-3 right-3 h-[2px] bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 transition-all duration-300 ${isActive ? "w-[calc(100%-1.5rem)] opacity-100" : "w-0 opacity-0 group-hover/link:w-[calc(100%-1.5rem)] group-hover/link:opacity-100"}`} />
+            );
+          } else {
+            // classic
+            if (isActive) {
+              containerClass += "text-primary font-semibold ";
+            } else {
+              containerClass += "text-neutral-700 hover:text-primary dark:text-neutral-300 dark:hover:text-white ";
+            }
+          }
+
+          if (hasDropdown) {
             return (
-              <li key={i}>
-                <NavAnchor href={item.href} style={linkStyle} className="px-3 py-2 text-sm font-medium text-neutral-700 transition hover:text-neutral-600">
-                  {item.label}
-                </NavAnchor>
+              <li key={i} className="relative group">
+                <button type="button" style={customLinkStyle} className={containerClass}>
+                  <span>{item.label}</span>
+                  <ChevronDown />
+                  {underlineElement}
+                </button>
+                <DropdownPanel groups={item.dropdown ?? []} dropdownStyle={dropdownStyle} dropdownAnimation={dropdownAnimation} />
               </li>
             );
           }
 
           return (
-            <li key={i} className="relative group">
-              <button type="button" style={linkStyle} className="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium text-neutral-700 transition hover:text-neutral-600">
-                {item.label}
-                <ChevronDown />
-              </button>
-              <DropdownPanel groups={item.dropdown ?? []} />
+            <li key={i}>
+              <NavAnchor href={item.href} style={customLinkStyle} className={containerClass}>
+                <span>{item.label}</span>
+                {underlineElement}
+              </NavAnchor>
             </li>
           );
         })}
@@ -171,8 +532,17 @@ function DropdownMobileEntry({ entry }: { entry: NavDropdownLink }) {
   );
 }
 
-function MobileDrawer({ links, open }: { links: NavMenuItem[]; open: boolean }) {
+function MobileDrawer({
+  links,
+  open,
+  navLinkStyle = "classic",
+}: {
+  links: NavMenuItem[];
+  open: boolean;
+  navLinkStyle?: "classic" | "underline" | "pill" | "art-gradient";
+}) {
   const [openIndexes, setOpenIndexes] = useState<Record<number, boolean>>({});
+  const location = useLocation();
 
   if (!open || links.length === 0) return null;
 
@@ -181,9 +551,32 @@ function MobileDrawer({ links, open }: { links: NavMenuItem[]; open: boolean }) 
       <nav className="flex flex-col gap-1.5 px-2 pb-2">
         {links.map((item, i) => {
           const hasDropdown = (item.dropdown ?? []).length > 0;
+          const isActive = isLinkActive(item.href, location.pathname, location.hash);
+
+          let mobileClass = "px-3 py-2 text-sm font-medium rounded-md transition-colors block ";
+          if (navLinkStyle === "underline") {
+            mobileClass += isActive
+              ? "text-primary border-l-2 border-primary pl-2 bg-neutral-50/50 "
+              : "text-neutral-700 hover:bg-neutral-50 ";
+          } else if (navLinkStyle === "pill") {
+            mobileClass += isActive
+              ? "bg-primary/10 text-primary font-semibold px-4 rounded-full "
+              : "text-neutral-700 hover:bg-neutral-50 ";
+          } else if (navLinkStyle === "art-gradient") {
+            mobileClass += "font-bold ";
+            mobileClass += isActive
+              ? "bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 bg-clip-text text-transparent border-l-2 border-pink-500 pl-2 "
+              : "text-neutral-700 hover:bg-neutral-50 ";
+          } else {
+            // classic
+            mobileClass += isActive
+              ? "text-primary font-semibold bg-primary/5 "
+              : "text-neutral-700 hover:bg-neutral-50 ";
+          }
+
           if (!hasDropdown) {
             return (
-              <NavAnchor key={i} href={item.href} className="px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 rounded-md transition-colors">
+              <NavAnchor key={i} href={item.href} className={mobileClass}>
                 {item.label}
               </NavAnchor>
             );
@@ -196,7 +589,7 @@ function MobileDrawer({ links, open }: { links: NavMenuItem[]; open: boolean }) 
                 onClick={() => setOpenIndexes((prev) => ({ ...prev, [i]: !prev[i] }))}
                 className="w-full px-3 py-2 flex items-center justify-between text-sm font-medium text-neutral-700"
               >
-                <span>{item.label}</span>
+                <span className={isActive ? "text-primary font-semibold" : ""}>{item.label}</span>
                 <ChevronDown />
               </button>
               {isOpen ? (
@@ -218,7 +611,7 @@ function MobileDrawer({ links, open }: { links: NavMenuItem[]; open: boolean }) 
 }
 
 /** Navbar 1 — Minimal clean */
-export function NavbarMinimal({ logoText, logoImage, logoHref, navLinks, ctaPrimaryText, ctaPrimaryHref, ctaSecondaryText, ctaSecondaryHref, headerStyle, headerBg, headerTextColor }: NavVariantProps) {
+export function NavbarMinimal({ logoText, logoImage, logoHref, navLinks, navLinkStyle, dropdownStyle, dropdownAnimation, ctaPrimaryText, ctaPrimaryHref, ctaSecondaryText, ctaSecondaryHref, headerStyle, headerBg, headerTextColor }: NavVariantProps) {
   const [open, setOpen] = useState(false);
   const isTransparent = headerStyle === "transparent";
   const wrapStyle: CSSProperties = isTransparent
@@ -231,7 +624,7 @@ export function NavbarMinimal({ logoText, logoImage, logoHref, navLinks, ctaPrim
       <div className="max-w-7xl mx-auto px-4 xl:px-0 flex items-center justify-between gap-x-4 lg:grid lg:grid-cols-[1fr_auto_1fr] lg:justify-stretch lg:gap-x-12">
         <LogoBrand logoText={logoText} logoImage={logoImage} logoHref={logoHref} linkStyle={linkStyle} />
 
-        <DesktopNav links={navLinks} linkStyle={linkStyle} />
+        <DesktopNav links={navLinks} linkStyle={linkStyle} navLinkStyle={navLinkStyle} dropdownStyle={dropdownStyle} dropdownAnimation={dropdownAnimation} />
 
         <div className="flex flex-wrap items-center justify-center gap-3 justify-self-end lg:flex-nowrap lg:gap-x-2">
           {ctaSecondaryText && (
@@ -249,13 +642,13 @@ export function NavbarMinimal({ logoText, logoImage, logoHref, navLinks, ctaPrim
           </button>
         </div>
       </div>
-      <MobileDrawer links={navLinks} open={open} />
+      <MobileDrawer links={navLinks} open={open} navLinkStyle={navLinkStyle} />
     </header>
   );
 }
 
 /** Navbar 2 — Elevated floating card (absolutely positioned over page content) */
-export function NavbarElevated({ logoText, logoImage, logoHref, navLinks, ctaPrimaryText, ctaPrimaryHref, ctaSecondaryText, ctaSecondaryHref }: NavVariantProps) {
+export function NavbarElevated({ logoText, logoImage, logoHref, navLinks, navLinkStyle, dropdownStyle, dropdownAnimation, ctaPrimaryText, ctaPrimaryHref, ctaSecondaryText, ctaSecondaryHref }: NavVariantProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -268,7 +661,7 @@ export function NavbarElevated({ logoText, logoImage, logoHref, navLinks, ctaPri
               <span className="hidden h-4 w-[1px] bg-neutral-300 lg:block" />
             </div>
 
-            <DesktopNav links={navLinks} />
+            <DesktopNav links={navLinks} navLinkStyle={navLinkStyle} dropdownStyle={dropdownStyle} dropdownAnimation={dropdownAnimation} />
 
             <div className="flex items-center gap-x-10 justify-self-end">
               <span className="hidden h-4 w-[1px] bg-neutral-300 lg:block" />
@@ -292,7 +685,7 @@ export function NavbarElevated({ logoText, logoImage, logoHref, navLinks, ctaPri
 
           {open && (
             <div className="mt-2 bg-white rounded-2xl shadow-[0_2px_10px_0px_rgba(0,0,0,0.15)] overflow-hidden">
-              <MobileDrawer links={navLinks} open={open} />
+              <MobileDrawer links={navLinks} open={open} navLinkStyle={navLinkStyle} />
             </div>
           )}
         </div>
@@ -303,7 +696,7 @@ export function NavbarElevated({ logoText, logoImage, logoHref, navLinks, ctaPri
 }
 
 /** Header 1 — SaaS landing with dual CTAs */
-export function HeaderSaasCta({ logoText, logoImage, logoHref, navLinks, ctaPrimaryText, ctaPrimaryHref, ctaSecondaryText, ctaSecondaryHref, heroBadge, heroHeadline, heroDescription }: NavVariantProps) {
+export function HeaderSaasCta({ logoText, logoImage, logoHref, navLinks, navLinkStyle, dropdownStyle, dropdownAnimation, ctaPrimaryText, ctaPrimaryHref, ctaSecondaryText, ctaSecondaryHref, heroBadge, heroHeadline, heroDescription }: NavVariantProps) {
   const [open, setOpen] = useState(false);
   const hasHero = heroBadge || heroHeadline || heroDescription;
 
@@ -312,7 +705,7 @@ export function HeaderSaasCta({ logoText, logoImage, logoHref, navLinks, ctaPrim
       <header className="py-4 w-full border-b">
         <div className="max-w-7xl mx-auto px-4 xl:px-0 flex items-center justify-between gap-x-4">
           <LogoBrand logoText={logoText} logoImage={logoImage} logoHref={logoHref} />
-          <DesktopNav links={navLinks} />
+          <DesktopNav links={navLinks} navLinkStyle={navLinkStyle} dropdownStyle={dropdownStyle} dropdownAnimation={dropdownAnimation} />
           <div className="flex items-center gap-2">
             {ctaSecondaryText && (
               <NavAnchor href={ctaSecondaryHref ?? "#"} className="hidden lg:flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all px-3 py-2 rounded-[0.625rem] border border-neutral-100 bg-white text-neutral-700 hover:border-neutral-200 hover:bg-neutral-100">
@@ -329,7 +722,7 @@ export function HeaderSaasCta({ logoText, logoImage, logoHref, navLinks, ctaPrim
             </button>
           </div>
         </div>
-        <MobileDrawer links={navLinks} open={open} />
+        <MobileDrawer links={navLinks} open={open} navLinkStyle={navLinkStyle} />
       </header>
 
       {hasHero && (
@@ -373,7 +766,7 @@ export function HeaderSaasCta({ logoText, logoImage, logoHref, navLinks, ctaPrim
 }
 
 /** Header 2 — SaaS landing with email capture */
-export function HeaderSaasEmail({ logoText, logoImage, logoHref, navLinks, ctaPrimaryText, ctaPrimaryHref, heroBadge, heroHeadline, heroDescription }: NavVariantProps) {
+export function HeaderSaasEmail({ logoText, logoImage, logoHref, navLinks, navLinkStyle, dropdownStyle, dropdownAnimation, ctaPrimaryText, ctaPrimaryHref, heroBadge, heroHeadline, heroDescription }: NavVariantProps) {
   const [open, setOpen] = useState(false);
   const hasHero = heroBadge || heroHeadline || heroDescription;
 
@@ -382,12 +775,12 @@ export function HeaderSaasEmail({ logoText, logoImage, logoHref, navLinks, ctaPr
       <header className="py-4 w-full border-b border-transparent">
         <div className="max-w-7xl mx-auto px-4 xl:px-0 flex items-center justify-between gap-x-4">
           <LogoBrand logoText={logoText} logoImage={logoImage} logoHref={logoHref} />
-          <DesktopNav links={navLinks} />
+          <DesktopNav links={navLinks} navLinkStyle={navLinkStyle} dropdownStyle={dropdownStyle} dropdownAnimation={dropdownAnimation} />
           <button type="button" aria-label="Open menu" onClick={() => setOpen(!open)} className="lg:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md">
             <HamburgerIcon />
           </button>
         </div>
-        <MobileDrawer links={navLinks} open={open} />
+        <MobileDrawer links={navLinks} open={open} navLinkStyle={navLinkStyle} />
       </header>
 
       {hasHero && (

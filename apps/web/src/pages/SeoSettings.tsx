@@ -166,6 +166,9 @@ export function SeoSettings() {
               <Field label="Site URL" hint="Your public domain, e.g. https://example.com — used in sitemap and canonical links">
                 <Input value={cfg.siteUrl ?? ""} onChange={(e) => set({ siteUrl: e.target.value })} placeholder="https://example.com" />
               </Field>
+              <Field label="Favicon URL" hint="Custom website icon (recommended: square PNG/SVG). Replaces the default icon.">
+                <GalleryPickerField value={cfg.favicon ?? ""} onChange={(v) => set({ favicon: v })} placeholder="https://example.com/favicon.png" />
+              </Field>
               <div className="border-t pt-4 space-y-4">
                 <p className="text-sm font-medium text-muted-foreground uppercase tracking-wider text-xs">Defaults (fallback for pages without custom SEO)</p>
                 <Field label="Default Meta Description" hint="160 characters recommended">

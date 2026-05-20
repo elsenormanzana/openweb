@@ -127,6 +127,9 @@ export function GlobalLayout({ children }: { children: React.ReactNode }) {
     logoImage,
     logoHref,
     navLinks,
+    navLinkStyle: nav.navLinkStyle ?? "classic",
+    dropdownStyle: nav.dropdownStyle ?? "minimal",
+    dropdownAnimation: nav.dropdownAnimation ?? "fade",
     ctaPrimaryText: nav.ctaPrimaryText,
     ctaPrimaryHref: nav.ctaPrimaryHref,
     ctaSecondaryText: nav.ctaSecondaryText,
@@ -208,15 +211,23 @@ export function GlobalLayout({ children }: { children: React.ReactNode }) {
       document.head.appendChild(gaScript2);
     }
 
-    // Favicon from layout logo image
-    if (logoImage) {
-      if (existingFavicon) {
-        existingFavicon.setAttribute("href", logoImage);
-      } else {
-        injectedFavicon = document.createElement("link");
-        injectedFavicon.setAttribute("rel", "icon");
-        injectedFavicon.setAttribute("href", logoImage);
-        document.head.appendChild(injectedFavicon);
+    // Favicon from seo.favicon or layout logo image or fallback
+    const faviconUrl = seo.favicon || logoImage || "/favicon.svg";
+    if (existingFavicon) {
+      existingFavicon.setAttribute("href", faviconUrl);
+    } else {
+      injectedFavicon = document.createElement("link");
+      injectedFavicon.setAttribute("rel", "icon");
+      injectedFavicon.setAttribute("href", faviconUrl);
+      document.head.appendChild(injectedFavicon);
+    }
+
+    // Ensure document.title gets updated only if no page title was set by useSeoHead
+    const siteTitle = seo.siteName || seo.globalSiteName || seo.businessName || seo.siteTitle || "";
+    if (siteTitle) {
+      localStorage.setItem("openweb_seo_title", siteTitle);
+      if (!document.title || document.title === "Website" || document.title === "OpenWeb") {
+        document.title = siteTitle;
       }
     }
 
@@ -225,13 +236,13 @@ export function GlobalLayout({ children }: { children: React.ReactNode }) {
       ldScript?.remove();
       gaScript1?.remove();
       gaScript2?.remove();
-      if (logoImage && existingFavicon) {
+      if (existingFavicon) {
         if (previousFaviconHref !== null) existingFavicon.setAttribute("href", previousFaviconHref);
         else existingFavicon.removeAttribute("href");
       }
       injectedFavicon?.remove();
     };
-  }, [settings, seo.googleAnalyticsId, seo.googleVerification, seo.bingVerification, seo.yandexVerification, jsonLd, logoImage]);
+  }, [settings, seo, jsonLd, logoImage]);
 
   void verificationMeta; // used above in effect
 

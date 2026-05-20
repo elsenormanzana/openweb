@@ -11,44 +11,46 @@ const DEFAULT_FIELDS: FormField[] = [
 ];
 
 export function ContactBlock({ props }: { props: ContactBlockProps }) {
-  const { heading, subheading, email, phone, address, showForm, formSlug, submitLabel, backgroundColor } = props;
-  const [fields, setFields] = useState<FormField[]>(formSlug ? [] : DEFAULT_FIELDS);
+  const { heading, subheading, email, phone, address, showForm, formSource, iframeUrl, formSlug, submitLabel, backgroundColor } = props;
+  const [fields, setFields] = useState<FormField[]>([]);
   const [values, setValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!formSlug) {
-      setFields(DEFAULT_FIELDS);
+    if (formSource === "google") {
+      setFields([]);
+      setError(null);
       return;
     }
+    if (!formSlug) {
+      setFields([]);
+      setError("This contact block is not linked to a native form.");
+      return;
+    }
+    setError(null);
     api.forms.getBySlug(formSlug)
       .then((form) => setFields(form.fields.length ? form.fields : DEFAULT_FIELDS))
-      .catch(() => setFields(DEFAULT_FIELDS));
+      .catch(() => {
+        setFields([]);
+        setError("Linked form not found or inactive.");
+      });
   }, [formSlug]);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (formSource === "google") return;
+    if (!formSlug) {
+      setError("This contact block is not linked to a native form.");
+      return;
+    }
     setLoading(true);
     setSuccess(null);
     setError(null);
     try {
-      if (formSlug) {
-        const res = await api.forms.submit(formSlug, { values, meta: { source: "contact_block" } });
-        setSuccess(res.message || "Message sent.");
-      } else {
-        await api.crm.publicLead({
-          channelSlug: "contact",
-          name: values.name,
-          email: values.email,
-          phone: values.phone,
-          company: values.company,
-          notes: values.message || values.subject || undefined,
-          payload: values,
-        });
-        setSuccess("Message sent.");
-      }
+      const res = await api.forms.submit(formSlug, { values, meta: { source: "contact_block" } });
+      setSuccess(res.message || "Message sent.");
       setValues({});
     } catch (err) {
       setError((err as Error).message || "Failed to submit form");
@@ -58,6 +60,8 @@ export function ContactBlock({ props }: { props: ContactBlockProps }) {
   }
 
   const visibleFields = fields.length ? fields : DEFAULT_FIELDS;
+  const canRenderNativeForm = Boolean(showForm && formSource === "native" && formSlug && visibleFields.length > 0);
+  const canRenderGoogleForm = Boolean(showForm && formSource === "google" && iframeUrl);
 
   return (
     <section
@@ -110,7 +114,7 @@ export function ContactBlock({ props }: { props: ContactBlockProps }) {
             </div>
           </div>
 
-          {showForm && (
+          {canRenderNativeForm && (
             <form className="space-y-5 bg-white rounded-2xl border border-gray-100 p-8 shadow-sm" onSubmit={onSubmit}>
               {visibleFields.map((field) => (
                 <div key={field.id || field.name}>
@@ -148,6 +152,23 @@ export function ContactBlock({ props }: { props: ContactBlockProps }) {
                 {loading ? "Sending..." : submitLabel || "Send Message"}
               </button>
             </form>
+          )}
+
+          {canRenderGoogleForm && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden min-h-[600px] flex">
+              <iframe
+                src={iframeUrl}
+                width="100%"
+                height="100%"
+                frameBorder="0"
+                marginHeight={0}
+                marginWidth={0}
+                className="w-full h-full min-h-[600px]"
+                title="Google Form"
+              >
+                Loading…
+              </iframe>
+            </div>
           )}
         </div>
       </div>

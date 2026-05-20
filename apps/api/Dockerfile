@@ -14,7 +14,7 @@ FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
-RUN apk add --no-cache zip unzip postgresql-client
+RUN apk add --no-cache zip unzip postgresql-client certbot openssl docker-cli
 
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json

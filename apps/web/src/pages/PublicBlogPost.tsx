@@ -1,25 +1,31 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, type BlogPost } from "@/lib/api";
+import { api, type BlogPost, type SeoConfig } from "@/lib/api";
 import { GlobalLayout } from "@/components/GlobalLayout";
 import { BlockRenderer } from "@/components/BlockRenderer";
 import { useSeoHead } from "@/lib/useSeoHead";
+import { buildPageTitle } from "@/lib/seoTitle";
 
 export function PublicBlogPost() {
   const { slug } = useParams<{ slug: string }>();
   const [post, setPost] = useState<BlogPost | null>(null);
+  const [seoConfig, setSeoConfig] = useState<SeoConfig>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!slug) return;
     api.blog.public.getBySlug(slug).then(setPost).catch((e) => setError(e.message));
+    api.siteSettings.get().then((s) => setSeoConfig(s.seoConfig ?? {})).catch(() => {});
   }, [slug]);
 
+  const pageTitle = post ? buildPageTitle({ title: post.title, seoTitle: null }, seoConfig) : "";
+
   useSeoHead({
-    title: post?.title,
-    description: post?.description ?? undefined,
-    ogImage: post?.headerImage ?? undefined,
-    canonical: slug ? `${window.location.origin}/blog/${slug}` : undefined,
+    title: pageTitle || undefined,
+    description: post?.description || seoConfig.defaultDescription || undefined,
+    ogImage: post?.headerImage || seoConfig.defaultOgImage || undefined,
+    canonical: slug ? `${seoConfig.siteUrl?.replace(/\/$/, "") || window.location.origin}/blog/${slug}` : undefined,
+    siteName: seoConfig.globalSiteName || seoConfig.siteName,
   });
 
   if (error) {

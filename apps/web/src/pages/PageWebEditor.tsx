@@ -4,14 +4,16 @@ import { Button } from "@/components/ui/button";
 import { BlockEditor } from "@/components/BlockEditor";
 import { api } from "@/lib/api";
 import { PaletteContext, DEFAULT_PALETTE, type ColorPalette } from "@/lib/palette";
+import { parseBlocks, validateBlocksRequireNativeForms } from "@/lib/blocks";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { History, Save, ArrowLeft, Check, Globe, ChevronRight } from "lucide-react";
+import { History, Save, ArrowLeft, Check, Globe, ChevronRight, Monitor, Tablet, Smartphone } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { PreviewMode } from "@/components/BlockEditor";
 
 // ─── Draft history helpers ────────────────────────────────────────────────────
 
@@ -177,12 +179,14 @@ export function PageWebEditor() {
   const [loading, setLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
   const [publishedMsg, setPublishedMsg] = useState<"saved" | "error" | null>(null);
+  const [publishError, setPublishError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<DraftEntry[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [draftSavedMsg, setDraftSavedMsg] = useState(false);
   const [palette, setPalette] = useState<ColorPalette>(DEFAULT_PALETTE);
   const [disableElevatedNavSpacing, setDisableElevatedNavSpacing] = useState(false);
+  const [previewMode, setPreviewMode] = useState<PreviewMode>("desktop");
 
   const lastAutoSaved = useRef<string>("");
 
@@ -237,15 +241,27 @@ export function PageWebEditor() {
 
   const publish = () => {
     if (!idValid) return;
+    const blocks = parseBlocks(content);
+    if (blocks) {
+      const validationErrors = validateBlocksRequireNativeForms(blocks);
+      if (validationErrors.length > 0) {
+        setPublishError(validationErrors[0]);
+        setPublishedMsg("error");
+        setTimeout(() => setPublishedMsg(null), 3000);
+        return;
+      }
+    }
     setPublishing(true);
     setPublishedMsg(null);
+    setPublishError(null);
     api.pages
       .update(pageId, { content, disableElevatedNavSpacing })
       .then(() => {
         setPublishedMsg("saved");
         setTimeout(() => setPublishedMsg(null), 3000);
       })
-      .catch(() => {
+      .catch((err) => {
+        setPublishError((err as Error).message || "Publish failed");
         setPublishedMsg("error");
         setTimeout(() => setPublishedMsg(null), 3000);
       })
@@ -276,6 +292,29 @@ export function PageWebEditor() {
             >
               {title}
             </Link>
+          </div>
+
+          {/* Center: responsive preview toggle */}
+          <div className="flex items-center gap-0.5 bg-muted/50 rounded-lg p-0.5">
+            {([
+              { mode: "desktop" as PreviewMode, Icon: Monitor, label: "Desktop" },
+              { mode: "tablet" as PreviewMode, Icon: Tablet, label: "Tablet" },
+              { mode: "mobile" as PreviewMode, Icon: Smartphone, label: "Mobile" },
+            ]).map(({ mode, Icon, label }) => (
+              <button
+                key={mode}
+                aria-label={`${label} preview`}
+                onClick={() => setPreviewMode(mode)}
+                className={cn(
+                  "p-1.5 rounded-md transition-colors",
+                  previewMode === mode
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Icon className="size-3.5" />
+              </button>
+            ))}
           </div>
 
           {/* Right: actions */}
@@ -332,11 +371,16 @@ export function PageWebEditor() {
             </Button>
           </div>
         </header>
+        {publishError && (
+          <div className="px-3 py-2 border-b bg-destructive/5 text-destructive text-xs">
+            {publishError}
+          </div>
+        )}
 
         {/* ── Editor body ── */}
         <div className="flex-1 overflow-hidden">
           <PaletteContext.Provider value={palette}>
-            <BlockEditor content={content} onChange={setContent} />
+            <BlockEditor content={content} onChange={setContent} previewMode={previewMode} />
           </PaletteContext.Provider>
         </div>
       </div>

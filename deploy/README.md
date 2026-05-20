@@ -26,9 +26,17 @@ The script will prompt for:
 - API service (Fastify).
 - Web service (static SPA via NGINX).
 - Postgres database.
-- Redis service.
+
 - Optional autoscaler (Swarm mode only).
 - Backup/restore via CLI scripts and Admin Panel ZIP management.
+- Certbot-ready SSL stack:
+  - `certbot` available in API runtime for Admin SSL actions.
+  - shared `/etc/letsencrypt` volume across `api`, `proxy`, and `certbot`.
+  - ACME HTTP-01 challenge path served by NGINX at `/.well-known/acme-challenge/*`.
+  - managed SSL server config include at `/etc/nginx/managed/*.conf` (generated from Admin Panel).
+  - automatic cert renew scheduler in API (`SSL_AUTO_RENEW_ENABLED`, `SSL_AUTO_RENEW_INTERVAL_HOURS`).
+  - certbot execution supports container mode via `CERTBOT_COMMAND` (recommended for this stack).
+  - safe NGINX apply flow in API: validate (`NGINX_VALIDATE_COMMAND`) -> reload (`NGINX_RELOAD_COMMAND`) -> auto-revert on failure with error details returned to Admin UI.
 
 ## Prerequisites
 
@@ -222,7 +230,7 @@ Restore replaces database content and uploads with selected backup.
 Docker volumes persist state:
 
 - `postgres_data`
-- `redis_data`
+
 - `uploads_data`
 - `backups_data`
 
@@ -254,6 +262,4 @@ docker stack deploy -c deploy/docker-stack.yml openweb
 
 ## Notes
 
-- Redis is provisioned and compatible via `REDIS_URL` wiring.
-- API currently does not require Redis to boot.
 - Keep `JWT_SECRET` and DB credentials private.

@@ -54,7 +54,8 @@ export function useSeoHead({ title, description, keywords, ogImage, canonical, n
     if (canonical) els.push(upsertLink("canonical", canonical));
 
     return () => {
-      document.title = prevTitle;
+      const fallback = localStorage.getItem("openweb_seo_title") || "";
+      document.title = prevTitle && prevTitle !== "Website" && prevTitle !== "OpenWeb" ? prevTitle : fallback;
       els.forEach((el) => el.remove());
     };
   }, [title, description, keywords, ogImage, canonical, noIndex, siteName]);

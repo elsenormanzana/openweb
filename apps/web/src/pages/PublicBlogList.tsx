@@ -1,19 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type BlogPost } from "@/lib/api";
+import { api, type BlogPost, type SeoConfig } from "@/lib/api";
 import { GlobalLayout } from "@/components/GlobalLayout";
 import { useSeoHead } from "@/lib/useSeoHead";
+import { buildPageTitle } from "@/lib/seoTitle";
 import { onDataChange } from "@/lib/dataEvents";
 
 export function PublicBlogList() {
   const [posts, setPosts] = useState<BlogPost[]>([]);
+  const [seoConfig, setSeoConfig] = useState<SeoConfig>({});
   const [query, setQuery] = useState("");
 
   useEffect(() => {
-    const load = () => api.blog.public.list().then(setPosts).catch(() => {});
+    const load = () => {
+      api.blog.public.list().then(setPosts).catch(() => {});
+      api.siteSettings.get().then((s) => setSeoConfig(s.seoConfig ?? {})).catch(() => {});
+    };
     load();
     return onDataChange((event) => {
-      if (event.path.startsWith("/api/blog/")) load();
+      if (event.path.startsWith("/api/blog/") || event.path.startsWith("/api/site-settings")) load();
     });
   }, []);
 
@@ -23,7 +28,15 @@ export function PublicBlogList() {
     return posts.filter((p) => p.title.toLowerCase().includes(q) || (p.description ?? "").toLowerCase().includes(q));
   }, [posts, query]);
 
-  useSeoHead({ title: "Blog", description: "Latest articles and updates." });
+  const pageTitle = buildPageTitle({ title: "Blog", seoTitle: null }, seoConfig);
+
+  useSeoHead({
+    title: pageTitle || undefined,
+    description: seoConfig.defaultDescription || "Latest articles and updates.",
+    ogImage: seoConfig.defaultOgImage || undefined,
+    canonical: seoConfig.siteUrl ? `${seoConfig.siteUrl.replace(/\/$/, "")}/blog` : undefined,
+    siteName: seoConfig.globalSiteName || seoConfig.siteName,
+  });
 
   return (
     <GlobalLayout>

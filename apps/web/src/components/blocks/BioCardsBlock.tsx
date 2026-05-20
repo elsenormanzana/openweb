@@ -1,4 +1,5 @@
 import type { BioCardsBlockProps } from "@/lib/blocks";
+import { IconRenderer } from "@/components/shared/IconRenderer";
 
 export function BioCardsBlock({ props }: { props: BioCardsBlockProps }) {
   const { heading, subheading, items } = props;
@@ -28,9 +29,17 @@ export function BioCardsBlock({ props }: { props: BioCardsBlockProps }) {
               </div>
               {item.bio && <p className="text-sm text-gray-600 leading-relaxed">{item.bio}</p>}
               {(item.linkedin || item.twitter) && (
-                <div className="flex gap-3 text-sm">
-                  {item.linkedin && <a href={item.linkedin} className="text-blue-600 hover:underline">LinkedIn</a>}
-                  {item.twitter && <a href={item.twitter} className="text-sky-500 hover:underline">Twitter</a>}
+                <div className="flex gap-4 text-sm mt-1">
+                  {item.linkedin && (
+                    <a href={item.linkedin} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-blue-600 hover:text-blue-500 font-medium transition">
+                      <IconRenderer icon="linkedin" className="size-4" /> LinkedIn
+                    </a>
+                  )}
+                  {item.twitter && (
+                    <a href={item.twitter} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-slate-800 hover:text-slate-600 font-medium transition">
+                      <IconRenderer icon="x" className="size-4" /> X (Twitter)
+                    </a>
+                  )}
                 </div>
               )}
             </div>

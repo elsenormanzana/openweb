@@ -12,7 +12,21 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "mcp__ide__getDiagnostics",
       "Bash(npm run:*)",
-      "mcp__ui-layouts-mcp__search_components"
+      "mcp__ui-layouts-mcp__search_components",
+      "Bash(bash:*)",
+      "Bash(npm ls:*)",
+      "Bash(node:*)",
+      "Bash(docker run:*)",
+      "Bash(npx skills:*)",
+      "WebSearch",
+      "WebFetch(domain:ui.shadcn.com)",
+      "WebFetch(domain:www.hyperui.dev)",
+      "WebFetch(domain:daisyui.com)",
+      "WebFetch(domain:www.untitledui.com)",
+      "WebFetch(domain:www.heroui.com)",
+      "Bash(grep -r \"BubbleMenu\\\\|FloatingMenu\" /Users/elsenormanzana/Documents/GitHub/openweb/node_modules/@tiptap/react/dist/ --include=*.d.ts -l)",
+      "Bash(npx eslint:*)",
+      "Bash(ls /Users/elsenormanzana/Documents/GitHub/openweb/apps/web/src/components/block-forms/*.tsx)"
     ]
   },
   "enableAllProjectMcpServers": true,

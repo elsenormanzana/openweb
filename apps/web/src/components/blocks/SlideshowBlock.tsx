@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { SlideshowBlockProps } from "@/lib/blocks";
+import { CtaButtonRenderer } from "@/components/shared/CtaButtonRenderer";
 
 export function SlideshowBlock({ props }: { props: SlideshowBlockProps }) {
   const { heading, subheading, items } = props;
@@ -28,9 +29,7 @@ export function SlideshowBlock({ props }: { props: SlideshowBlockProps }) {
             <h3 className="text-2xl font-bold text-gray-900">{item.title}</h3>
             {item.description && <p className="text-gray-600">{item.description}</p>}
             {item.cta.label && (
-              <a href={item.cta.href || "#"} className="inline-flex w-fit items-center justify-center rounded-md bg-gray-900 text-white px-5 py-2.5 text-sm font-semibold hover:bg-gray-700 transition-colors">
-                {item.cta.label}
-              </a>
+              <CtaButtonRenderer cta={item.cta} variant="solid" className="w-fit px-5 py-2.5 text-sm" />
             )}
           </div>
         </div>

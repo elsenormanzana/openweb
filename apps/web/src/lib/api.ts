@@ -174,6 +174,10 @@ export type NewsletterSubscriber = {
   updatedAt: string;
 };
 
+export type CrmChannelType =
+  | "newsletter" | "form" | "facebook" | "linkedin" | "instagram"
+  | "tiktok" | "twitter" | "youtube" | "whatsapp" | "custom";
+
 export type CrmChannel = {
   id: number;
   siteId: number;
@@ -181,6 +185,7 @@ export type CrmChannel = {
   slug: string;
   description: string | null;
   isActive: boolean;
+  channelType: CrmChannelType;
   createdAt: string;
   updatedAt: string;
 };
@@ -198,9 +203,46 @@ export type CrmLead = {
   company: string | null;
   notes: string | null;
   payload: Record<string, unknown>;
+  archived: boolean;
+  tags: string[];
+  customFields: Record<string, string>;
+  score: number;
   createdAt: string;
   updatedAt: string;
   channel?: CrmChannel | null;
+};
+
+export type CrmLeadActivity = {
+  id: number;
+  leadId: number;
+  siteId: number;
+  type: "note" | "call" | "email" | "meeting" | "status_change";
+  content: string | null;
+  createdBy: number | null;
+  createdByEmail?: string | null;
+  createdAt: string;
+};
+
+export type CrmAnalytics = {
+  totals: {
+    activeLeads: number;
+    archivedLeads: number;
+    newLeads: number;
+    contactedLeads: number;
+    qualifiedLeads: number;
+    lostLeads: number;
+    avgScore: number;
+    leadsLast30d: number;
+    leadsLast7d: number;
+  };
+  byChannel: {
+    channel_name: string;
+    channel_type: string;
+    slug: string;
+    leads: string;
+    qualified: string;
+  }[];
+  trend30d: { day: string; leads: string }[];
 };
 
 import type { ColorPalette } from "@/lib/palette";
@@ -217,6 +259,9 @@ export type NavConfig = {
   logoHref?: string;
   navLinks?: NavMenuItem[];
   navVariant?: "minimal" | "elevated" | "saas-cta" | "saas-email";
+  navLinkStyle?: "classic" | "underline" | "pill" | "art-gradient";
+  dropdownStyle?: "minimal" | "modern-card" | "gradient-border" | "glassmorphic";
+  dropdownAnimation?: "fade" | "slide-up" | "scale-up" | "fade-slide";
   palette?: ColorPalette;
   headerStyle?: "transparent" | "solid";
   headerBg?: string;
@@ -237,9 +282,11 @@ export type SocialProfile = { platform: string; url: string };
 
 export type SeoConfig = {
   siteName?: string;
+  siteTitle?: string;
   siteSubtitle?: string;
   globalSiteName?: string;
   siteUrl?: string;
+  favicon?: string;
   defaultDescription?: string;
   defaultOgImage?: string;
   googleVerification?: string;
@@ -286,6 +333,39 @@ export type BackupItem = {
   createdAt: string;
   downloadUrl: string;
 };
+
+export type SslCertificate = {
+  domain: string;
+  domains: string[];
+  fullchainPath: string;
+  privkeyPath: string;
+  createdAt: string;
+  expiresAt: string | null;
+  provider: "letsencrypt" | "cloudflared";
+  organization?: string | null;
+  organizationUnit?: string | null;
+};
+
+export type SslAutoRenewStatus = {
+  enabled: boolean;
+  intervalHours: number;
+  state: {
+    lastRunAt: string | null;
+    lastSuccessAt: string | null;
+    lastError: string | null;
+  };
+  postHookConfigured: boolean;
+};
+
+export type NginxSslServerConfig = {
+  siteId: number;
+  siteName: string;
+  domain: string | null;
+  subDomain: string | null;
+  host: string;
+  enabled: boolean;
+};
+
 
 function getAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
@@ -557,6 +637,53 @@ export const api = {
       return data;
     },
   },
+  ssl: {
+    list: () => request<SslCertificate[]>("/api/ssl/certificates"),
+    create: (body: {
+      domain: string;
+      provider?: "letsencrypt" | "cloudflared";
+      email?: string;
+      organization?: string;
+      organizationUnit?: string;
+      staging?: boolean;
+      mode?: "webroot" | "standalone";
+      webrootPath?: string;
+      certificatePem?: string;
+      privateKeyPem?: string;
+    }) =>
+      request<{ ok: true; certificate: SslCertificate; output: { stdout: string; stderr: string } }>("/api/ssl/certificates", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    delete: (domain: string) => request<{ ok: true; removedBy: string; domain: string }>(`/api/ssl/certificates/${encodeURIComponent(domain)}`, { method: "DELETE" }),
+    downloadFile: async (domain: string, file: "fullchain.pem" | "privkey.pem" | "openweb-meta.json"): Promise<Blob> => {
+      const res = await fetch(`/api/ssl/certificates/${encodeURIComponent(domain)}/download/${encodeURIComponent(file)}`, {
+        method: "GET",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error((err as { error?: string }).error ?? "Download failed");
+      }
+      return res.blob();
+    },
+    autoRenew: {
+      status: () => request<SslAutoRenewStatus>("/api/ssl/auto-renew"),
+      runNow: (body?: { dryRun?: boolean }) =>
+        request<{ ok: true; skipped: boolean; reason?: string; output?: { stdout: string; stderr: string }; state?: SslAutoRenewStatus["state"] }>(
+          "/api/ssl/auto-renew/run",
+          { method: "POST", body: JSON.stringify(body ?? {}) }
+        ),
+    },
+  },
+  nginx: {
+    sslServers: {
+      list: () => request<{ items: NginxSslServerConfig[]; baseDomain: string | null; managedConfigPath: string }>("/api/nginx/ssl-servers"),
+      update: (siteId: number, body: { host?: string; enabled?: boolean }) =>
+        request<NginxSslServerConfig>(`/api/nginx/ssl-servers/${siteId}`, { method: "PUT", body: JSON.stringify(body) }),
+      apply: () => request<{ ok: true; path: string; hosts: string[]; reloadCommand: string; configPreview: string }>("/api/nginx/ssl-servers/apply", { method: "POST" }),
+    },
+  },
   newsletter: {
     subscribe: (body: { email: string; name?: string; source?: string; meta?: Record<string, unknown> }) =>
       request<{ ok: true; subscriber: NewsletterSubscriber }>("/api/newsletter/subscribe", { method: "POST", body: JSON.stringify(body) }),
@@ -572,20 +699,36 @@ export const api = {
       request<{ ok: true; lead: CrmLead }>("/api/crm/public-lead", { method: "POST", body: JSON.stringify(body) }),
     channels: {
       list: () => request<CrmChannel[]>("/api/crm/channels"),
-      create: (body: { name: string; slug?: string; description?: string | null; isActive?: boolean }) =>
+      create: (body: { name: string; slug?: string; description?: string | null; isActive?: boolean; channelType?: CrmChannelType }) =>
         request<CrmChannel>("/api/crm/channels", { method: "POST", body: JSON.stringify(body) }),
-      update: (id: number, body: { name?: string; slug?: string; description?: string | null; isActive?: boolean }) =>
+      update: (id: number, body: { name?: string; slug?: string; description?: string | null; isActive?: boolean; channelType?: CrmChannelType }) =>
         request<CrmChannel>(`/api/crm/channels/${id}`, { method: "PUT", body: JSON.stringify(body) }),
       delete: (id: number) => request<{ ok: true }>(`/api/crm/channels/${id}`, { method: "DELETE" }),
     },
     leads: {
-      list: (status?: CrmLead["status"]) =>
-        request<CrmLead[]>(status ? `/api/crm/leads?status=${encodeURIComponent(status)}` : "/api/crm/leads"),
-      create: (body: { source?: CrmLead["source"]; channelId?: number | null; status?: CrmLead["status"]; name?: string | null; email?: string | null; phone?: string | null; company?: string | null; notes?: string | null; payload?: Record<string, unknown> }) =>
+      list: (opts?: { status?: CrmLead["status"]; archived?: boolean; search?: string; channelId?: number }) => {
+        const p = new URLSearchParams();
+        if (opts?.status) p.set("status", opts.status);
+        if (opts?.archived !== undefined) p.set("archived", String(opts.archived));
+        if (opts?.search) p.set("search", opts.search);
+        if (opts?.channelId) p.set("channelId", String(opts.channelId));
+        const qs = p.toString();
+        return request<CrmLead[]>(qs ? `/api/crm/leads?${qs}` : "/api/crm/leads");
+      },
+      create: (body: { source?: CrmLead["source"]; channelId?: number | null; status?: CrmLead["status"]; name?: string | null; email?: string | null; phone?: string | null; company?: string | null; notes?: string | null; payload?: Record<string, unknown>; tags?: string[]; customFields?: Record<string, string>; score?: number }) =>
         request<CrmLead>("/api/crm/leads", { method: "POST", body: JSON.stringify(body) }),
-      update: (id: number, body: { status?: CrmLead["status"]; notes?: string | null; name?: string | null; email?: string | null; phone?: string | null; company?: string | null; channelId?: number | null }) =>
+      update: (id: number, body: { status?: CrmLead["status"]; notes?: string | null; name?: string | null; email?: string | null; phone?: string | null; company?: string | null; channelId?: number | null; tags?: string[]; customFields?: Record<string, string>; score?: number }) =>
         request<CrmLead>(`/api/crm/leads/${id}`, { method: "PUT", body: JSON.stringify(body) }),
       delete: (id: number) => request<{ ok: true }>(`/api/crm/leads/${id}`, { method: "DELETE" }),
+      archive: (id: number) => request<{ ok: true }>(`/api/crm/leads/${id}/archive`, { method: "POST" }),
+      unarchive: (id: number) => request<{ ok: true }>(`/api/crm/leads/${id}/unarchive`, { method: "POST" }),
+      activities: {
+        list: (id: number) => request<CrmLeadActivity[]>(`/api/crm/leads/${id}/activities`),
+        create: (id: number, body: { type?: CrmLeadActivity["type"]; content?: string }) =>
+          request<CrmLeadActivity>(`/api/crm/leads/${id}/activities`, { method: "POST", body: JSON.stringify(body) }),
+      },
     },
+    analytics: () => request<CrmAnalytics>("/api/crm/analytics"),
+    aiContext: () => request<unknown>("/api/crm/ai-context"),
   },
 };

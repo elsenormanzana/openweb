@@ -3,7 +3,7 @@ import { NavLink, Outlet, Link } from "react-router-dom";
 import {
   Home, FileText, Palette, Layout, Image, HardDrive,
   Search, ExternalLink, Menu, X, Layers, Lock,
-  Users2, Globe, Puzzle, ChevronDown, LogOut, UserCircle2, BookOpenText, ClipboardList, Mail, BriefcaseBusiness, Archive,
+  Users2, Globe, Puzzle, ChevronDown, LogOut, UserCircle2, BookOpenText, ClipboardList, Mail, BriefcaseBusiness, Archive, ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -18,6 +18,7 @@ const adminRoutePrefetchers: Record<string, () => Promise<unknown>> = {
   "/admin/layout": () => import("@/pages/SiteLayout"),
   "/admin/seo": () => import("@/pages/SeoSettings"),
   "/admin/storage": () => import("@/pages/StorageSettings"),
+  "/admin/ssl": () => import("@/pages/SslCertificatesAdmin"),
   "/admin/backups": () => import("@/pages/BackupsAdmin"),
   "/admin/themes": () => import("@/pages/ThemePacksList"),
   "/admin/users": () => import("@/pages/Users"),
@@ -56,6 +57,7 @@ const allNav = [
   { to: "/admin/crm", end: true, label: "CRM", icon: BriefcaseBusiness, roles: ["admin", "page_developer", "blogger_admin"], group: "Growth" as NavGroup },
   { to: "/admin/users", end: true, label: "Users", icon: Users2, roles: ["admin", "blogger_admin"], group: "System" as NavGroup },
   { to: "/admin/storage", end: true, label: "Storage", icon: HardDrive, roles: ["admin"], globalOnly: true, group: "System" as NavGroup },
+  { to: "/admin/ssl", end: true, label: "SSL", icon: ShieldCheck, roles: ["admin"], globalOnly: true, group: "System" as NavGroup },
   { to: "/admin/backups", end: true, label: "Backups", icon: Archive, roles: ["admin"], globalOnly: true, group: "System" as NavGroup },
   { to: "/admin/sites", end: true, label: "Sites", icon: Globe, roles: ["admin"], globalOnly: true, group: "System" as NavGroup },
   { to: "/admin/plugins", end: true, label: "Plugins", icon: Puzzle, roles: ["admin"], group: "System" as NavGroup },
@@ -73,10 +75,10 @@ function SiteScopePanel() {
         .then((ctx) => {
           setContext(ctx);
           if (ctx.canSwitchSites) {
-            api.sites.list().then(setSites).catch(() => {});
+            api.sites.list().then(setSites).catch(() => { });
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     };
     load();
     return onDataChange((event) => {
@@ -214,10 +216,10 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                 onFocus={() => prefetchAdminRoute(to)}
                 className={({ isActive }) =>
                   cn(
-                    "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-all",
+                    "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-all hover-lift",
                     isActive
-                      ? "bg-foreground text-background"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                      ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                   )
                 }
               >
@@ -252,10 +254,10 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
             onFocus={() => prefetchAdminRoute("/admin/profile")}
             className={({ isActive }) =>
               cn(
-                "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all",
+                "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all hover-lift",
                 isActive
-                  ? "bg-foreground text-background"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                  ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
               )
             }
           >
@@ -281,9 +283,9 @@ export function AdminLayout() {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="min-h-svh bg-muted/20">
+    <div className="min-h-svh bg-background/50">
       {/* Desktop sidebar */}
-      <aside className="hidden md:flex flex-col fixed inset-y-0 left-0 w-60 bg-background border-r border-border/50 z-30">
+      <aside className="hidden md:flex flex-col fixed inset-y-0 left-0 w-64 bg-background/80 backdrop-blur-xl border-r border-border/20 z-30 shadow-[4px_0_24px_rgba(0,0,0,0.02)]">
         <SidebarContent />
       </aside>
 
@@ -301,7 +303,7 @@ export function AdminLayout() {
       )}
 
       {/* Mobile header */}
-      <header className="md:hidden sticky top-0 z-40 flex items-center justify-between px-4 h-14 bg-background/95 backdrop-blur-sm border-b border-border/50">
+      <header className="md:hidden sticky top-0 z-40 flex items-center justify-between px-4 h-14 bg-background/80 backdrop-blur-xl border-b border-border/20 shadow-sm">
         <div className="flex items-center gap-3">
           <button
             aria-label="Open navigation menu"
@@ -329,7 +331,7 @@ export function AdminLayout() {
       </header>
 
       {/* Main */}
-      <main className="md:ml-60 min-h-svh p-6 sm:p-8">
+      <main className="md:ml-64 min-h-svh p-6 sm:p-8">
         <Outlet />
       </main>
     </div>

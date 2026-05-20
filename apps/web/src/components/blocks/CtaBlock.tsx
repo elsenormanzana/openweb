@@ -1,4 +1,5 @@
 import type { CtaBlockProps } from "@/lib/blocks";
+import { CtaButtonRenderer } from "@/components/shared/CtaButtonRenderer";
 
 export function CtaBlock({ props }: { props: CtaBlockProps }) {
   const { heading, description, primaryCta, secondaryCta, backgroundColor, textColor } = props;
@@ -13,20 +14,10 @@ export function CtaBlock({ props }: { props: CtaBlockProps }) {
         {description && <p className={`text-lg ${subTextClass}`}>{description}</p>}
         <div className="flex gap-4 flex-wrap justify-center">
           {primaryCta.label && (
-            <a
-              href={primaryCta.href || "#"}
-              className="inline-flex items-center justify-center rounded-md bg-white text-gray-900 px-6 py-3 text-sm font-semibold shadow hover:bg-gray-100 transition-colors"
-            >
-              {primaryCta.label}
-            </a>
+            <CtaButtonRenderer cta={primaryCta} variant="shimmer" className="px-6 py-3 text-sm" />
           )}
           {secondaryCta.label && (
-            <a
-              href={secondaryCta.href || "#"}
-              className={`inline-flex items-center justify-center rounded-md px-6 py-3 text-sm font-semibold border transition-colors ${isLight ? "border-white/50 text-white hover:bg-white/10" : "border-gray-400 text-gray-700 hover:bg-gray-100"}`}
-            >
-              {secondaryCta.label}
-            </a>
+            <CtaButtonRenderer cta={secondaryCta} variant="outline" className={`px-6 py-3 text-sm ${isLight ? "border-white/50 text-white" : "border-gray-400 text-gray-700"}`} />
           )}
         </div>
       </div>

@@ -20,7 +20,7 @@ export function HeadingBlock({ props }: { props: HeadingBlockProps }) {
   const Tag = level;
 
   return (
-    <div className="w-full px-4 py-6">
+    <div className="w-full px-4">
       <div className="max-w-5xl mx-auto">
         <Tag
           className={`font-bold leading-tight ${SIZE[level]} ${ALIGN[align]}`}

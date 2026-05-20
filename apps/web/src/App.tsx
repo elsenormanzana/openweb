@@ -16,6 +16,7 @@ const SiteLayout = lazy(() => import("@/pages/SiteLayout").then((m) => ({ defaul
 const SeoSettings = lazy(() => import("@/pages/SeoSettings").then((m) => ({ default: m.SeoSettings })));
 const MediaGallery = lazy(() => import("@/pages/MediaGallery").then((m) => ({ default: m.MediaGallery })));
 const StorageSettings = lazy(() => import("@/pages/StorageSettings").then((m) => ({ default: m.StorageSettings })));
+const SslCertificatesAdmin = lazy(() => import("@/pages/SslCertificatesAdmin").then((m) => ({ default: m.SslCertificatesAdmin })));
 const Login = lazy(() => import("@/pages/Login").then((m) => ({ default: m.Login })));
 const Setup = lazy(() => import("@/pages/Setup").then((m) => ({ default: m.Setup })));
 const Portal = lazy(() => import("@/pages/Portal").then((m) => ({ default: m.Portal })));
@@ -107,6 +108,11 @@ export default function App() {
             <Route path="storage" element={
               <RequireAuth roles={["admin"]} globalOnly>
                 <RouteLoader><StorageSettings /></RouteLoader>
+              </RequireAuth>
+            } />
+            <Route path="ssl" element={
+              <RequireAuth roles={["admin"]} globalOnly>
+                <RouteLoader><SslCertificatesAdmin /></RouteLoader>
               </RequireAuth>
             } />
             <Route path="backups" element={

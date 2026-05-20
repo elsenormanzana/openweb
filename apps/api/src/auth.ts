@@ -19,6 +19,11 @@ export function requireAuth(roles: JwtPayload["role"][] = [], opts?: { globalOnl
       return reply.status(401).send({ error: "Unauthorized" });
     }
     const user = req.user as JwtPayload;
+    
+    if (!user || typeof user.sub !== "number" || typeof user.email !== "string" || !user.role) {
+      return reply.status(401).send({ error: "Invalid token payload" });
+    }
+
     if (roles.length > 0 && !roles.includes(user.role)) {
       return reply.status(403).send({ error: "Forbidden" });
     }

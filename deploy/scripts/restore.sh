@@ -19,7 +19,7 @@ DB_USER="${DB_USER:-${POSTGRES_USER:-openweb}}"
 DB_NAME="${DB_NAME:-${POSTGRES_DB:-openweb}}"
 
 echo "[restore] starting services"
-docker compose -f "$COMPOSE_FILE" up -d postgres redis api web proxy
+docker compose -f "$COMPOSE_FILE" up -d postgres api web proxy
 
 echo "[restore] restoring postgres"
 docker compose -f "$COMPOSE_FILE" exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;"
@@ -29,11 +29,6 @@ echo "[restore] restoring uploads"
 API_CONTAINER="$(docker compose -f "$COMPOSE_FILE" ps -q api)"
 docker compose -f "$COMPOSE_FILE" exec -T api sh -c 'rm -rf /app/apps/api/uploads/* && mkdir -p /app/apps/api/uploads'
 docker cp "$BACKUP_DIR/uploads/." "$API_CONTAINER":/app/apps/api/uploads
-
-echo "[restore] restoring redis"
-REDIS_CONTAINER="$(docker compose -f "$COMPOSE_FILE" ps -q redis)"
-docker cp "$BACKUP_DIR/redis.dump.rdb" "$REDIS_CONTAINER":/data/dump.rdb
-docker compose -f "$COMPOSE_FILE" restart redis >/dev/null
 
 echo "[restore] completed"
 echo "[restore] code snapshot is available at: $BACKUP_DIR/source.tar.gz"

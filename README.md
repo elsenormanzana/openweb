@@ -5,7 +5,7 @@ OpenWeb is a monorepo CMS platform with:
 - `apps/web`: React + Vite admin/public frontend
 - `apps/api`: Fastify + Drizzle API
 - Postgres for persistence
-- Optional Redis + NGINX reverse proxy in Docker deployment
+- NGINX reverse proxy in Docker deployment
 
 ---
 
@@ -444,9 +444,7 @@ npm run db:migrate
 
 ## 5) Notes
 
-- Redis is provisioned in Docker deployment and `REDIS_URL` is wired for compatibility.
-- API does not hard-fail if Redis features are not yet used in code paths.
-- Persistent Docker volumes include database, redis, uploads, and backups.
+- Persistent Docker volumes include database, uploads, and backups.
 - Never commit secrets (`deploy/.env`, `apps/api/.env`).
 
 For low-level deployment internals, see [deploy/README.md](deploy/README.md).

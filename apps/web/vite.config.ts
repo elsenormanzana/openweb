@@ -1,22 +1,44 @@
 import path from "path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, __dirname, "");
+  const apiTarget = env.VITE_API_URL || "http://localhost:3000";
+
+  return {
+    plugins: [react(), tailwindcss()],
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "./src"),
+      },
     },
-  },
-  server: {
-    proxy: {
-      "/api": { target: "http://localhost:3000", changeOrigin: true },
-      "/uploads": { target: "http://localhost:3000", changeOrigin: true },
-      "/health": { target: "http://localhost:3000", changeOrigin: true },
-      "/sitemap.xml": { target: "http://localhost:3000", changeOrigin: true },
-      "/robots.txt": { target: "http://localhost:3000", changeOrigin: true },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            "tiptap": [
+              "@tiptap/react",
+              "@tiptap/starter-kit",
+              "@tiptap/extension-link",
+              "@tiptap/extension-text-align",
+              "@tiptap/extension-underline",
+              "@tiptap/extension-placeholder",
+            ],
+            "framer-motion": ["framer-motion"],
+          },
+        },
+      },
     },
-  },
+    server: {
+      proxy: {
+        "/api": { target: apiTarget, changeOrigin: true },
+        "/uploads": { target: apiTarget, changeOrigin: true },
+        "/health": { target: apiTarget, changeOrigin: true },
+        "/sitemap.xml": { target: apiTarget, changeOrigin: true },
+        "/robots.txt": { target: apiTarget, changeOrigin: true },
+      },
+    },
+  };
 });
