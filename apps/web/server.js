@@ -69,6 +69,16 @@ async function loadInitialData(pathname, host) {
     if (post.notFound) return { notFound: true };
     return { initialData: { blogPost: post.data, settings: s.data ?? null } };
   }
+  const formMatch = pathname.match(/^\/forms\/([^/]+)$/);
+  if (formMatch) {
+    const slug = decodeURIComponent(formMatch[1]);
+    const [form, s] = await Promise.all([
+      apiGet(`/api/forms/by-slug/${encodeURIComponent(slug)}`, host),
+      settings,
+    ]);
+    if (form.notFound) return { notFound: true };
+    return { initialData: { form: form.data, settings: s.data ?? null } };
+  }
   const slug = decodeURIComponent(pathname.slice(1));
   const [page, s] = await Promise.all([
     apiGet(`/api/pages/by-slug/${encodeURIComponent(slug)}`, host),

@@ -78,15 +78,17 @@ export function renderHead(url: string, data: InitialData, origin: string): stri
   const path = url.split("?")[0];
   const page = data.page ?? null;
   const post = data.blogPost ?? null;
+  const form = data.form ?? null;
 
   let title: string;
   if (path === "/") title = buildHomepageTitle(page, seo);
   else if (post) title = buildPageTitle({ title: post.title, seoTitle: null }, seo);
+  else if (form) title = buildPageTitle({ title: form.name, seoTitle: null }, seo);
   else if (path === "/blog") title = buildPageTitle({ title: "Blog", seoTitle: null }, seo);
   else if (page) title = buildPageTitle({ title: page.title, seoTitle: page.seoTitle }, seo);
   else title = seo.siteName || seo.globalSiteName || "";
 
-  const description = page?.seoDescription || post?.description || seo.defaultDescription || "";
+  const description = page?.seoDescription || post?.description || form?.description || seo.defaultDescription || "";
   const ogImage = page?.ogImage || post?.headerImage || seo.defaultOgImage || "";
   const noIndex = page?.noIndex ?? false;
   const base = (seo.siteUrl || origin).replace(/\/$/, "");

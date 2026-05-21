@@ -174,7 +174,9 @@ export const forms = pgTable("forms", {
   status: text("status").notNull().default("active"), // active|inactive
   submitLabel: text("submit_label").notNull().default("Submit"),
   successMessage: text("success_message").notNull().default("Thanks, we received your submission."),
-  fields: text("fields").notNull().default("[]"), // JSON: FormField[]
+  fields: text("fields").notNull().default("[]"), // JSON: FormField[] — derived flat mirror
+  sections: text("sections").notNull().default("[]"), // JSON: FormSection[] — source of truth
+  layout: text("layout").notNull().default("single"), // single|steps
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => ({

@@ -54,6 +54,10 @@ export type SiteRole = { siteId: number; role: string };
 export type UserSocial = { platform: string; url: string };
 export type BlogStatus = "draft" | "pending_review" | "approved" | "published" | "rejected";
 export type FormFieldType = "text" | "email" | "textarea" | "select" | "checkbox";
+export type ConditionOperator = "equals" | "not_equals" | "contains" | "is_empty" | "is_not_empty";
+export type ConditionRule = { field: string; operator: ConditionOperator; value?: string };
+export type Condition = { match: "all" | "any"; rules: ConditionRule[] };
+export type FormLayout = "single" | "steps";
 export type FormField = {
   id: string;
   label: string;
@@ -62,6 +66,14 @@ export type FormField = {
   required?: boolean;
   placeholder?: string;
   options?: string[];
+  condition?: Condition | null;
+};
+export type FormSection = {
+  id: string;
+  title: string;
+  description?: string;
+  condition?: Condition | null;
+  fields: FormField[];
 };
 
 export type User = {
@@ -140,6 +152,8 @@ export type CmsForm = {
   status: "active" | "inactive";
   submitLabel: string;
   successMessage: string;
+  layout: FormLayout;
+  sections: FormSection[];
   fields: FormField[];
   createdAt: string;
   updatedAt: string;
@@ -589,9 +603,9 @@ export const api = {
     list: () => request<CmsForm[]>("/api/forms"),
     get: (id: number) => request<CmsForm>(`/api/forms/${id}`),
     getBySlug: (slug: string) => request<CmsForm>(`/api/forms/by-slug/${encodeURIComponent(slug)}`),
-    create: (body: { name: string; slug?: string; description?: string | null; status?: "active" | "inactive"; submitLabel?: string; successMessage?: string; fields?: FormField[] }) =>
+    create: (body: { name: string; slug?: string; description?: string | null; status?: "active" | "inactive"; submitLabel?: string; successMessage?: string; layout?: FormLayout; sections?: FormSection[]; fields?: FormField[] }) =>
       request<CmsForm>("/api/forms", { method: "POST", body: JSON.stringify(body) }),
-    update: (id: number, body: Partial<Pick<CmsForm, "name" | "slug" | "description" | "status" | "submitLabel" | "successMessage" | "fields">>) =>
+    update: (id: number, body: Partial<Pick<CmsForm, "name" | "slug" | "description" | "status" | "submitLabel" | "successMessage" | "layout" | "sections" | "fields">>) =>
       request<CmsForm>(`/api/forms/${id}`, { method: "PUT", body: JSON.stringify(body) }),
     delete: (id: number) => request<{ ok: true }>(`/api/forms/${id}`, { method: "DELETE" }),
     submit: (slug: string, body: { values: Record<string, unknown>; meta?: Record<string, unknown> }) =>

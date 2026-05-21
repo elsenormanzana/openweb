@@ -30,12 +30,14 @@ const Plugins = lazy(() => import("@/pages/Plugins").then((m) => ({ default: m.P
 const MyProfile = lazy(() => import("@/pages/MyProfile").then((m) => ({ default: m.MyProfile })));
 const BlogPosts = lazy(() => import("@/pages/BlogPosts").then((m) => ({ default: m.BlogPosts })));
 const BlogPostEditor = lazy(() => import("@/pages/BlogPostEditor").then((m) => ({ default: m.BlogPostEditor })));
-const FormsBuilder = lazy(() => import("@/pages/FormsBuilder").then((m) => ({ default: m.FormsBuilder })));
+const FormsList = lazy(() => import("@/pages/FormsList").then((m) => ({ default: m.FormsList })));
+const FormBuilder = lazy(() => import("@/pages/FormBuilder").then((m) => ({ default: m.FormBuilder })));
 const NewsletterAdmin = lazy(() => import("@/pages/NewsletterAdmin").then((m) => ({ default: m.NewsletterAdmin })));
 const CrmAdmin = lazy(() => import("@/pages/CrmAdmin").then((m) => ({ default: m.CrmAdmin })));
 const BackupsAdmin = lazy(() => import("@/pages/BackupsAdmin").then((m) => ({ default: m.BackupsAdmin })));
 const PublicBlogList = lazy(() => import("@/pages/PublicBlogList").then((m) => ({ default: m.PublicBlogList })));
 const PublicBlogPost = lazy(() => import("@/pages/PublicBlogPost").then((m) => ({ default: m.PublicBlogPost })));
+const PublicFormPage = lazy(() => import("@/pages/PublicFormPage").then((m) => ({ default: m.PublicFormPage })));
 
 function RouteLoader({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>;
@@ -93,7 +95,12 @@ export default function App() {
             } />
             <Route path="forms" element={
               <RequireAuth roles={["admin", "page_developer", "blogger_admin"]}>
-                <RouteLoader><FormsBuilder /></RouteLoader>
+                <RouteLoader><FormsList /></RouteLoader>
+              </RequireAuth>
+            } />
+            <Route path="forms/:id/builder" element={
+              <RequireAuth roles={["admin", "page_developer", "blogger_admin"]}>
+                <RouteLoader><FormBuilder /></RouteLoader>
               </RequireAuth>
             } />
             <Route path="newsletter" element={
@@ -149,6 +156,7 @@ export default function App() {
           <Route path="/" element={<RouteLoader><PublicHomePage /></RouteLoader>} />
           <Route path="/blog" element={<RouteLoader><PublicBlogList /></RouteLoader>} />
           <Route path="/blog/:slug" element={<RouteLoader><PublicBlogPost /></RouteLoader>} />
+          <Route path="/forms/:slug" element={<RouteLoader><PublicFormPage /></RouteLoader>} />
           <Route path="/:slug" element={<RouteLoader><PublicPage /></RouteLoader>} />
         </Routes>
     </AuthProvider>

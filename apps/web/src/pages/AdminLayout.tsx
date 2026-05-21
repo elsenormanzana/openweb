@@ -27,7 +27,7 @@ const adminRoutePrefetchers: Record<string, () => Promise<unknown>> = {
   "/admin/profile": () => import("@/pages/MyProfile"),
   "/admin/blog": () => import("@/pages/BlogPosts"),
   "/admin/blog/new": () => import("@/pages/BlogPostEditor"),
-  "/admin/forms": () => import("@/pages/FormsBuilder"),
+  "/admin/forms": () => import("@/pages/FormsList"),
   "/admin/newsletter": () => import("@/pages/NewsletterAdmin"),
   "/admin/crm": () => import("@/pages/CrmAdmin"),
 };

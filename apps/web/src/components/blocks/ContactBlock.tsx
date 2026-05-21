@@ -1,67 +1,38 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import { Mail, Phone, MapPin } from "lucide-react";
-import { api, type FormField } from "@/lib/api";
+import { api, type CmsForm, type FormSection } from "@/lib/api";
 import type { ContactBlockProps } from "@/lib/blocks";
+import { FormRenderer } from "@/components/FormRenderer";
+import type { FormValues } from "@/lib/formConditions";
 
-const DEFAULT_FIELDS: FormField[] = [
-  { id: "name", name: "name", label: "Name", type: "text", required: true, placeholder: "John Doe" },
-  { id: "email", name: "email", label: "Email", type: "email", required: true, placeholder: "john@example.com" },
-  { id: "subject", name: "subject", label: "Subject", type: "text", required: false, placeholder: "How can we help?" },
-  { id: "message", name: "message", label: "Message", type: "textarea", required: true, placeholder: "Tell us more..." },
-];
+// Fallback used when a contact block is linked to a form that has no fields yet.
+const DEFAULT_SECTIONS: FormSection[] = [{
+  id: "default", title: "", description: "", condition: null,
+  fields: [
+    { id: "name", name: "name", label: "Name", type: "text", required: true, placeholder: "John Doe", options: [], condition: null },
+    { id: "email", name: "email", label: "Email", type: "email", required: true, placeholder: "john@example.com", options: [], condition: null },
+    { id: "subject", name: "subject", label: "Subject", type: "text", required: false, placeholder: "How can we help?", options: [], condition: null },
+    { id: "message", name: "message", label: "Message", type: "textarea", required: true, placeholder: "Tell us more...", options: [], condition: null },
+  ],
+}];
 
 export function ContactBlock({ props }: { props: ContactBlockProps }) {
   const { heading, subheading, email, phone, address, showForm, formSource, iframeUrl, formSlug, submitLabel, backgroundColor } = props;
-  const [fields, setFields] = useState<FormField[]>([]);
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [form, setForm] = useState<CmsForm | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (formSource === "google") {
-      setFields([]);
-      setError(null);
-      return;
-    }
-    if (!formSlug) {
-      setFields([]);
-      setError("This contact block is not linked to a native form.");
-      return;
-    }
+    if (formSource === "google") { setForm(null); setError(null); return; }
+    if (!formSlug) { setForm(null); setError("This contact block is not linked to a native form."); return; }
     setError(null);
     api.forms.getBySlug(formSlug)
-      .then((form) => setFields(form.fields.length ? form.fields : DEFAULT_FIELDS))
-      .catch(() => {
-        setFields([]);
-        setError("Linked form not found or inactive.");
-      });
-  }, [formSlug]);
+      .then(setForm)
+      .catch(() => { setForm(null); setError("Linked form not found or inactive."); });
+  }, [formSlug, formSource]);
 
-  async function onSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (formSource === "google") return;
-    if (!formSlug) {
-      setError("This contact block is not linked to a native form.");
-      return;
-    }
-    setLoading(true);
-    setSuccess(null);
-    setError(null);
-    try {
-      const res = await api.forms.submit(formSlug, { values, meta: { source: "contact_block" } });
-      setSuccess(res.message || "Message sent.");
-      setValues({});
-    } catch (err) {
-      setError((err as Error).message || "Failed to submit form");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const visibleFields = fields.length ? fields : DEFAULT_FIELDS;
-  const canRenderNativeForm = Boolean(showForm && formSource === "native" && formSlug && visibleFields.length > 0);
+  const canRenderNativeForm = Boolean(showForm && formSource === "native" && formSlug);
   const canRenderGoogleForm = Boolean(showForm && formSource === "google" && iframeUrl);
+  const sections = form && form.sections.length ? form.sections : DEFAULT_SECTIONS;
 
   return (
     <section
@@ -115,43 +86,22 @@ export function ContactBlock({ props }: { props: ContactBlockProps }) {
           </div>
 
           {canRenderNativeForm && (
-            <form className="space-y-5 bg-white rounded-2xl border border-gray-100 p-8 shadow-sm" onSubmit={onSubmit}>
-              {visibleFields.map((field) => (
-                <div key={field.id || field.name}>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wider">
-                    {field.label}
-                  </label>
-                  {field.type === "textarea" ? (
-                    <textarea
-                      rows={5}
-                      value={values[field.name] ?? ""}
-                      onChange={(e) => setValues((prev) => ({ ...prev, [field.name]: e.target.value }))}
-                      required={field.required}
-                      placeholder={field.placeholder || ""}
-                      className="w-full px-4 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors resize-none"
-                    />
-                  ) : (
-                    <input
-                      type={field.type === "email" ? "email" : "text"}
-                      value={values[field.name] ?? ""}
-                      onChange={(e) => setValues((prev) => ({ ...prev, [field.name]: e.target.value }))}
-                      required={field.required}
-                      placeholder={field.placeholder || ""}
-                      className="w-full px-4 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
-                    />
-                  )}
-                </div>
-              ))}
-              {success && <p className="text-xs text-emerald-700">{success}</p>}
-              {error && <p className="text-xs text-red-600">{error}</p>}
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full px-6 py-3 bg-gray-900 text-white rounded-lg font-semibold text-sm hover:bg-gray-700 transition-colors disabled:opacity-60"
-              >
-                {loading ? "Sending..." : submitLabel || "Send Message"}
-              </button>
-            </form>
+            error ? (
+              <div className="bg-white rounded-2xl border border-gray-100 p-8 shadow-sm">
+                <p className="text-sm text-red-600">{error}</p>
+              </div>
+            ) : form ? (
+              <FormRenderer
+                sections={sections}
+                layout={form.layout}
+                submitLabel={submitLabel || form.submitLabel}
+                successMessage={form.successMessage}
+                onSubmit={async (values: FormValues) => {
+                  await api.forms.submit(formSlug as string, { values, meta: { source: "contact_block" } });
+                }}
+                className="bg-white rounded-2xl border border-gray-100 p-8 shadow-sm"
+              />
+            ) : null
           )}
 
           {canRenderGoogleForm && (

@@ -86,6 +86,11 @@ await db.execute(sql.raw(`ALTER TABLE "crm_leads" ADD COLUMN IF NOT EXISTS "arch
 await db.execute(sql.raw(`ALTER TABLE "crm_leads" ADD COLUMN IF NOT EXISTS "tags" text NOT NULL DEFAULT '[]'`));
 await db.execute(sql.raw(`ALTER TABLE "crm_leads" ADD COLUMN IF NOT EXISTS "custom_fields" text NOT NULL DEFAULT '{}'`));
 await db.execute(sql.raw(`ALTER TABLE "crm_leads" ADD COLUMN IF NOT EXISTS "score" integer NOT NULL DEFAULT 0`));
+
+// Forms: sections (grouped fields) + per-form layout (single page vs multi-step).
+await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "sections" text NOT NULL DEFAULT '[]'`));
+await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "layout" text NOT NULL DEFAULT 'single'`));
+
 await db.execute(sql.raw(`
   CREATE TABLE IF NOT EXISTS "crm_lead_activities" (
     "id" serial PRIMARY KEY,
@@ -2718,6 +2723,9 @@ app.get<{ Params: { slug: string } }>("/api/blog/public/posts/:slug", async (req
 // ── Forms, Newsletter, CRM ───────────────────────────────────────────────────
 
 type FormFieldType = "text" | "email" | "textarea" | "select" | "checkbox";
+type ConditionOperator = "equals" | "not_equals" | "contains" | "is_empty" | "is_not_empty";
+type ConditionRule = { field: string; operator: ConditionOperator; value?: string };
+type Condition = { match: "all" | "any"; rules: ConditionRule[] };
 type FormField = {
   id: string;
   label: string;
@@ -2726,7 +2734,53 @@ type FormField = {
   required?: boolean;
   placeholder?: string;
   options?: string[];
+  condition?: Condition | null;
 };
+type FormSection = {
+  id: string;
+  title: string;
+  description?: string;
+  condition?: Condition | null;
+  fields: FormField[];
+};
+
+const CONDITION_OPERATORS: ConditionOperator[] = ["equals", "not_equals", "contains", "is_empty", "is_not_empty"];
+
+function normalizeCondition(input: unknown): Condition | null {
+  if (!input || typeof input !== "object") return null;
+  const c = input as Record<string, unknown>;
+  const rules: ConditionRule[] = (Array.isArray(c.rules) ? c.rules : [])
+    .filter((r): r is Record<string, unknown> => Boolean(r) && typeof r === "object")
+    .map((r) => ({
+      field: typeof r.field === "string" ? r.field : "",
+      operator: (CONDITION_OPERATORS.includes(r.operator as ConditionOperator) ? r.operator : "equals") as ConditionOperator,
+      value: typeof r.value === "string" ? r.value : "",
+    }))
+    .filter((r) => r.field);
+  if (rules.length === 0) return null;
+  return { match: c.match === "any" ? "any" : "all", rules };
+}
+
+function evaluateConditionRule(rule: ConditionRule, values: Record<string, unknown>): boolean {
+  const raw = values[rule.field];
+  const actual = raw == null ? "" : typeof raw === "boolean" ? (raw ? "true" : "false") : String(raw);
+  const expected = rule.value ?? "";
+  switch (rule.operator) {
+    case "equals": return actual === expected;
+    case "not_equals": return actual !== expected;
+    case "contains": return actual.toLowerCase().includes(expected.toLowerCase());
+    case "is_empty": return actual.trim() === "";
+    case "is_not_empty": return actual.trim() !== "";
+    default: return true;
+  }
+}
+
+// Mirrored verbatim in apps/web/src/lib/formConditions.ts.
+function evaluateCondition(condition: Condition | null | undefined, values: Record<string, unknown>): boolean {
+  if (!condition || condition.rules.length === 0) return true;
+  const results = condition.rules.map((r) => evaluateConditionRule(r, values));
+  return condition.match === "any" ? results.some(Boolean) : results.every(Boolean);
+}
 
 function parseJsonObject(value: string | null | undefined): Record<string, unknown> {
   if (!value) return {};
@@ -2757,6 +2811,7 @@ function parseFormFields(value: string | null): FormField[] {
         required: Boolean(f.required),
         placeholder: typeof f.placeholder === "string" ? f.placeholder : "",
         options,
+        condition: normalizeCondition(f.condition),
       };
     });
   } catch {
@@ -2782,14 +2837,62 @@ function normalizeFormFields(input: unknown): FormField[] {
         required: Boolean(field.required),
         placeholder: typeof field.placeholder === "string" ? field.placeholder : "",
         options: Array.isArray(field.options) ? field.options.filter((o): o is string => typeof o === "string") : [],
+        condition: normalizeCondition(field.condition),
       };
     });
 }
 
+function normalizeFormSections(input: unknown): FormSection[] {
+  if (!Array.isArray(input)) return [];
+  const sections: FormSection[] = input
+    .filter((s): s is Record<string, unknown> => Boolean(s) && typeof s === "object")
+    .map((s, index) => ({
+      id: typeof s.id === "string" && s.id.trim() ? s.id.trim() : `s_${index + 1}`,
+      title: typeof s.title === "string" ? s.title : "",
+      description: typeof s.description === "string" ? s.description : "",
+      condition: normalizeCondition(s.condition),
+      fields: normalizeFormFields(s.fields),
+    }));
+  // Field `name` must be unique across the whole form — conditions key off it.
+  const seen = new Set<string>();
+  for (const section of sections) {
+    for (const field of section.fields) {
+      let name = field.name;
+      let n = 2;
+      while (seen.has(name)) name = `${field.name}_${n++}`;
+      seen.add(name);
+      field.name = name;
+    }
+  }
+  return sections;
+}
+
+function parseFormSections(value: string | null): FormSection[] {
+  if (!value) return [];
+  try { return normalizeFormSections(JSON.parse(value)); } catch { return []; }
+}
+
+function deriveFlatFields(sections: FormSection[]): FormField[] {
+  return sections.flatMap((s) => s.fields);
+}
+
+function synthesizeSections(fields: FormField[]): FormSection[] {
+  return fields.length ? [{ id: "default", title: "", description: "", condition: null, fields }] : [];
+}
+
+// `sections` is the source of truth; legacy rows with only `fields` get one synthesized
+// section. The returned `fields` is always the flattened section fields.
 function mapFormRow(row: typeof forms.$inferSelect) {
+  let sections = parseFormSections(row.sections);
+  if (sections.length === 0) {
+    const legacy = parseFormFields(row.fields);
+    if (legacy.length > 0) sections = synthesizeSections(legacy);
+  }
   return {
     ...row,
-    fields: parseFormFields(row.fields),
+    layout: row.layout === "steps" ? "steps" : "single",
+    sections,
+    fields: deriveFlatFields(sections),
   };
 }
 
@@ -2952,6 +3055,21 @@ app.get<{ Params: { slug: string } }>("/api/forms/by-slug/:slug", async (req, re
   return mapFormRow(row);
 });
 
+// Resolve a form slug that is unique within the site, suffixing -2, -3, … on collision.
+async function uniqueFormSlug(siteId: number, base: string, excludeId?: number): Promise<string> {
+  const root = slugifyText(base) || "form";
+  let candidate = root;
+  let n = 2;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const [clash] = await db.select({ id: forms.id }).from(forms)
+      .where(and(eq(forms.siteId, siteId), eq(forms.slug, candidate)))
+      .limit(1);
+    if (!clash || clash.id === excludeId) return candidate;
+    candidate = `${root}-${n++}`;
+  }
+}
+
 app.post("/api/forms", { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) }, async (req, reply) => {
   const body = req.body as {
     name: string;
@@ -2960,10 +3078,15 @@ app.post("/api/forms", { preHandler: requireAuth(["admin", "page_developer", "bl
     status?: "active" | "inactive";
     submitLabel?: string;
     successMessage?: string;
+    layout?: "single" | "steps";
     fields?: unknown[];
+    sections?: unknown[];
   };
   if (!body.name?.trim()) return reply.status(400).send({ error: "name required" });
-  const slug = slugifyText(body.slug ?? body.name) || "form";
+  const slug = await uniqueFormSlug(req.siteId, body.slug ?? body.name);
+  const sections = body.sections !== undefined
+    ? normalizeFormSections(body.sections)
+    : synthesizeSections(normalizeFormFields(body.fields));
   const [created] = await db.insert(forms).values({
     siteId: req.siteId,
     name: body.name.trim(),
@@ -2972,7 +3095,9 @@ app.post("/api/forms", { preHandler: requireAuth(["admin", "page_developer", "bl
     status: body.status === "inactive" ? "inactive" : "active",
     submitLabel: body.submitLabel?.trim() || "Submit",
     successMessage: body.successMessage?.trim() || "Thanks, we received your submission.",
-    fields: JSON.stringify(normalizeFormFields(body.fields)),
+    fields: JSON.stringify(deriveFlatFields(sections)),
+    sections: JSON.stringify(sections),
+    layout: body.layout === "steps" ? "steps" : "single",
     createdAt: new Date(),
     updatedAt: new Date(),
   }).returning();
@@ -2989,20 +3114,34 @@ app.put<{ Params: { id: string } }>("/api/forms/:id", { preHandler: requireAuth(
     status?: "active" | "inactive";
     submitLabel?: string;
     successMessage?: string;
+    layout?: "single" | "steps";
     fields?: unknown[];
+    sections?: unknown[];
   };
   const [existing] = await db.select().from(forms)
     .where(and(eq(forms.id, id), eq(forms.siteId, req.siteId)))
     .limit(1);
   if (!existing) return reply.status(404).send({ error: "Form not found" });
+
+  let sections: FormSection[];
+  if (body.sections !== undefined) sections = normalizeFormSections(body.sections);
+  else if (body.fields !== undefined) sections = synthesizeSections(normalizeFormFields(body.fields));
+  else sections = mapFormRow(existing).sections;
+
+  const slug = body.slug !== undefined
+    ? await uniqueFormSlug(req.siteId, body.slug, id)
+    : existing.slug;
+
   const [updated] = await db.update(forms).set({
     name: body.name !== undefined ? body.name.trim() : existing.name,
-    slug: body.slug !== undefined ? (slugifyText(body.slug) || existing.slug) : existing.slug,
+    slug,
     description: body.description !== undefined ? body.description ?? null : existing.description,
     status: body.status !== undefined ? body.status : existing.status,
     submitLabel: body.submitLabel !== undefined ? (body.submitLabel.trim() || existing.submitLabel) : existing.submitLabel,
     successMessage: body.successMessage !== undefined ? (body.successMessage.trim() || existing.successMessage) : existing.successMessage,
-    fields: body.fields !== undefined ? JSON.stringify(normalizeFormFields(body.fields)) : existing.fields,
+    fields: JSON.stringify(deriveFlatFields(sections)),
+    sections: JSON.stringify(sections),
+    layout: body.layout !== undefined ? (body.layout === "steps" ? "steps" : "single") : existing.layout,
     updatedAt: new Date(),
   }).where(eq(forms.id, id)).returning();
   return mapFormRow(updated);
@@ -3026,19 +3165,24 @@ app.post<{ Params: { slug: string } }>("/api/forms/submit/:slug", async (req, re
     .limit(1);
   if (!form) return reply.status(404).send({ error: "Form not found" });
 
-  const fields = parseFormFields(form.fields);
+  const sections = mapFormRow(form).sections;
   const rawValues = body.values && typeof body.values === "object" ? body.values : {};
   const values: Record<string, unknown> = {};
-  for (const field of fields) {
-    const value = (rawValues as Record<string, unknown>)[field.name];
-    const isEmpty = value == null || value === "";
-    if (field.required && isEmpty) {
-      return reply.status(400).send({ error: `${field.label || field.name} is required` });
+  for (const section of sections) {
+    // Skip hidden sections/fields — a field hidden by a condition must not block submit.
+    if (!evaluateCondition(section.condition, rawValues)) continue;
+    for (const field of section.fields) {
+      if (!evaluateCondition(field.condition, rawValues)) continue;
+      const value = (rawValues as Record<string, unknown>)[field.name];
+      const isEmpty = value == null || value === "";
+      if (field.required && isEmpty) {
+        return reply.status(400).send({ error: `${field.label || field.name} is required` });
+      }
+      if (field.type === "email" && typeof value === "string" && value.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())) {
+        return reply.status(400).send({ error: `${field.label || field.name} must be a valid email` });
+      }
+      values[field.name] = value ?? "";
     }
-    if (field.type === "email" && typeof value === "string" && value.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())) {
-      return reply.status(400).send({ error: `${field.label || field.name} must be a valid email` });
-    }
-    values[field.name] = value ?? "";
   }
 
   const channel = await findOrCreateSourceChannel(req.siteId, "form");

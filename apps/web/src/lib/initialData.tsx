@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
-import type { Page, SiteSettings, BlogPost } from "@/lib/api";
+import type { Page, SiteSettings, BlogPost, CmsForm } from "@/lib/api";
 
 /**
  * Data the server already has when it renders a public page. The web SSR server
@@ -12,6 +12,7 @@ export type InitialData = {
   settings?: SiteSettings | null;
   blogPosts?: BlogPost[] | null;
   blogPost?: BlogPost | null;
+  form?: CmsForm | null;
 };
 
 const InitialDataContext = createContext<InitialData>({});
