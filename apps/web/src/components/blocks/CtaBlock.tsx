@@ -8,7 +8,7 @@ export function CtaBlock({ props }: { props: CtaBlockProps }) {
   const subTextClass = isLight ? "text-white/80" : "text-gray-600";
 
   return (
-    <section style={{ backgroundColor }} className="w-full py-20 px-4">
+    <section style={{ backgroundColor }} className="w-full ow-section px-4">
       <div className="max-w-3xl mx-auto text-center flex flex-col items-center gap-6">
         <h2 className={`text-3xl md:text-4xl font-bold ${textClass}`}>{heading}</h2>
         {description && <p className={`text-lg ${subTextClass}`}>{description}</p>}

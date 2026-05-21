@@ -1,14 +1,11 @@
-import { Suspense, lazy, useEffect, type ReactNode } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Suspense, lazy, type ReactNode } from "react";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/lib/auth";
 import { RequireAuth } from "@/components/RequireAuth";
 // Public pages are eager — they are the highest-traffic routes and render
 // instantly from server-embedded data, so they ship in the initial chunk.
 import { PublicHomePage } from "@/pages/PublicHomePage";
 import { PublicPage } from "@/pages/PublicPage";
-
-// Preloader dismiss — injected by SSR, exposed globally
-declare global { interface Window { __dismissPreloader?: () => void; } }
 
 const AdminLayout = lazy(() => import("@/pages/AdminLayout").then((m) => ({ default: m.AdminLayout })));
 const AdminIndex = lazy(() => import("@/pages/AdminIndex").then((m) => ({ default: m.AdminIndex })));
@@ -44,18 +41,12 @@ function RouteLoader({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>;
 }
 
+// The router (BrowserRouter on the client, StaticRouter on the server) is
+// provided by the entry files so this same tree can be hydrated or prerendered.
 export default function App() {
-  // Dismiss SSR preloader after first React mount
-  useEffect(() => {
-    if (typeof window.__dismissPreloader === "function") {
-      window.__dismissPreloader();
-    }
-  }, []);
-
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
+      <Routes>
           {/* Public auth pages */}
           <Route path="/login" element={<RouteLoader><Login /></RouteLoader>} />
           <Route path="/setup" element={<RouteLoader><Setup /></RouteLoader>} />
@@ -160,7 +151,6 @@ export default function App() {
           <Route path="/blog/:slug" element={<RouteLoader><PublicBlogPost /></RouteLoader>} />
           <Route path="/:slug" element={<RouteLoader><PublicPage /></RouteLoader>} />
         </Routes>
-      </BrowserRouter>
     </AuthProvider>
   );
 }

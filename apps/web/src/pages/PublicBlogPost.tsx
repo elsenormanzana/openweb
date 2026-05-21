@@ -5,24 +5,15 @@ import { GlobalLayout } from "@/components/GlobalLayout";
 import { BlockRenderer } from "@/components/BlockRenderer";
 import { useSeoHead } from "@/lib/useSeoHead";
 import { buildPageTitle } from "@/lib/seoTitle";
+import { useInitialData } from "@/lib/initialData";
 
 export function PublicBlogPost() {
   const { slug } = useParams<{ slug: string }>();
-  const [post, setPost] = useState<BlogPost | null>(() => {
-    if (typeof window !== "undefined" && window.__INITIAL_BLOG_POST__) {
-      const initData = window.__INITIAL_BLOG_POST__;
-      if (initData && initData.slug === slug) {
-        return initData;
-      }
-    }
-    return null;
-  });
-  const [seoConfig, setSeoConfig] = useState<SeoConfig>(() => {
-    if (typeof window !== "undefined" && window.__INITIAL_SITE_SETTINGS__) {
-      return window.__INITIAL_SITE_SETTINGS__.seoConfig ?? {};
-    }
-    return {};
-  });
+  const initial = useInitialData();
+  const [post, setPost] = useState<BlogPost | null>(
+    initial.blogPost && initial.blogPost.slug === slug ? initial.blogPost : null
+  );
+  const [seoConfig, setSeoConfig] = useState<SeoConfig>(initial.settings?.seoConfig ?? {});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,7 +30,7 @@ export function PublicBlogPost() {
     title: pageTitle || undefined,
     description: post?.description || seoConfig.defaultDescription || undefined,
     ogImage: post?.headerImage || seoConfig.defaultOgImage || undefined,
-    canonical: slug ? `${seoConfig.siteUrl?.replace(/\/$/, "") || window.location.origin}/blog/${slug}` : undefined,
+    canonical: slug && seoConfig.siteUrl ? `${seoConfig.siteUrl.replace(/\/$/, "")}/blog/${slug}` : undefined,
     siteName: seoConfig.globalSiteName || seoConfig.siteName,
   });
 

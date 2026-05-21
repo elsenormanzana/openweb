@@ -15,7 +15,7 @@ export function SocialConnectBlock({ props }: { props: SocialConnectBlockProps }
   const alignClass = align === "left" ? "text-left items-start" : align === "right" ? "text-right items-end" : "text-center items-center";
 
   return (
-    <section className="w-full py-16 px-6 transition-colors duration-300" style={{ backgroundColor: backgroundColor || undefined }}>
+    <section className="w-full ow-section px-6 transition-colors duration-300" style={{ backgroundColor: backgroundColor || undefined }}>
       <div className={`max-w-5xl mx-auto flex flex-col ${alignClass} gap-8`}>
         <div className="space-y-3 max-w-2xl">
           {heading && <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-foreground">{heading}</h2>}

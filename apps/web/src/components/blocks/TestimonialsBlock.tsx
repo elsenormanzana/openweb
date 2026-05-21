@@ -4,7 +4,7 @@ export function TestimonialsBlock({ props }: { props: TestimonialsBlockProps }) 
   const { heading, items } = props;
 
   return (
-    <section className="w-full py-20 px-4 bg-white">
+    <section className="w-full ow-section px-4 bg-white">
       <div className="max-w-5xl mx-auto">
         {heading && (
           <div className="text-center mb-12">

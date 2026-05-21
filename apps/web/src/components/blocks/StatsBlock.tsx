@@ -4,7 +4,7 @@ export function StatsBlock({ props }: { props: StatsBlockProps }) {
   const { heading, items } = props;
 
   return (
-    <section className="w-full py-20 px-4 bg-gray-900">
+    <section className="w-full ow-section px-4 bg-gray-900">
       <div className="max-w-5xl mx-auto">
         {heading && (
           <div className="text-center mb-12">

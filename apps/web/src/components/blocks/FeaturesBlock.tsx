@@ -6,7 +6,7 @@ export function FeaturesBlock({ props }: { props: FeaturesBlockProps }) {
   const colClass = columns === 2 ? "sm:grid-cols-2" : columns === 4 ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-2 lg:grid-cols-3";
 
   return (
-    <section className="w-full py-20 px-4 bg-white">
+    <section className="w-full ow-section px-4 bg-white">
       <div className="max-w-5xl mx-auto">
         {(heading || subheading) && (
           <div className="text-center mb-12">

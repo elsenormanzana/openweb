@@ -3,7 +3,10 @@ import { ContainerDropZone } from "./ContainerDropZone";
 
 const GAP: Record<string, string> = { sm: "gap-6", md: "gap-10", lg: "gap-16" };
 const PADDING: Record<string, string> = { sm: "py-10", md: "py-16", lg: "py-24" };
-const COLS: Record<number, string> = { 2: "grid-cols-1 md:grid-cols-2", 3: "grid-cols-1 md:grid-cols-3" };
+const COLS: Record<number, string> = {
+  2: "grid-cols-1 sm:grid-cols-2",
+  3: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3",
+};
 
 export function ColumnsBlock({ props, editorProps, blockId }: { props: ColumnsBlockProps; editorProps?: any; blockId?: string }) {
   const { columns, gap, paddingY, bgColor } = props;

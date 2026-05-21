@@ -10,7 +10,7 @@ export function SlideshowBlock({ props }: { props: SlideshowBlockProps }) {
   if (!items.length) return null;
 
   return (
-    <section className="w-full py-20 px-4 bg-white">
+    <section className="w-full ow-section px-4 bg-white">
       <div className="max-w-5xl mx-auto">
         {(heading || subheading) && (
           <div className="text-center mb-10">
@@ -22,7 +22,7 @@ export function SlideshowBlock({ props }: { props: SlideshowBlockProps }) {
           {item.image && (
             <img src={item.image} alt={item.title} loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-cover opacity-20" />
           )}
-          <div className="relative z-10 p-10 flex flex-col gap-4 max-w-2xl">
+          <div className="relative z-10 p-6 sm:p-10 flex flex-col gap-4 max-w-2xl">
             {item.badge && (
               <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-700 w-fit">{item.badge}</span>
             )}

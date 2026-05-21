@@ -1,11 +1,9 @@
-import type { Page, SiteSettings, BlogPost } from "./lib/api";
+import type { InitialData } from "./lib/initialData";
 
 declare global {
   interface Window {
-    __INITIAL_PAGE_DATA__?: Page | null;
-    __INITIAL_SITE_SETTINGS__?: SiteSettings | null;
-    __INITIAL_BLOG_POSTS__?: BlogPost[] | null;
-    __INITIAL_BLOG_POST__?: BlogPost | null;
+    /** Seed data embedded by the web SSR server for the rendered public route. */
+    __INITIAL_DATA__?: InitialData;
   }
 }
 export {};

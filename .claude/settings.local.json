@@ -26,7 +26,22 @@
       "WebFetch(domain:www.heroui.com)",
       "Bash(grep -r \"BubbleMenu\\\\|FloatingMenu\" /Users/elsenormanzana/Documents/GitHub/openweb/node_modules/@tiptap/react/dist/ --include=*.d.ts -l)",
       "Bash(npx eslint:*)",
-      "Bash(ls /Users/elsenormanzana/Documents/GitHub/openweb/apps/web/src/components/block-forms/*.tsx)"
+      "Bash(ls /Users/elsenormanzana/Documents/GitHub/openweb/apps/web/src/components/block-forms/*.tsx)",
+      "Bash(cat apps/web/nginx.default.conf)",
+      "Bash(sed -n '29,75p;4141,4317p' apps/api/src/index.ts)",
+      "Bash(ls components/shared/)",
+      "Bash(grep -rn \"__INITIAL_\" .)",
+      "Bash(grep -rn \"window\\\\.\\\\|document\\\\.\\\\|localStorage\\\\|sessionStorage\" components/NavbarVariants.tsx components/shared/ components/blocks/AnimationWrapper.tsx)",
+      "Bash(sed -n '1,92p' src/index.ts)",
+      "Bash(sed -n '4125,4145p' src/index.ts)",
+      "Bash(sed -i '' '4228,4274d' src/index.ts)",
+      "Bash(sed -i '' '4097,4221d' src/index.ts)",
+      "Bash(PORT=5179 node server.js)",
+      "Bash(curl -s -o /tmp/ssrout.html -w \"status=%{http_code}\\\\n\" http://localhost:5179/)",
+      "Read(//tmp/**)",
+      "Bash(curl -s -o /dev/null -w \"status=%{http_code}\\\\n\" http://localhost:5179/admin)",
+      "Bash(kill %1)",
+      "Bash(pkill -f \"node server.js\")"
     ]
   },
   "enableAllProjectMcpServers": true,

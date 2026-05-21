@@ -5,7 +5,7 @@ export function TeamSocialBlock({ props }: { props: TeamSocialBlockProps }) {
   const { heading, subheading, layout = "cards", members = [] } = props;
 
   return (
-    <section className="w-full py-20 px-4 bg-slate-900 text-white overflow-hidden relative">
+    <section className="w-full ow-section px-4 bg-slate-900 text-white overflow-hidden relative">
       {/* Subtle background glow */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-3/4 h-1/2 bg-blue-600/10 blur-[120px] rounded-full pointer-events-none" />
 

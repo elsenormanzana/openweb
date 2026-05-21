@@ -5,20 +5,12 @@ import { GlobalLayout } from "@/components/GlobalLayout";
 import { useSeoHead } from "@/lib/useSeoHead";
 import { buildPageTitle } from "@/lib/seoTitle";
 import { onDataChange } from "@/lib/dataEvents";
+import { useInitialData } from "@/lib/initialData";
 
 export function PublicBlogList() {
-  const [posts, setPosts] = useState<BlogPost[]>(() => {
-    if (typeof window !== "undefined" && window.__INITIAL_BLOG_POSTS__) {
-      return window.__INITIAL_BLOG_POSTS__;
-    }
-    return [];
-  });
-  const [seoConfig, setSeoConfig] = useState<SeoConfig>(() => {
-    if (typeof window !== "undefined" && window.__INITIAL_SITE_SETTINGS__) {
-      return window.__INITIAL_SITE_SETTINGS__.seoConfig ?? {};
-    }
-    return {};
-  });
+  const initial = useInitialData();
+  const [posts, setPosts] = useState<BlogPost[]>(initial.blogPosts ?? []);
+  const [seoConfig, setSeoConfig] = useState<SeoConfig>(initial.settings?.seoConfig ?? {});
   const [query, setQuery] = useState("");
 
   useEffect(() => {

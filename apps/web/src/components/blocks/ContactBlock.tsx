@@ -65,7 +65,7 @@ export function ContactBlock({ props }: { props: ContactBlockProps }) {
 
   return (
     <section
-      className="w-full py-20 px-4"
+      className="w-full ow-section px-4"
       style={backgroundColor ? { backgroundColor } : undefined}
     >
       <div className="max-w-5xl mx-auto">

@@ -19,6 +19,12 @@ services:
     build:
       context: ..
       dockerfile: apps/web/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 80
+      API_URL: http://api:3000
+    depends_on:
+      - api
     restart: unless-stopped
 
   api:
@@ -27,6 +33,7 @@ services:
       dockerfile: apps/api/Dockerfile
     environment:
       PORT: 3000
+      WEB_PURGE_URL: http://web:80/__purge
       # Connect through PgBouncer instead of directly to postgres
       POSTGRES_HOST: pgbouncer
       POSTGRES_PORT: 5432

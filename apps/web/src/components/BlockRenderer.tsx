@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, Component, type ReactNode } from "react";
 import { parseBlocks, type Block } from "@/lib/parseBlocks";
 import { HeroBlock } from "@/components/blocks/HeroBlock";
 import { CtaBlock } from "@/components/blocks/CtaBlock";
@@ -28,6 +28,19 @@ import { ButtonBlock } from "@/components/blocks/ButtonBlock";
 const AnimationWrapper = lazy(() =>
   import("@/components/blocks/AnimationWrapper").then((m) => ({ default: m.AnimationWrapper }))
 );
+
+// Isolates each block: if one block throws while rendering, it is dropped and
+// the rest of the page still renders. Works the same on the server and during
+// hydration, so a single bad block can never blank the whole page.
+class BlockErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
 
 // ── Lazy block registry ───────────────────────────────────────────────────────
 // Animated + social blocks are heavy (framer-motion etc.), so each is a separate
@@ -186,15 +199,23 @@ export function renderBlock(block: Block, editorProps?: any) {
       {hasCustomCSS && (
         <style>{block.meta!.customCSS!.replace(/:block/g, `[data-block-id="${block.id}"]`)}</style>
       )}
-      {hasAnimation ? (
-        <Suspense fallback={<div>{content}</div>}>
-          <AnimationWrapper animation={block.meta!.animation}>
-            {content}
-          </AnimationWrapper>
+      {/* Suspense isolates SSR render errors to this block (errors bubble to the
+          nearest Suspense on the server); the error boundary does the same for
+          client-side renders. Either way one bad block degrades to empty
+          instead of blanking the whole page. */}
+      <BlockErrorBoundary>
+        <Suspense fallback={null}>
+          {hasAnimation ? (
+            <Suspense fallback={content}>
+              <AnimationWrapper animation={block.meta!.animation}>
+                {content}
+              </AnimationWrapper>
+            </Suspense>
+          ) : (
+            content
+          )}
         </Suspense>
-      ) : (
-        content
-      )}
+      </BlockErrorBoundary>
     </div>
   );
 }

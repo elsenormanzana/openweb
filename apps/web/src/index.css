@@ -76,6 +76,19 @@ body {
   color: var(--palette-text, var(--foreground));
 }
 
+/* Responsive section rhythm — one source of truth for a block section's
+   vertical padding. Scales down on small screens so mobile pages aren't
+   dominated by whitespace; every block's outer <section> uses `ow-section`. */
+.ow-section {
+  padding-block: 3rem;
+}
+@media (min-width: 640px) {
+  .ow-section { padding-block: 4.5rem; }
+}
+@media (min-width: 1024px) {
+  .ow-section { padding-block: 5rem; }
+}
+
 /* Block enter animations for SaaS-style pages */
 @keyframes block-fade-in {
   from { opacity: 0; }

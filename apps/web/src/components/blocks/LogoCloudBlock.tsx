@@ -4,7 +4,7 @@ export function LogoCloudBlock({ props }: { props: LogoCloudBlockProps }) {
   const { heading, subheading, logos } = props;
 
   return (
-    <section className="w-full py-16 px-4 bg-white border-y border-gray-100">
+    <section className="w-full ow-section px-4 bg-white border-y border-gray-100">
       <div className="max-w-5xl mx-auto">
         {(heading || subheading) && (
           <div className="text-center mb-10">

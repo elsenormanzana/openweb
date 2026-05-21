@@ -7,7 +7,7 @@ export function SocialProofFeedBlock({ props }: { props: SocialProofFeedBlockPro
   const { heading, subheading, mainCta, feed = [], layout = "masonry" } = props;
 
   return (
-    <section className="w-full py-24 px-4 bg-slate-950 text-white relative overflow-hidden">
+    <section className="w-full ow-section px-4 bg-slate-950 text-white relative overflow-hidden">
       {/* Glow effects */}
       <div className="absolute top-1/3 right-1/4 w-96 h-96 bg-purple-600/10 blur-[160px] rounded-full pointer-events-none" />
       <div className="absolute bottom-1/4 left-1/4 w-96 h-96 bg-blue-600/10 blur-[160px] rounded-full pointer-events-none" />

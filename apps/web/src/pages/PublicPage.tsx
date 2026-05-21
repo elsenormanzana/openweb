@@ -6,24 +6,15 @@ import { BlockRenderer } from "@/components/BlockRenderer";
 import { useSeoHead } from "@/lib/useSeoHead";
 import { buildPageTitle } from "@/lib/seoTitle";
 import { onDataChange } from "@/lib/dataEvents";
+import { useInitialData } from "@/lib/initialData";
 
 export function PublicPage() {
   const { slug } = useParams<{ slug: string }>();
-  const [page, setPage] = useState<Page | null | undefined>(() => {
-    if (typeof window !== "undefined" && window.__INITIAL_PAGE_DATA__) {
-      const initData = window.__INITIAL_PAGE_DATA__;
-      if (initData && initData.slug === slug) {
-        return initData;
-      }
-    }
-    return undefined;
-  });
-  const [seoConfig, setSeoConfig] = useState<SeoConfig>(() => {
-    if (typeof window !== "undefined" && window.__INITIAL_SITE_SETTINGS__) {
-      return window.__INITIAL_SITE_SETTINGS__.seoConfig ?? {};
-    }
-    return {};
-  });
+  const initial = useInitialData();
+  const [page, setPage] = useState<Page | null | undefined>(
+    initial.page && initial.page.slug === slug ? initial.page : undefined
+  );
+  const [seoConfig, setSeoConfig] = useState<SeoConfig>(initial.settings?.seoConfig ?? {});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {

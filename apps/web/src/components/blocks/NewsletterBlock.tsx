@@ -42,7 +42,7 @@ export function NewsletterBlock({ props }: { props: NewsletterBlockProps }) {
   return (
     <section
       style={backgroundColor ? { backgroundColor } : undefined}
-      className={`w-full py-20 px-4 ${!backgroundColor ? "bg-gray-50" : ""}`}
+      className={`w-full ow-section px-4 ${!backgroundColor ? "bg-gray-50" : ""}`}
     >
       <div className={`max-w-2xl mx-auto flex flex-col gap-6 ${alignClass}`}>
         <div className={`flex flex-col gap-3 ${alignClass}`}>

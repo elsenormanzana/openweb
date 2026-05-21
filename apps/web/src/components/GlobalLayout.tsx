@@ -3,66 +3,20 @@ import { Link } from "react-router-dom";
 import { api, type SiteSettings, type NavMenuItem } from "@/lib/api";
 import { NavbarMinimal, NavbarElevated, HeaderSaasCta, HeaderSaasEmail } from "@/components/NavbarVariants";
 import { paletteToCSS, DEFAULT_PALETTE } from "@/lib/palette";
-
-// ── Structured data builder ───────────────────────────────────────────────────
-
-function buildJsonLd(settings: SiteSettings): object | null {
-  const seo = settings.seoConfig ?? {};
-  const type = seo.businessType ?? "WebSite";
-  const name = seo.businessName || seo.siteName;
-  if (!name) return null;
-
-  const base: Record<string, unknown> = {
-    "@context": "https://schema.org",
-    "@type": type,
-    name,
-    url: seo.siteUrl,
-    description: seo.businessDescription || seo.defaultDescription,
-  };
-
-  if (seo.businessLogo) {
-    base.logo = { "@type": "ImageObject", url: seo.businessLogo };
-  }
-
-  if ((seo.socialProfiles ?? []).length > 0) {
-    base.sameAs = (seo.socialProfiles ?? []).map((p) => p.url).filter(Boolean);
-  }
-
-  if (type === "LocalBusiness" || type === "Organization") {
-    if (seo.businessPhone) base.telephone = seo.businessPhone;
-    if (seo.businessEmail) base.email = seo.businessEmail;
-    if (seo.businessStreet || seo.businessCity) {
-      base.address = {
-        "@type": "PostalAddress",
-        streetAddress: seo.businessStreet,
-        addressLocality: seo.businessCity,
-        addressRegion: seo.businessState,
-        postalCode: seo.businessZip,
-        addressCountry: seo.businessCountry,
-      };
-    }
-  }
-
-  return base;
-}
+import { useInitialData } from "@/lib/initialData";
 
 // ── GlobalLayout ──────────────────────────────────────────────────────────────
 
 export function GlobalLayout({ children }: { children: React.ReactNode }) {
-  const [settings, setSettings] = useState<SiteSettings | null>(() => {
-    if (typeof window !== "undefined" && window.__INITIAL_SITE_SETTINGS__) {
-      return window.__INITIAL_SITE_SETTINGS__;
-    }
-    return null;
-  });
+  const initial = useInitialData();
+  const [settings, setSettings] = useState<SiteSettings | null>(initial.settings ?? null);
 
   useEffect(() => {
-    // The API embeds fully-parsed site settings on first load. Only hit the
-    // network when that seed is absent (client-side nav, or a non-SSR entry) —
-    // saves a request on every first paint.
-    if (typeof window !== "undefined" && window.__INITIAL_SITE_SETTINGS__) return;
+    // The SSR server seeds site settings for every public route. Only hit the
+    // network when that seed is absent (client-side nav, or a non-SSR entry).
+    if (initial.settings) return;
     api.siteSettings.get().then(setSettings).catch(() => {});
-  }, []);
+  }, [initial.settings]);
 
   // Inject enabled client plugins
   useEffect(() => {
@@ -164,46 +118,14 @@ export function GlobalLayout({ children }: { children: React.ReactNode }) {
 
   const palette = { ...DEFAULT_PALETTE, ...(nav.palette ?? {}) };
 
-  // Build JSON-LD
-  const jsonLd = settings ? buildJsonLd(settings) : null;
-
-  // Verification meta & GA snippet
-  const verificationMeta = [
-    seo.googleVerification && `<meta name="google-site-verification" content="${seo.googleVerification}" />`,
-    seo.bingVerification && `<meta name="msvalidate.01" content="${seo.bingVerification}" />`,
-    seo.yandexVerification && `<meta name="yandex-verification" content="${seo.yandexVerification}" />`,
-  ].filter(Boolean).join("\n");
-
+  // SEO meta, verification tags and JSON-LD are emitted in the server-rendered
+  // <head> by entry-server's renderHead(). This effect only handles the things
+  // that must run in the browser: the GA script and the favicon.
   useEffect(() => {
     if (!settings) return;
-    const created: Element[] = [];
     const existingFavicon = document.querySelector<HTMLLinkElement>("link[rel='icon']");
     const previousFaviconHref = existingFavicon?.getAttribute("href") ?? null;
     let injectedFavicon: HTMLLinkElement | null = null;
-
-    // Verification tags
-    const verifications: Array<[string, string]> = [
-      ["google-site-verification", seo.googleVerification ?? ""],
-      ["msvalidate.01", seo.bingVerification ?? ""],
-      ["yandex-verification", seo.yandexVerification ?? ""],
-    ];
-    for (const [name, content] of verifications) {
-      if (!content) continue;
-      const el = document.createElement("meta");
-      el.setAttribute("name", name);
-      el.setAttribute("content", content);
-      document.head.appendChild(el);
-      created.push(el);
-    }
-
-    // JSON-LD structured data
-    let ldScript: HTMLScriptElement | null = null;
-    if (jsonLd) {
-      ldScript = document.createElement("script");
-      ldScript.type = "application/ld+json";
-      ldScript.text = JSON.stringify(jsonLd);
-      document.head.appendChild(ldScript);
-    }
 
     // Google Analytics 4
     let gaScript1: HTMLScriptElement | null = null;
@@ -240,8 +162,6 @@ export function GlobalLayout({ children }: { children: React.ReactNode }) {
     }
 
     return () => {
-      created.forEach((el) => el.remove());
-      ldScript?.remove();
       gaScript1?.remove();
       gaScript2?.remove();
       if (existingFavicon) {
@@ -250,16 +170,16 @@ export function GlobalLayout({ children }: { children: React.ReactNode }) {
       }
       injectedFavicon?.remove();
     };
-  }, [settings, seo, jsonLd, logoImage]);
-
-  void verificationMeta; // used above in effect
+  }, [settings, seo, logoImage]);
 
   return (
     <div className="min-h-screen flex flex-col">
       <style>{paletteToCSS(palette)}</style>
       <NavHeader />
 
-      <main className="flex-1">
+      {/* overflow-x-clip contains any block that would otherwise cause a
+          horizontal scrollbar on mobile, without affecting the sticky header. */}
+      <main className="flex-1 overflow-x-clip">
         {children}
       </main>
 

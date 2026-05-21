@@ -24,7 +24,7 @@ export function HeroBlock({ props }: { props: HeroBlockProps }) {
       : { backgroundColor };
 
   return (
-    <section style={bgStyle} className="relative w-full py-24 px-4 overflow-hidden">
+    <section style={bgStyle} className="relative w-full ow-section px-4 overflow-hidden">
       {backgroundType === "video" && backgroundVideo && (
         <video
           className="absolute inset-0 w-full h-full object-cover"

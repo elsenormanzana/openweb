@@ -6,22 +6,14 @@ import { BlockRenderer } from "@/components/BlockRenderer";
 import { useSeoHead } from "@/lib/useSeoHead";
 import { buildHomepageTitle } from "@/lib/seoTitle";
 import { onDataChange } from "@/lib/dataEvents";
+import { useInitialData } from "@/lib/initialData";
 
 export function PublicHomePage() {
-  const [page, setPage] = useState<Page | null | undefined>(() => {
-    if (typeof window !== "undefined" && window.__INITIAL_PAGE_DATA__) {
-      if (window.__INITIAL_PAGE_DATA__.isHomepage) {
-        return window.__INITIAL_PAGE_DATA__;
-      }
-    }
-    return undefined;
-  });
-  const [seoConfig, setSeoConfig] = useState<SeoConfig>(() => {
-    if (typeof window !== "undefined" && window.__INITIAL_SITE_SETTINGS__) {
-      return window.__INITIAL_SITE_SETTINGS__.seoConfig ?? {};
-    }
-    return {};
-  });
+  const initial = useInitialData();
+  const [page, setPage] = useState<Page | null | undefined>(
+    initial.page?.isHomepage ? initial.page : undefined
+  );
+  const [seoConfig, setSeoConfig] = useState<SeoConfig>(initial.settings?.seoConfig ?? {});
   const [hasPublishedBlogs, setHasPublishedBlogs] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

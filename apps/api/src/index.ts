@@ -24,61 +24,14 @@ import { createRequire } from "node:module";
 import postgres from "postgres";
 import sharp from "sharp";
 import { hashPassword, verifyPassword, requireAuth, type JwtPayload } from "./auth.js";
-import { renderPageHtml, renderBlogListHtml, renderBlogPostHtml } from "./ssr.js";
 
-// ── SSR Cache and Invalidation ───────────────────────────────────────────────
-const ssrCache = new Map<string, string>();
-
-// Search-engine crawlers and link-preview scrapers that don't execute JS get the
-// full string-rendered HTML. Every real browser gets the lightweight shell that
-// React fills instantly from embedded data. Unknown/empty UAs default to human.
-const BOT_UA_RE = /bot|crawl|spider|slurp|googlebot|bingbot|duckduckbot|yandex|baiduspider|facebookexternalhit|twitterbot|linkedinbot|slackbot|whatsapp|discordbot|telegrambot|embedly|quora link preview|pinterest|redditbot|applebot|ia_archiver/i;
-
-function isBotRequest(userAgent: string | undefined): boolean {
-  if (!userAgent) return false;
-  return BOT_UA_RE.test(userAgent);
-}
-
-function clearSsrCache(siteId?: number) {
-  if (siteId) {
-    for (const key of ssrCache.keys()) {
-      if (key.startsWith(`${siteId}:`)) {
-        ssrCache.delete(key);
-      }
-    }
-  } else {
-    ssrCache.clear();
-  }
-}
-
-let cachedIndexTemplate: string | null = null;
-async function getIndexTemplate(): Promise<string> {
-  if (cachedIndexTemplate) return cachedIndexTemplate;
-  // Retry up to 5 times with backoff — the web container may not be ready yet on cold start
-  for (let attempt = 0; attempt < 5; attempt++) {
-    try {
-      const res = await fetch("http://web:80/index.html", { signal: AbortSignal.timeout(3000) });
-      if (res.ok) {
-        cachedIndexTemplate = await res.text();
-        return cachedIndexTemplate;
-      }
-    } catch (_e) {
-      if (attempt < 4) await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
-    }
-  }
-  app.log.error("Failed to fetch index.html from web container after retries, using minimal fallback");
-  return `<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/assets/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OpenWeb</title>
-  </head>
-  <body>
-    <div id="root"></div>
-  </body>
-</html>`;
+// ── Web SSR cache invalidation ───────────────────────────────────────────────
+// The web container holds a short-lived HTML cache of rendered public pages.
+// When content changes, tell it to drop that cache so the next visitor sees the
+// update at once. Fire-and-forget — a missed purge only means a <=60s delay.
+const WEB_PURGE_URL = process.env.WEB_PURGE_URL || "http://web:80/__purge";
+function purgeWebCache() {
+  fetch(WEB_PURGE_URL, { method: "POST", signal: AbortSignal.timeout(2000) }).catch(() => {});
 }
 
 declare module "fastify" {
@@ -99,9 +52,9 @@ await app.register(jwt, {
   sign: { expiresIn: "24h" },
 });
 
-app.addHook("onResponse", async (request, reply) => {
+app.addHook("onResponse", async (request) => {
   if (["POST", "PUT", "DELETE", "PATCH"].includes(request.method) && request.url.startsWith("/api/")) {
-    clearSsrCache(request.siteId);
+    purgeWebCache();
   }
 });
 
@@ -200,7 +153,11 @@ await db.execute(sql.raw(`
 
 app.addHook("onRequest", async (req) => {
   const allSites = await db.select().from(sites);
-  const host = req.hostname.toLowerCase();
+  // The web SSR server calls the API server-to-server; `fetch` forbids setting
+  // the Host header, so it forwards the visitor's host as X-Site-Host instead.
+  const siteHostHeader = req.headers["x-site-host"];
+  const forwardedHost = Array.isArray(siteHostHeader) ? siteHostHeader[0] : siteHostHeader;
+  const host = (forwardedHost || req.hostname).toLowerCase();
 
   // 1. Determine natural site ID based on domain or subdomain
   let naturalSiteId = allSites.find((s) => s.isDefault)?.id ?? 1;
@@ -4138,180 +4095,8 @@ async function loadPlugins() {
   }
 }
 
-// ── SSR Wildcard Routes ────────────────────────────────────────────────────────
-app.get("/", async (req, reply) => {
-  reply.header("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=60");
-  const isBot = isBotRequest(req.headers["user-agent"]);
-  const cacheKey = `${req.siteId}:_homepage:${isBot ? "bot" : "human"}`;
-  if (ssrCache.has(cacheKey)) {
-    reply.type("text/html");
-    return ssrCache.get(cacheKey)!;
-  }
-
-  // Fetch settings, page, and template all in parallel
-  const [settingsRows, pageRows, template] = await Promise.all([
-    db.select().from(siteSettings).where(eq(siteSettings.siteId, req.siteId)).limit(1),
-    db.select().from(pages).where(and(eq(pages.siteId, req.siteId), eq(pages.isHomepage, true))).limit(1),
-    getIndexTemplate(),
-  ]);
-  const activeSettings = settingsRows[0] || defaultSiteSettings();
-  let page = pageRows[0];
-
-  if (!page) {
-    const [firstPage] = await db.select().from(pages).where(eq(pages.siteId, req.siteId)).limit(1);
-    if (!firstPage) {
-      reply.type("text/html");
-      return "Welcome to OpenWeb! Please configure a homepage or create a page in the admin panel.";
-    }
-    page = firstPage;
-  }
-
-  const html = renderPageHtml(page, activeSettings, template, "/", isBot);
-  ssrCache.set(cacheKey, html);
-  reply.type("text/html");
-  return html;
-});
-
-app.get("/blog", async (req, reply) => {
-  reply.header("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=60");
-  const isBot = isBotRequest(req.headers["user-agent"]);
-  const cacheKey = `${req.siteId}:_blog_list:${isBot ? "bot" : "human"}`;
-  if (ssrCache.has(cacheKey)) {
-    reply.type("text/html");
-    return ssrCache.get(cacheKey)!;
-  }
-
-  // Fetch settings, posts, and template all in parallel
-  const [settingsRows, rows, template] = await Promise.all([
-    db.select().from(siteSettings).where(eq(siteSettings.siteId, req.siteId)).limit(1),
-    db.select().from(blogPosts)
-      .where(and(eq(blogPosts.siteId, req.siteId), eq(blogPosts.status, "published")))
-      .orderBy(desc(blogPosts.datePublished), desc(blogPosts.createdAt)),
-    getIndexTemplate(),
-  ]);
-  const activeSettings = settingsRows[0] || defaultSiteSettings();
-  const hydrated = await Promise.all(rows.map(async (post) => ({ ...post, ...(await attachBlogRelations(post.id, req.siteId)) })));
-
-  const html = renderBlogListHtml(hydrated, activeSettings, template, "/blog", isBot);
-  ssrCache.set(cacheKey, html);
-  reply.type("text/html");
-  return html;
-});
-
-app.get<{ Params: { slug: string } }>("/blog/:slug", async (req, reply) => {
-  reply.header("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=60");
-  const slug = req.params.slug.trim().toLowerCase();
-  const isBot = isBotRequest(req.headers["user-agent"]);
-  const cacheKey = `${req.siteId}:_blog:${slug}:${isBot ? "bot" : "human"}`;
-  if (ssrCache.has(cacheKey)) {
-    reply.type("text/html");
-    return ssrCache.get(cacheKey)!;
-  }
-
-  // Fetch settings, post, and template all in parallel
-  const [settingsRows, postRows, template] = await Promise.all([
-    db.select().from(siteSettings).where(eq(siteSettings.siteId, req.siteId)).limit(1),
-    db.select().from(blogPosts)
-      .where(and(eq(blogPosts.siteId, req.siteId), eq(blogPosts.slug, slug), eq(blogPosts.status, "published")))
-      .limit(1),
-    getIndexTemplate(),
-  ]);
-  const activeSettings = settingsRows[0] || defaultSiteSettings();
-  const post = postRows[0];
-
-  if (!post) {
-    return reply.status(404).send("Blog post not found");
-  }
-
-  const hydrated = { ...post, ...(await attachBlogRelations(post.id, req.siteId)) };
-  const html = renderBlogPostHtml(hydrated, activeSettings, template, `/blog/${slug}`, isBot);
-  ssrCache.set(cacheKey, html);
-  reply.type("text/html");
-  return html;
-});
-
-app.get<{ Params: { slug: string } }>("/:slug", async (req, reply) => {
-  const slug = req.params.slug.trim().toLowerCase();
-  if (slug.startsWith("api") || slug.startsWith("uploads") || slug === "health" || slug === "sitemap.xml" || slug === "robots.txt") {
-    return reply.status(404).send({ error: "Not found" });
-  }
-
-  reply.header("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=60");
-  const isBot = isBotRequest(req.headers["user-agent"]);
-  const cacheKey = `${req.siteId}:${slug}:${isBot ? "bot" : "human"}`;
-  if (ssrCache.has(cacheKey)) {
-    reply.type("text/html");
-    return ssrCache.get(cacheKey)!;
-  }
-
-  // Fetch settings, page, and template all in parallel
-  const [settingsRows, pageRows, template] = await Promise.all([
-    db.select().from(siteSettings).where(eq(siteSettings.siteId, req.siteId)).limit(1),
-    db.select().from(pages).where(and(eq(pages.siteId, req.siteId), eq(pages.slug, slug))).limit(1),
-    getIndexTemplate(),
-  ]);
-  const activeSettings = settingsRows[0] || defaultSiteSettings();
-  const page = pageRows[0];
-
-  if (!page) {
-    return reply.status(404).send("Page not found");
-  }
-
-  const html = renderPageHtml(page, activeSettings, template, `/${slug}`, isBot);
-  ssrCache.set(cacheKey, html);
-  reply.type("text/html");
-  return html;
-});
-
 await loadPlugins();
 startSslAutoRenewScheduler();
 
 const port = Number(process.env.PORT) || 3000;
 await app.listen({ port, host: "0.0.0.0" });
-
-// ── Pre-warm SSR cache on startup ─────────────────────────────────────────────
-// Renders all public pages into memory immediately so the first visitor never
-// waits for a cold DB query + HTML render. Runs in the background.
-(async () => {
-  try {
-    // Small delay to let web container finish starting up
-    await new Promise((r) => setTimeout(r, 2000));
-    const template = await getIndexTemplate();
-    const allSites = await db.select().from(sites);
-    for (const site of allSites) {
-      try {
-        const [settingsRow] = await db.select().from(siteSettings).where(eq(siteSettings.siteId, site.id)).limit(1);
-        const activeSettings = settingsRow || defaultSiteSettings();
-
-        // Pre-render homepage
-        const [homePage] = await db.select().from(pages)
-          .where(and(eq(pages.siteId, site.id), eq(pages.isHomepage, true))).limit(1);
-        // Pre-warm the human variant — that's what almost every visitor hits.
-        if (homePage) {
-          const cacheKey = `${site.id}:_homepage:human`;
-          if (!ssrCache.has(cacheKey)) {
-            const html = renderPageHtml(homePage, activeSettings, template, "/", false);
-            ssrCache.set(cacheKey, html);
-            app.log.info(`[prewarm] Cached homepage for site ${site.id}`);
-          }
-        }
-
-        // Pre-render all other pages
-        const allPages = await db.select().from(pages).where(eq(pages.siteId, site.id));
-        for (const page of allPages) {
-          if (page.isHomepage) continue;
-          const cacheKey = `${site.id}:${page.slug}:human`;
-          if (!ssrCache.has(cacheKey)) {
-            const html = renderPageHtml(page, activeSettings, template, `/${page.slug}`, false);
-            ssrCache.set(cacheKey, html);
-          }
-        }
-        app.log.info(`[prewarm] SSR cache ready for site ${site.id} (${allPages.length} pages)`);
-      } catch (e) {
-        app.log.warn(`[prewarm] Failed to pre-warm site ${site.id}: ${e}`);
-      }
-    }
-  } catch (e) {
-    app.log.warn(`[prewarm] SSR pre-warm skipped: ${e}`);
-  }
-})();
