@@ -173,7 +173,7 @@ export function GlobalLayout({ children }: { children: React.ReactNode }) {
   }, [settings, seo, logoImage]);
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="ow-shell min-h-screen flex flex-col">
       <style>{paletteToCSS(palette)}</style>
       <NavHeader />
 

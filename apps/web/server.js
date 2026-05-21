@@ -91,7 +91,13 @@ async function loadInitialData(pathname, host) {
 // ── HTML assembly ─────────────────────────────────────────────────────────────
 
 function assembleHtml(template, headHtml, appHtml, data) {
-  return template
+  let html = template;
+  // Pages can default to dark — render the class server-side so there's no
+  // flash. The no-flash script in index.html still lets a visitor override it.
+  if (data.page && data.page.theme === "dark") {
+    html = html.replace(/<html(\s|>)/i, '<html class="dark"$1');
+  }
+  return html
     .replace(/<title>[\s\S]*?<\/title>/i, "")
     .replace("</head>", `    ${headHtml}\n  </head>`)
     .replace(

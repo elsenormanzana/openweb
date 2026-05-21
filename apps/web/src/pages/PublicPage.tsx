@@ -7,6 +7,7 @@ import { useSeoHead } from "@/lib/useSeoHead";
 import { buildPageTitle } from "@/lib/seoTitle";
 import { onDataChange } from "@/lib/dataEvents";
 import { useInitialData } from "@/lib/initialData";
+import { applyPageTheme } from "@/lib/theme";
 
 export function PublicPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -16,6 +17,8 @@ export function PublicPage() {
   );
   const [seoConfig, setSeoConfig] = useState<SeoConfig>(initial.settings?.seoConfig ?? {});
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { applyPageTheme(page?.theme); }, [page?.theme]);
 
   useEffect(() => {
     if (!slug) return;

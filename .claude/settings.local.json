@@ -41,7 +41,9 @@
       "Read(//tmp/**)",
       "Bash(curl -s -o /dev/null -w \"status=%{http_code}\\\\n\" http://localhost:5179/admin)",
       "Bash(kill %1)",
-      "Bash(pkill -f \"node server.js\")"
+      "Bash(pkill -f \"node server.js\")",
+      "Bash(sed -n '1,12p' PublicBlogList.tsx)",
+      "Bash(sed -n '1,12p' PublicBlogPost.tsx)"
     ]
   },
   "enableAllProjectMcpServers": true,

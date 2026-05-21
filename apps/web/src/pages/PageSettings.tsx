@@ -106,6 +106,7 @@ export function PageSettings() {
   const [isHomepage, setIsHomepage] = useState(false);
   const [ignoreGlobalLayout, setIgnoreGlobalLayout] = useState(false);
   const [disableElevatedNavSpacing, setDisableElevatedNavSpacing] = useState(false);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
 
   // SEO fields
   const [seoTitle, setSeoTitle] = useState("");
@@ -136,6 +137,7 @@ export function PageSettings() {
         setIsHomepage(data.isHomepage);
         setIgnoreGlobalLayout(data.ignoreGlobalLayout ?? false);
         setDisableElevatedNavSpacing(data.disableElevatedNavSpacing ?? false);
+        setTheme(data.theme === "dark" ? "dark" : "light");
         setSeoTitle(data.seoTitle ?? "");
         setSeoDescription(data.seoDescription ?? "");
         setSeoKeywords(data.seoKeywords ?? "");
@@ -175,7 +177,7 @@ export function PageSettings() {
     setError(null);
     api.pages
       .update(pageId, {
-        title, slug, isHomepage, ignoreGlobalLayout, disableElevatedNavSpacing,
+        title, slug, isHomepage, ignoreGlobalLayout, disableElevatedNavSpacing, theme,
         seoTitle: seoTitle || null,
         seoDescription: seoDescription || null,
         seoKeywords: seoKeywords || null,
@@ -242,6 +244,19 @@ export function PageSettings() {
             <Label htmlFor="disable-elevated-nav-spacing">Disable elevated header spacing</Label>
           </div>
           <p className="text-xs text-muted-foreground">Use layout toggles to hide global layout or allow content to sit under the elevated floating header.</p>
+          <div className="space-y-1.5">
+            <Label htmlFor="page-theme">Page theme</Label>
+            <select
+              id="page-theme"
+              value={theme}
+              onChange={(e) => setTheme(e.target.value === "dark" ? "dark" : "light")}
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+            <p className="text-xs text-muted-foreground">Default theme for this page. A visitor can still override it with the navbar toggle.</p>
+          </div>
           <Button asChild variant="outline" size="sm">
             <Link to={`/admin/pages/${pageId}/editor`}>Open web editor</Link>
           </Button>

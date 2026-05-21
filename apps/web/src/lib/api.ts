@@ -8,6 +8,7 @@ export type Page = {
   isHomepage: boolean;
   ignoreGlobalLayout: boolean;
   disableElevatedNavSpacing: boolean;
+  theme: "light" | "dark";
   siteId: number;
   seoTitle: string | null;
   seoDescription: string | null;
@@ -466,7 +467,7 @@ export const api = {
     getBySlug: (slug: string) => request<Page>(`/api/pages/by-slug/${encodeURIComponent(slug)}`),
     create: (body: { title: string; slug: string; content?: string }) =>
       request<Page>("/api/pages", { method: "POST", body: JSON.stringify(body) }),
-    update: (id: number, body: Partial<Pick<Page, "title" | "slug" | "content" | "isHomepage" | "ignoreGlobalLayout" | "disableElevatedNavSpacing" | "seoTitle" | "seoDescription" | "seoKeywords" | "ogImage" | "noIndex" | "canonicalUrl">>) =>
+    update: (id: number, body: Partial<Pick<Page, "title" | "slug" | "content" | "isHomepage" | "ignoreGlobalLayout" | "disableElevatedNavSpacing" | "theme" | "seoTitle" | "seoDescription" | "seoKeywords" | "ogImage" | "noIndex" | "canonicalUrl">>) =>
       request<Page>(`/api/pages/${id}`, { method: "PUT", body: JSON.stringify(body) }),
     delete: (id: number) => request<{ ok: true }>(`/api/pages/${id}`, { method: "DELETE" }),
   },

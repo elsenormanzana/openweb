@@ -6,10 +6,13 @@ import { useSeoHead } from "@/lib/useSeoHead";
 import { buildPageTitle } from "@/lib/seoTitle";
 import { onDataChange } from "@/lib/dataEvents";
 import { useInitialData } from "@/lib/initialData";
+import { applyPageTheme } from "@/lib/theme";
 
 export function PublicBlogList() {
   const initial = useInitialData();
   const [posts, setPosts] = useState<BlogPost[]>(initial.blogPosts ?? []);
+
+  useEffect(() => { applyPageTheme(null); }, []);
   const [seoConfig, setSeoConfig] = useState<SeoConfig>(initial.settings?.seoConfig ?? {});
   const [query, setQuery] = useState("");
 

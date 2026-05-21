@@ -5,6 +5,7 @@ import { FormRenderer } from "@/components/FormRenderer";
 import { useInitialData } from "@/lib/initialData";
 import { useSeoHead } from "@/lib/useSeoHead";
 import { paletteToCSS, DEFAULT_PALETTE } from "@/lib/palette";
+import { applyPageTheme } from "@/lib/theme";
 import type { FormValues } from "@/lib/formConditions";
 
 /**
@@ -19,6 +20,8 @@ export function PublicFormPage() {
   );
   const [error, setError] = useState<string | null>(null);
   const settings = initial.settings ?? null;
+
+  useEffect(() => { applyPageTheme(null); }, []);
 
   useEffect(() => {
     if (!slug || (form && form.slug === slug)) return;
@@ -39,30 +42,27 @@ export function PublicFormPage() {
   if (form === undefined) return null;
 
   return (
-    <div
-      className="min-h-screen flex flex-col items-center justify-center px-4 py-12"
-      style={{ background: "var(--palette-background, #f8fafc)" }}
-    >
+    <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12 bg-[var(--palette-background,#f8fafc)] dark:bg-neutral-950">
       <style>{paletteToCSS(palette)}</style>
       <div className="w-full max-w-xl">
         <div className="text-center mb-6">
           {nav.logoImage ? (
             <img src={nav.logoImage} alt={nav.logoText || "Logo"} className="h-9 mx-auto object-contain" />
           ) : nav.logoText ? (
-            <span className="text-lg font-semibold" style={{ color: "var(--palette-text, #111827)" }}>{nav.logoText}</span>
+            <span className="text-lg font-semibold text-gray-900 dark:text-neutral-100">{nav.logoText}</span>
           ) : null}
         </div>
 
         {form === null ? (
-          <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center">
-            <p className="text-sm text-gray-500">{error || "This form is not available."}</p>
+          <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center dark:border-neutral-800 dark:bg-neutral-900">
+            <p className="text-sm text-gray-500 dark:text-neutral-400">{error || "This form is not available."}</p>
           </div>
         ) : (
-          <div className="rounded-2xl border border-gray-200 bg-white p-6 sm:p-8 shadow-sm">
+          <div className="rounded-2xl border border-gray-200 bg-white p-6 sm:p-8 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
             {(form.name || form.description) && (
               <div className="mb-5">
-                {form.name && <h1 className="text-xl font-semibold text-gray-900">{form.name}</h1>}
-                {form.description && <p className="text-sm text-gray-500 mt-1">{form.description}</p>}
+                {form.name && <h1 className="text-xl font-semibold text-gray-900 dark:text-neutral-100">{form.name}</h1>}
+                {form.description && <p className="text-sm text-gray-500 dark:text-neutral-400 mt-1">{form.description}</p>}
               </div>
             )}
             <FormRenderer

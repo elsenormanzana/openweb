@@ -6,6 +6,7 @@ import { BlockRenderer } from "@/components/BlockRenderer";
 import { useSeoHead } from "@/lib/useSeoHead";
 import { buildPageTitle } from "@/lib/seoTitle";
 import { useInitialData } from "@/lib/initialData";
+import { applyPageTheme } from "@/lib/theme";
 
 export function PublicBlogPost() {
   const { slug } = useParams<{ slug: string }>();
@@ -15,6 +16,8 @@ export function PublicBlogPost() {
   );
   const [seoConfig, setSeoConfig] = useState<SeoConfig>(initial.settings?.seoConfig ?? {});
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { applyPageTheme(null); }, []);
 
   useEffect(() => {
     if (!slug) return;

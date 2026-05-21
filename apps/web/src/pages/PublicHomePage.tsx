@@ -7,6 +7,7 @@ import { useSeoHead } from "@/lib/useSeoHead";
 import { buildHomepageTitle } from "@/lib/seoTitle";
 import { onDataChange } from "@/lib/dataEvents";
 import { useInitialData } from "@/lib/initialData";
+import { applyPageTheme } from "@/lib/theme";
 
 export function PublicHomePage() {
   const initial = useInitialData();
@@ -16,6 +17,8 @@ export function PublicHomePage() {
   const [seoConfig, setSeoConfig] = useState<SeoConfig>(initial.settings?.seoConfig ?? {});
   const [hasPublishedBlogs, setHasPublishedBlogs] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { applyPageTheme(page?.theme); }, [page?.theme]);
 
   useEffect(() => {
     const load = () => {

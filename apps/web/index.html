@@ -5,6 +5,18 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OpenWeb</title>
+    <script>
+      // Apply the visitor's saved theme before paint (no flash). With no saved
+      // preference, keep whatever the server rendered (the page's default theme).
+      (function () {
+        try {
+          var t = localStorage.getItem("openweb_theme");
+          var c = document.documentElement.classList;
+          if (t === "dark") c.add("dark");
+          else if (t === "light") c.remove("dark");
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -48,6 +48,7 @@ export const pages = pgTable("pages", {
   isHomepage: boolean("is_homepage").default(false).notNull(),
   ignoreGlobalLayout: boolean("ignore_global_layout").default(false).notNull(),
   disableElevatedNavSpacing: boolean("disable_elevated_nav_spacing").default(false).notNull(),
+  theme: text("theme").notNull().default("light"), // light|dark — page default theme
   // SEO
   seoTitle: text("seo_title"),
   seoDescription: text("seo_description"),

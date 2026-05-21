@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Dark mode is opt-in only — `dark:` utilities apply when a `.dark` class is
+   present, NOT from the OS `prefers-color-scheme`. The site is always light by
+   default; dark mode is enabled by a page setting or the navbar toggle. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -76,6 +81,12 @@ body {
   color: var(--palette-text, var(--foreground));
 }
 
+/* Dark mode overrides the light brand palette with the dark design tokens. */
+.dark body {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
 /* Responsive section rhythm — one source of truth for a block section's
    vertical padding. Scales down on small screens so mobile pages aren't
    dominated by whitespace; every block's outer <section> uses `ow-section`. */
@@ -97,6 +108,33 @@ html { scroll-behavior: smooth; }
 }
 /* Anchored scrolls land below the fixed/sticky header instead of under it. */
 [data-block-id] { scroll-margin-top: 6rem; }
+
+/* ── Dark mode for the public site ──────────────────────────────────────────
+   Block components and navbars hard-code the light gray/white/neutral palette.
+   Rather than edit every component, that light-surface vocabulary is remapped
+   inside the public layout shell when dark. Intentionally-dark surfaces
+   (bg-*-800/900/950, slate, black), white text and accent colors (blue, green,
+   …) are deliberately left untouched so they stay correct. */
+.dark .ow-shell {
+  --owd-bg: #0d1117;       /* page / section background */
+  --owd-surface: #161b22;  /* cards, panels, solid headers */
+  --owd-elevated: #21262d; /* subtle / hover surfaces */
+  --owd-border: #2d333b;
+  --owd-text: #e6edf3;     /* headings / primary text */
+  --owd-text-2: #adbac7;   /* body text */
+  --owd-muted: #8b949e;    /* secondary / muted text */
+}
+.dark .ow-shell :is(.bg-white) { background-color: var(--owd-surface); }
+.dark .ow-shell :is(.bg-gray-50, .bg-neutral-50) { background-color: var(--owd-bg); }
+.dark .ow-shell :is(.bg-gray-100, .bg-gray-200, .bg-neutral-100, .bg-neutral-200) { background-color: var(--owd-elevated); }
+.dark .ow-shell :is(.text-gray-950, .text-gray-900, .text-gray-800, .text-neutral-950, .text-neutral-900, .text-neutral-800) { color: var(--owd-text); }
+.dark .ow-shell :is(.text-gray-700, .text-gray-600, .text-neutral-700, .text-neutral-600) { color: var(--owd-text-2); }
+.dark .ow-shell :is(.text-gray-500, .text-gray-400, .text-neutral-500, .text-neutral-400) { color: var(--owd-muted); }
+.dark .ow-shell :is(.border-gray-100, .border-gray-200, .border-gray-300, .border-neutral-100, .border-neutral-200) { border-color: var(--owd-border); }
+.dark .ow-shell .divide-gray-100 > :not([hidden]) ~ :not([hidden]) { border-color: var(--owd-border); }
+/* Rich-text (TextBlock / legacy HTML) */
+.dark .ow-shell .prose { color: var(--owd-text-2); }
+.dark .ow-shell .prose :is(h1, h2, h3, h4, h5, h6, strong, blockquote) { color: var(--owd-text); }
 
 /* Block enter animations for SaaS-style pages */
 @keyframes block-fade-in {

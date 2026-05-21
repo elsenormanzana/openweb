@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import type { NavMenuItem, NavDropdownLink } from "@/lib/api";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export type NavVariantProps = {
   logoText: string;
@@ -78,7 +79,7 @@ function NavAnchor({ href, className, style, children }: { href?: string; classN
 
 function LogoBrand({ logoText, logoImage, logoHref, linkStyle }: { logoText: string; logoImage?: string; logoHref: string; linkStyle?: CSSProperties }) {
   return (
-    <NavAnchor href={logoHref} className="inline-flex items-center gap-2 font-semibold text-lg text-neutral-900" style={linkStyle}>
+    <NavAnchor href={logoHref} className="inline-flex items-center gap-2 font-semibold text-lg text-neutral-900 dark:!text-neutral-100" style={linkStyle}>
       {logoImage ? <img src={logoImage} alt={logoText || "Logo"} className="h-8 w-auto max-w-36 object-contain" /> : null}
       {logoText ? <span>{logoText}</span> : null}
     </NavAnchor>
@@ -541,6 +542,8 @@ function DesktopNav({
               containerClass += "text-neutral-700 hover:text-primary dark:text-neutral-300 dark:hover:text-white ";
             }
           }
+          // Force readable link text in dark mode even when an inline headerTextColor is set.
+          containerClass += "dark:!text-neutral-100 ";
 
           if (hasDropdown) {
             return (
@@ -565,6 +568,7 @@ function DesktopNav({
             </li>
           );
         })}
+        <li className="ml-1"><ThemeToggle /></li>
       </ul>
     </nav>
   );
@@ -620,6 +624,10 @@ function MobileDrawer({
   return (
     <div className="border-t mt-2 pt-2 lg:hidden">
       <nav className="flex flex-col gap-1.5 px-2 pb-2">
+        <div className="flex items-center justify-between rounded-md px-3 py-1.5">
+          <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Theme</span>
+          <ThemeToggle />
+        </div>
         {links.map((item, i) => {
           const hasDropdown = (item.dropdown ?? []).length > 0;
           const isActive = isLinkActive(item.href, location.pathname, location.hash);
@@ -691,7 +699,12 @@ export function NavbarMinimal({ logoText, logoImage, logoHref, navLinks, navLink
   const linkStyle = headerTextColor ? { color: headerTextColor } : undefined;
 
   return (
-    <header style={wrapStyle} className={`py-4 w-full ${isTransparent ? "" : "border-b"}`}>
+    // dark:!bg-neutral-950 overrides the inline headerBg so a solid header
+    // follows dark mode; transparent headers stay transparent.
+    <header
+      style={wrapStyle}
+      className={`py-4 w-full ${isTransparent ? "" : "border-b dark:!bg-neutral-950 dark:border-neutral-800"}`}
+    >
       <div className="max-w-7xl mx-auto px-4 xl:px-0 flex items-center justify-between gap-x-4 lg:grid lg:grid-cols-[1fr_auto_1fr] lg:justify-stretch lg:gap-x-12">
         <LogoBrand logoText={logoText} logoImage={logoImage} logoHref={logoHref} linkStyle={linkStyle} />
 

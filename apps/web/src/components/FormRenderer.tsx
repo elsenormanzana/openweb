@@ -3,7 +3,7 @@ import type { FormField, FormLayout, FormSection } from "@/lib/api";
 import { getVisibleFields, getVisibleSections, type FormValues } from "@/lib/formConditions";
 
 const INPUT_CLASS =
-  "w-full px-4 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors";
+  "w-full px-4 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-500";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -40,7 +40,7 @@ function FieldInput({
   }
   if (field.type === "checkbox") {
     return (
-      <label className="flex items-center gap-2 text-sm text-gray-700">
+      <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-neutral-300">
         <input
           type="checkbox" checked={value === true || value === "true"}
           onChange={(e) => onChange(e.target.checked)} required={field.required}
@@ -65,7 +65,7 @@ function FieldRow({
   return (
     <div>
       {field.type !== "checkbox" && (
-        <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wider">
+        <label className="block text-xs font-semibold text-gray-600 dark:text-neutral-400 mb-1.5 uppercase tracking-wider">
           {field.label}{field.required && <span className="text-red-500"> *</span>}
         </label>
       )}
@@ -78,9 +78,9 @@ function StepProgress({ total, current }: { total: number; current: number }) {
   return (
     <div className="flex items-center gap-2">
       {Array.from({ length: total }).map((_, i) => (
-        <div key={i} className={`h-1.5 flex-1 rounded-full transition-colors ${i <= current ? "bg-gray-900" : "bg-gray-200"}`} />
+        <div key={i} className={`h-1.5 flex-1 rounded-full transition-colors ${i <= current ? "bg-gray-900 dark:bg-neutral-100" : "bg-gray-200 dark:bg-neutral-700"}`} />
       ))}
-      <span className="text-xs text-gray-500 ml-1 shrink-0">{current + 1}/{total}</span>
+      <span className="text-xs text-gray-500 dark:text-neutral-400 ml-1 shrink-0">{current + 1}/{total}</span>
     </div>
   );
 }
@@ -173,8 +173,8 @@ export function FormRenderer({
         <div key={section.id} className="space-y-4">
           {(section.title || section.description) && (
             <div>
-              {section.title && <h3 className="text-base font-semibold text-gray-900">{section.title}</h3>}
-              {section.description && <p className="text-sm text-gray-500 mt-0.5">{section.description}</p>}
+              {section.title && <h3 className="text-base font-semibold text-gray-900 dark:text-neutral-100">{section.title}</h3>}
+              {section.description && <p className="text-sm text-gray-500 dark:text-neutral-400 mt-0.5">{section.description}</p>}
             </div>
           )}
           {getVisibleFields(section, values).map((field) => (
@@ -189,7 +189,7 @@ export function FormRenderer({
         {isSteps && currentStep > 0 && (
           <button
             type="button" onClick={goBack}
-            className="px-5 py-2.5 rounded-lg text-sm font-semibold border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+            className="px-5 py-2.5 rounded-lg text-sm font-semibold border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
           >
             Back
           </button>
