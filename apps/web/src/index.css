@@ -89,6 +89,15 @@ body {
   .ow-section { padding-block: 5rem; }
 }
 
+/* Animated in-page navigation: smooth-scroll for anchor jumps and scroll-to-top.
+   Disabled for users who prefer reduced motion. */
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+/* Anchored scrolls land below the fixed/sticky header instead of under it. */
+[data-block-id] { scroll-margin-top: 6rem; }
+
 /* Block enter animations for SaaS-style pages */
 @keyframes block-fade-in {
   from { opacity: 0; }

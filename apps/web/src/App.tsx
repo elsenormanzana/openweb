@@ -1,5 +1,5 @@
-import { Suspense, lazy, type ReactNode } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Suspense, lazy, useEffect, useRef, type ReactNode } from "react";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider } from "@/lib/auth";
 import { RequireAuth } from "@/components/RequireAuth";
 // Public pages are eager — they are the highest-traffic routes and render
@@ -43,11 +43,44 @@ function RouteLoader({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>;
 }
 
+// Drives scroll on navigation: a `#hash` smooth-scrolls to that element (the
+// anchor IDs blocks expose), any other route change scrolls back to the top.
+// The actual easing comes from `scroll-behavior: smooth` in index.css.
+function ScrollManager() {
+  const { pathname, hash } = useLocation();
+  const firstRun = useRef(true);
+
+  useEffect(() => {
+    const wasFirstRun = firstRun.current;
+    firstRun.current = false;
+
+    if (hash) {
+      const id = decodeURIComponent(hash.slice(1));
+      let tries = 0;
+      // Retry briefly — on cross-page anchor links the target may still be loading.
+      const scrollToAnchor = () => {
+        const el = document.getElementById(id);
+        if (el) { el.scrollIntoView({ block: "start" }); return; }
+        if (tries++ < 10) window.setTimeout(scrollToAnchor, 100);
+      };
+      scrollToAnchor();
+      return;
+    }
+
+    // Don't fight the browser's restored scroll position on the very first load.
+    if (wasFirstRun) return;
+    window.scrollTo({ top: 0, left: 0 });
+  }, [pathname, hash]);
+
+  return null;
+}
+
 // The router (BrowserRouter on the client, StaticRouter on the server) is
 // provided by the entry files so this same tree can be hydrated or prerendered.
 export default function App() {
   return (
     <AuthProvider>
+      <ScrollManager />
       <Routes>
           {/* Public auth pages */}
           <Route path="/login" element={<RouteLoader><Login /></RouteLoader>} />

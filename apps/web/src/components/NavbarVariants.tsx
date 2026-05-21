@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import type { NavMenuItem, NavDropdownLink } from "@/lib/api";
 
@@ -51,6 +51,7 @@ function isExternalHref(href: string): boolean {
 }
 
 function NavAnchor({ href, className, style, children }: { href?: string; className: string; style?: CSSProperties; children: ReactNode }) {
+  const location = useLocation();
   const targetHref = href && href.trim() ? href : "#";
   if (isExternalHref(targetHref)) {
     return (
@@ -59,8 +60,17 @@ function NavAnchor({ href, className, style, children }: { href?: string; classN
       </a>
     );
   }
+  // Re-clicking the nav link for the page you're already on scrolls back to the
+  // top — React Router fires no navigation for a same-location click, so the
+  // ScrollManager never sees it. Anchor links (#id) are left to ScrollManager.
+  const handleClick = () => {
+    if (targetHref.includes("#")) return;
+    const target = targetHref.replace(/\/+$/, "") || "/";
+    const current = location.pathname.replace(/\/+$/, "") || "/";
+    if (target === current) window.scrollTo({ top: 0, left: 0 });
+  };
   return (
-    <Link to={targetHref} className={className} style={style}>
+    <Link to={targetHref} className={className} style={style} onClick={handleClick}>
       {children}
     </Link>
   );
@@ -77,27 +87,30 @@ function LogoBrand({ logoText, logoImage, logoHref, linkStyle }: { logoText: str
 
 function DropdownPanel({
   groups,
+  open,
   dropdownStyle = "minimal",
   dropdownAnimation = "fade",
 }: {
   groups: NonNullable<NavMenuItem["dropdown"]>;
+  open: boolean;
   dropdownStyle?: "minimal" | "modern-card" | "gradient-border" | "glassmorphic";
   dropdownAnimation?: "fade" | "slide-up" | "scale-up" | "fade-slide";
 }) {
   const location = useLocation();
 
-  // Outer transition/animation styles
-  let animationClass = "";
+  // Visibility is driven by `open` (click/tap) — hover-only dropdowns are
+  // invisible and non-interactive on touch devices (iPads/tablets).
+  const base = "absolute left-0 top-full pt-2 z-50 origin-top transition-all duration-300 ease-out ";
+  let hiddenState = "pointer-events-none opacity-0";
+  let shownState = "pointer-events-auto opacity-100";
   if (dropdownAnimation === "slide-up") {
-    animationClass = "absolute left-0 top-full pt-2 z-50 pointer-events-none opacity-0 translate-y-3 transition-all duration-300 ease-out group-hover:pointer-events-auto group-hover:opacity-100 group-hover:translate-y-0";
+    hiddenState += " translate-y-3"; shownState += " translate-y-0";
   } else if (dropdownAnimation === "scale-up") {
-    animationClass = "absolute left-0 top-full pt-2 z-50 pointer-events-none opacity-0 scale-95 origin-top transition-all duration-300 ease-out group-hover:pointer-events-auto group-hover:opacity-100 group-hover:scale-100";
+    hiddenState += " scale-95"; shownState += " scale-100";
   } else if (dropdownAnimation === "fade-slide") {
-    animationClass = "absolute left-0 top-full pt-2 z-50 pointer-events-none opacity-0 translate-y-2 scale-[0.98] origin-top transition-all duration-300 ease-in-out group-hover:pointer-events-auto group-hover:opacity-100 group-hover:translate-y-0 group-hover:scale-100";
-  } else {
-    // default/fade
-    animationClass = "absolute left-0 top-full pt-2 z-50 pointer-events-none opacity-0 transition-opacity duration-300 group-hover:pointer-events-auto group-hover:opacity-100";
+    hiddenState += " translate-y-2 scale-[0.98]"; shownState += " translate-y-0 scale-100";
   }
+  const animationClass = base + (open ? shownState : hiddenState);
 
   let container = null;
   if (dropdownStyle === "modern-card") {
@@ -396,6 +409,66 @@ function isLinkActive(href?: string, pathname?: string, hash?: string): boolean 
   return cleanPath === cleanHref;
 }
 
+// Click-to-toggle dropdown — works with both mouse and touch. Closes on an
+// outside tap and after navigating.
+function NavDropdown({
+  item,
+  containerClass,
+  customLinkStyle,
+  underlineElement,
+  dropdownStyle,
+  dropdownAnimation,
+}: {
+  item: NavMenuItem;
+  containerClass: string;
+  customLinkStyle?: CSSProperties;
+  underlineElement: ReactNode;
+  dropdownStyle?: "minimal" | "modern-card" | "gradient-border" | "glassmorphic";
+  dropdownAnimation?: "fade" | "slide-up" | "scale-up" | "fade-slide";
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLLIElement>(null);
+  const location = useLocation();
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [open]);
+
+  // Close once the route changes (a panel link was followed).
+  useEffect(() => { setOpen(false); }, [location.pathname, location.hash]);
+
+  return (
+    <li ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="true"
+        style={customLinkStyle}
+        className={containerClass}
+      >
+        <span>{item.label}</span>
+        <ChevronDown />
+        {underlineElement}
+      </button>
+      {/* Tapping a link inside the panel closes it (same-page links don't change the route). */}
+      <div onClick={(e) => { if ((e.target as HTMLElement).closest("a")) setOpen(false); }}>
+        <DropdownPanel
+          groups={item.dropdown ?? []}
+          open={open}
+          dropdownStyle={dropdownStyle}
+          dropdownAnimation={dropdownAnimation}
+        />
+      </div>
+    </li>
+  );
+}
+
 function DesktopNav({
   links,
   linkStyle,
@@ -471,14 +544,15 @@ function DesktopNav({
 
           if (hasDropdown) {
             return (
-              <li key={i} className="relative group">
-                <button type="button" style={customLinkStyle} className={containerClass}>
-                  <span>{item.label}</span>
-                  <ChevronDown />
-                  {underlineElement}
-                </button>
-                <DropdownPanel groups={item.dropdown ?? []} dropdownStyle={dropdownStyle} dropdownAnimation={dropdownAnimation} />
-              </li>
+              <NavDropdown
+                key={i}
+                item={item}
+                containerClass={containerClass}
+                customLinkStyle={customLinkStyle}
+                underlineElement={underlineElement}
+                dropdownStyle={dropdownStyle}
+                dropdownAnimation={dropdownAnimation}
+              />
             );
           }
 
