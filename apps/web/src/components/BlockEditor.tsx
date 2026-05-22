@@ -607,9 +607,7 @@ export function BlockEditor({
   }, [selectedId, blocks, clipboardBlock, handleUndo, handleRedo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addBlock = (type: BlockType) => {
-    // Composable pre-made blocks insert as an editable basic-block composition.
-    const base = defaultBlock(type);
-    const newBlock = isComposable(type) ? composeBlock(base) : base;
+    const newBlock = defaultBlock(type);
     commit([...blocks, newBlock]);
     setSelectedId(newBlock.id);
   };
@@ -752,7 +750,7 @@ export function BlockEditor({
   const onAddChild = (parentId: string, containerKey: string, blockType: string) => {
     if (!BLOCK_REGISTRY.find((r) => r.type === blockType)) return;
     const t = blockType as BlockType;
-    const newChild = isComposable(t) ? composeBlock(defaultBlock(t)) : defaultBlock(t);
+    const newChild = defaultBlock(t);
     commit(mapTree(blocks, (b) =>
       b.id === parentId ? setChildList(b, containerKey, [...getChildList(b, containerKey), newChild]) : b));
     setSelectedId(newChild.id);

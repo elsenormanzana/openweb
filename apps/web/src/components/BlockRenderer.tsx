@@ -1,5 +1,7 @@
-import { Suspense, lazy, Component, type ReactNode } from "react";
+import { Suspense, lazy, Component, type ReactNode, createContext } from "react";
 import { parseBlocks, type Block } from "@/lib/parseBlocks";
+
+export const NestedBlockContext = createContext(false);
 import { HeroBlock } from "@/components/blocks/HeroBlock";
 import { CtaBlock } from "@/components/blocks/CtaBlock";
 import { FeaturesBlock } from "@/components/blocks/FeaturesBlock";

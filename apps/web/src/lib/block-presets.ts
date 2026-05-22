@@ -1,5 +1,4 @@
 import { defaultBlock, type Block, type BlockType } from "./blocks";
-import { composeBlock, isComposable } from "./block-compositions";
 
 export type BlockPreset = {
   id?: string;
@@ -91,9 +90,5 @@ export function createPresetBlocks(preset: BlockPreset): Block[] {
   if (preset.savedBlocks && preset.savedBlocks.length > 0) {
     return preset.savedBlocks.map((b) => ({ ...structuredClone(b), id: crypto.randomUUID() }));
   }
-  // Composable pre-made blocks expand to editable basic-block compositions.
-  return preset.blocks.map((type) => {
-    const b = defaultBlock(type);
-    return isComposable(type) ? composeBlock(b) : b;
-  });
+  return preset.blocks.map((type) => defaultBlock(type));
 }

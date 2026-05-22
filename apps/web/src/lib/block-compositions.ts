@@ -83,7 +83,7 @@ function buildComposition(block: Block): Block | null {
         {
           backgroundColor: p.backgroundColor || "",
           backgroundImage: p.backgroundType === "image" ? (p.backgroundImage || "") : "",
-          paddingY: "xl", align, textColor: p.textColor === "light" ? "light" : "auto",
+          paddingY: "lg", align, textColor: p.textColor === "light" ? "light" : "auto",
         },
         [
           ...(p.badgeText ? [richText(`<strong>${esc(p.badgeText)}</strong>`, align)] : []),
@@ -166,7 +166,7 @@ function buildComposition(block: Block): Block | null {
       ]);
     case "logo-cloud": {
       const logos = (Array.isArray(p.logos) ? p.logos : []) as Props[];
-      return section({ paddingY: "md", align: "center" }, [
+      return section({ paddingY: "lg", align: "center" }, [
         ...(p.heading ? [heading(String(p.heading), "h4", "center")] : []),
         ...(p.subheading ? [richText(String(p.subheading), "center")] : []),
         columns(Math.min(logos.length || 4, 6), logos.map((lg) => cell([

@@ -248,6 +248,13 @@ export type ListBlockProps = {
   align: "left" | "center";
 };
 
+export type BadgeBlockProps = {
+  text: string;
+  variant: "soft" | "solid" | "outline";
+  color: string;
+  align: "left" | "center" | "right";
+};
+
 export type HeadingBlockProps = {
   text: string;
   level: "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
@@ -268,7 +275,7 @@ export type ColumnsBlockProps = {
   columns: ColumnItem[];
   gridColumns?: number;  // grid track count; default = columns.length
   gap: "sm" | "md" | "lg";
-  paddingY: "sm" | "md" | "lg";
+  paddingY: "none" | "sm" | "md" | "lg";
   bgColor: string;
 };
 

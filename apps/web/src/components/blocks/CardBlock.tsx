@@ -1,5 +1,7 @@
+import { useContext } from "react";
 import type { CardBlockProps } from "@/lib/blocks";
 import { ContainerDropZone } from "./ContainerDropZone";
+import { NestedBlockContext } from "@/components/BlockRenderer";
 
 const PADDING: Record<string, string> = { none: "p-0", sm: "p-4", md: "p-6", lg: "p-10" };
 const RADIUS: Record<string, string> = { none: "rounded-none", sm: "rounded-sm", md: "rounded-xl", lg: "rounded-2xl" };
@@ -7,10 +9,12 @@ const SHADOW: Record<string, string> = { none: "shadow-none", sm: "shadow-sm", m
 
 export function CardBlock({ props, editorProps, blockId }: { props: CardBlockProps; editorProps?: any; blockId?: string }) {
   const { title, subtitle, image, backgroundColor, borderColor, borderRadius, padding, shadow, blocks } = props;
+  const isNested = useContext(NestedBlockContext);
+  const widthClass = isNested ? "w-full" : "w-full max-w-4xl mx-auto";
 
   return (
     <div
-      className={`w-full max-w-4xl mx-auto border overflow-hidden transition-all ${RADIUS[borderRadius]} ${SHADOW[shadow]}`}
+      className={`${widthClass} border overflow-hidden transition-all ${RADIUS[borderRadius]} ${SHADOW[shadow]}`}
       style={{
         backgroundColor: backgroundColor || "#ffffff",
         borderColor: borderColor || "#e5e7eb",

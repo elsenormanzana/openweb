@@ -1,4 +1,6 @@
+import { useContext } from "react";
 import type { HeadingBlockProps } from "@/lib/blocks";
+import { NestedBlockContext } from "@/components/BlockRenderer";
 
 const SIZE: Record<HeadingBlockProps["level"], string> = {
   h1: "text-5xl md:text-6xl",
@@ -18,16 +20,25 @@ const ALIGN: Record<HeadingBlockProps["align"], string> = {
 export function HeadingBlock({ props }: { props: HeadingBlockProps }) {
   const { text, level, align, color } = props;
   const Tag = level;
+  const isNested = useContext(NestedBlockContext);
+
+  const element = (
+    <Tag
+      className={`font-bold leading-tight ${SIZE[level]} ${ALIGN[align]}`}
+      style={color ? { color } : undefined}
+    >
+      {text}
+    </Tag>
+  );
+
+  if (isNested) {
+    return element;
+  }
 
   return (
     <div className="w-full px-4">
       <div className="max-w-5xl mx-auto">
-        <Tag
-          className={`font-bold leading-tight ${SIZE[level]} ${ALIGN[align]}`}
-          style={color ? { color } : undefined}
-        >
-          {text}
-        </Tag>
+        {element}
       </div>
     </div>
   );

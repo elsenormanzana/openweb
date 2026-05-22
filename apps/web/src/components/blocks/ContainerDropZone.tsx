@@ -1,5 +1,5 @@
 import { ChevronUp, ChevronDown, Trash2, GripVertical, FolderTree, Sparkles } from "lucide-react";
-import { renderBlock } from "@/components/BlockRenderer";
+import { renderBlock, NestedBlockContext } from "@/components/BlockRenderer";
 import { BLOCK_REGISTRY } from "@/lib/blocks";
 
 export function ContainerDropZone({
@@ -27,9 +27,11 @@ export function ContainerDropZone({
       );
     }
     return (
-      <>
-        {blocks.map((b) => renderBlock(b, editorProps))}
-      </>
+      <NestedBlockContext.Provider value={true}>
+        <div className="flex flex-col gap-6 w-full">
+          {blocks.map((b) => renderBlock(b, editorProps))}
+        </div>
+      </NestedBlockContext.Provider>
     );
   }
 
@@ -77,7 +79,7 @@ export function ContainerDropZone({
           </p>
         </div>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-6">
           {blocks.map((childBlock, childIndex) => (
             <div
               key={childBlock.id}
@@ -164,7 +166,9 @@ export function ContainerDropZone({
 
               {/* Child block content (fully interactable) */}
               <div className="pointer-events-auto">
-                {renderBlock(childBlock, editorProps)}
+                <NestedBlockContext.Provider value={true}>
+                  {renderBlock(childBlock, editorProps)}
+                </NestedBlockContext.Provider>
               </div>
             </div>
           ))}

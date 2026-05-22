@@ -1,9 +1,12 @@
+import { useContext } from "react";
 import type { AlertBlockProps } from "@/lib/blocks";
 import { ContainerDropZone } from "./ContainerDropZone";
 import { CircleHelp, AlertTriangle, CheckCircle2, AlertCircle } from "lucide-react";
+import { NestedBlockContext } from "@/components/BlockRenderer";
 
 export function AlertBlock({ props, editorProps, blockId }: { props: AlertBlockProps; editorProps?: any; blockId?: string }) {
   const { type, title, icon, variant, blocks } = props;
+  const isNested = useContext(NestedBlockContext);
 
   const TYPE_CONFIG = {
     info: {
@@ -34,9 +37,10 @@ export function AlertBlock({ props, editorProps, blockId }: { props: AlertBlockP
 
   const CurrentIcon = TYPE_CONFIG.Icon;
   const variantClass = variant === "left-accent" ? `border-l-4 ${TYPE_CONFIG.accent} bg-muted/30` : `border ${TYPE_CONFIG.bg}`;
+  const layoutClass = isNested ? `w-full rounded-lg p-4 transition-all ${variantClass}` : `w-full max-w-4xl mx-auto rounded-lg p-4 my-4 transition-all ${variantClass}`;
 
   return (
-    <div className={`w-full max-w-4xl mx-auto rounded-lg p-4 my-4 transition-all ${variantClass}`}>
+    <div className={layoutClass}>
       <div className="flex items-start gap-3">
         {icon && <CurrentIcon className={`size-6 shrink-0 mt-0.5 ${TYPE_CONFIG.iconColor}`} />}
         <div className="flex-1 w-full">
