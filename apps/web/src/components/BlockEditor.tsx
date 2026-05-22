@@ -26,6 +26,7 @@ import {
   type BlockType,
   type BlockCategory,
 } from "@/lib/blocks";
+import { composeBlock, isComposable } from "@/lib/block-compositions";
 import { renderBlock, BlockRenderer } from "@/components/BlockRenderer";
 import { BlockPropsForm } from "@/components/block-forms";
 import { AnimationConfigForm } from "@/components/block-forms/AnimationConfigForm";
@@ -38,7 +39,7 @@ import { Button } from "@/components/ui/button";
 import {
   GripVertical, Trash2, Copy, LayoutTemplate, X, PanelLeftClose, PanelLeftOpen,
   Undo2, Redo2, ChevronUp, ChevronDown, Clipboard, ClipboardPaste,
-  Sparkles, Code, AlertTriangle, Plus, FolderTree, Anchor,
+  Sparkles, Code, AlertTriangle, Plus, FolderTree, Anchor, Scissors,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -298,6 +299,18 @@ function SortableVisualBlock({
         >
           <Clipboard className="size-3" aria-hidden="true" />
         </button>
+
+        {/* Break a pre-made block into editable basic blocks */}
+        {isComposable(block.type) && editorProps?.onBreakApart && (
+          <button
+            aria-label="Break into editable blocks"
+            title="Break into editable blocks"
+            onClick={() => editorProps.onBreakApart(block.id)}
+            className="p-1 rounded-full hover:bg-white/15 text-emerald-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/60"
+          >
+            <Scissors className="size-3" aria-hidden="true" />
+          </button>
+        )}
 
         {/* Duplicate */}
         <button
@@ -594,9 +607,10 @@ export function BlockEditor({
   }, [selectedId, blocks, clipboardBlock, handleUndo, handleRedo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addBlock = (type: BlockType) => {
-    const newBlock = defaultBlock(type);
-    const next = [...blocks, newBlock];
-    commit(next);
+    // Composable pre-made blocks insert as an editable basic-block composition.
+    const base = defaultBlock(type);
+    const newBlock = isComposable(type) ? composeBlock(base) : base;
+    commit([...blocks, newBlock]);
     setSelectedId(newBlock.id);
   };
 
@@ -626,7 +640,7 @@ export function BlockEditor({
             }
           }
           return { ...b, props: { ...b.props, columns: cols } } as Block;
-        } else if (b.type === "card" || b.type === "alert") {
+        } else if (b.type === "card" || b.type === "alert" || b.type === "section") {
           const childList = (b.props as any).blocks ? removeDeep((b.props as any).blocks) : [];
           return { ...b, props: { ...b.props, blocks: childList } } as Block;
         }
@@ -666,7 +680,7 @@ export function BlockEditor({
               }
             }
             result.push({ ...b, props: { ...b.props, columns: cols } } as Block);
-          } else if (b.type === "card" || b.type === "alert") {
+          } else if (b.type === "card" || b.type === "alert" || b.type === "section") {
             const childList = (b.props as any).blocks ? dupDeep((b.props as any).blocks) : [];
             result.push({ ...b, props: { ...b.props, blocks: childList } } as Block);
           } else {
@@ -699,216 +713,153 @@ export function BlockEditor({
     if (block) setClipboardBlock(structuredClone(block));
   };
 
-  const onAddChild = (parentId: string, containerKey: string, blockType: string) => {
-    const entry = BLOCK_REGISTRY.find((r) => r.type === blockType);
-    if (!entry) return;
-
-    const newChild: Block = {
-      id: `block-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      type: blockType as any,
-      props: JSON.parse(JSON.stringify(entry.defaultProps)),
-    };
-
-    commit(
-      blocks.map((b) => {
-        if (b.id !== parentId) return b;
-
-        if (containerKey.startsWith("col-")) {
-          const colIndex = parseInt(containerKey.replace("col-", ""), 10);
-          const cols = [...(b.props as any).columns];
-          const targetCol = { ...cols[colIndex] };
-          targetCol.blocks = [...(targetCol.blocks || []), newChild];
-          cols[colIndex] = targetCol;
-          return { ...b, props: { ...b.props, columns: cols } } as Block;
-        } else {
-          return {
-            ...b,
-            props: {
-              ...b.props,
-              blocks: [...((b.props as any).blocks || []), newChild],
-            },
-          } as Block;
+  // ── Nested-container helpers ────────────────────────────────────────────────
+  // Recurse into every container (row/columns cells, card/alert/section .blocks)
+  // applying `fn` to each block at every depth. Compositions are nested, so all
+  // child-mutation handlers route through this.
+  const mapTree = (list: Block[], fn: (b: Block) => Block): Block[] =>
+    list.map((b) => {
+      let nb = fn(b);
+      if (nb.type === "row" || nb.type === "columns") {
+        const cols = ((nb.props as any).columns || []).map((c: any) =>
+          c.blocks ? { ...c, blocks: mapTree(c.blocks, fn) } : c);
+        nb = { ...nb, props: { ...nb.props, columns: cols } } as Block;
+      } else if (nb.type === "card" || nb.type === "alert" || nb.type === "section") {
+        if ((nb.props as any).blocks) {
+          nb = { ...nb, props: { ...nb.props, blocks: mapTree((nb.props as any).blocks, fn) } } as Block;
         }
-      })
-    );
+      }
+      return nb;
+    });
+
+  const getChildList = (b: Block, key: string): Block[] => {
+    if (key.startsWith("col-")) {
+      const idx = parseInt(key.slice(4), 10);
+      return ((b.props as any).columns?.[idx]?.blocks) || [];
+    }
+    return (b.props as any).blocks || [];
+  };
+  const setChildList = (b: Block, key: string, list: Block[]): Block => {
+    if (key.startsWith("col-")) {
+      const idx = parseInt(key.slice(4), 10);
+      const cols = structuredClone((b.props as any).columns || []);
+      if (cols[idx]) cols[idx].blocks = list;
+      return { ...b, props: { ...b.props, columns: cols } } as Block;
+    }
+    return { ...b, props: { ...b.props, blocks: list } } as Block;
+  };
+
+  const onAddChild = (parentId: string, containerKey: string, blockType: string) => {
+    if (!BLOCK_REGISTRY.find((r) => r.type === blockType)) return;
+    const t = blockType as BlockType;
+    const newChild = isComposable(t) ? composeBlock(defaultBlock(t)) : defaultBlock(t);
+    commit(mapTree(blocks, (b) =>
+      b.id === parentId ? setChildList(b, containerKey, [...getChildList(b, containerKey), newChild]) : b));
+    setSelectedId(newChild.id);
   };
 
   const onMoveChild = (parentId: string, containerKey: string, childId: string, direction: "up" | "down") => {
-    commit(
-      blocks.map((b) => {
-        if (b.id !== parentId) return b;
-
-        if (containerKey.startsWith("col-")) {
-          const colIndex = parseInt(containerKey.replace("col-", ""), 10);
-          const cols = [...(b.props as any).columns];
-          const targetCol = { ...cols[colIndex] };
-          const list = [...(targetCol.blocks || [])];
-          const childIndex = list.findIndex((child) => child.id === childId);
-          if (childIndex === -1) return b;
-
-          const targetIndex = direction === "up" ? childIndex - 1 : childIndex + 1;
-          if (targetIndex < 0 || targetIndex >= list.length) return b;
-
-          const [moved] = list.splice(childIndex, 1);
-          list.splice(targetIndex, 0, moved);
-          targetCol.blocks = list;
-          cols[colIndex] = targetCol;
-          return { ...b, props: { ...b.props, columns: cols } } as Block;
-        } else {
-          const list = [...((b.props as any).blocks || [])];
-          const childIndex = list.findIndex((child) => child.id === childId);
-          if (childIndex === -1) return b;
-
-          const targetIndex = direction === "up" ? childIndex - 1 : childIndex + 1;
-          if (targetIndex < 0 || targetIndex >= list.length) return b;
-
-          const [moved] = list.splice(childIndex, 1);
-          list.splice(targetIndex, 0, moved);
-          return {
-            ...b,
-            props: { ...b.props, blocks: list },
-          } as Block;
-        }
-      })
-    );
+    commit(mapTree(blocks, (b) => {
+      if (b.id !== parentId) return b;
+      const list = [...getChildList(b, containerKey)];
+      const i = list.findIndex((c) => c.id === childId);
+      const j = direction === "up" ? i - 1 : i + 1;
+      if (i < 0 || j < 0 || j >= list.length) return b;
+      [list[i], list[j]] = [list[j], list[i]];
+      return setChildList(b, containerKey, list);
+    }));
   };
 
   const onDeleteChild = (parentId: string, containerKey: string, childId: string) => {
     if (selectedId === childId) setSelectedId(null);
-    commit(
-      blocks.map((b) => {
-        if (b.id !== parentId) return b;
-
-        if (containerKey.startsWith("col-")) {
-          const colIndex = parseInt(containerKey.replace("col-", ""), 10);
-          const cols = [...(b.props as any).columns];
-          const targetCol = { ...cols[colIndex] };
-          targetCol.blocks = (targetCol.blocks || []).filter((child: any) => child.id !== childId);
-          cols[colIndex] = targetCol;
-          return { ...b, props: { ...b.props, columns: cols } } as Block;
-        } else {
-          return {
-            ...b,
-            props: {
-              ...b.props,
-              blocks: ((b.props as any).blocks || []).filter((child: any) => child.id !== childId),
-            },
-          } as Block;
-        }
-      })
-    );
+    commit(mapTree(blocks, (b) =>
+      b.id === parentId
+        ? setChildList(b, containerKey, getChildList(b, containerKey).filter((c) => c.id !== childId))
+        : b));
   };
 
+  // Every container at any depth — drives the "move to container" dropdown.
+  const collectContainers = (list: Block[], depth = 0): { id: string; label: string; containerKey: string }[] => {
+    const out: { id: string; label: string; containerKey: string }[] = [];
+    const pad = "— ".repeat(depth);
+    for (const b of list) {
+      if (b.type === "row" || b.type === "columns") {
+        const cols = (b.props as any).columns || [];
+        cols.forEach((c: any, i: number) => {
+          out.push({ id: b.id, label: `${pad}${b.type === "row" ? "Row" : "Columns"} · Column ${i + 1}`, containerKey: `col-${i}` });
+          out.push(...collectContainers(c.blocks || [], depth + 1));
+        });
+      } else if (b.type === "card" || b.type === "alert" || b.type === "section") {
+        const label = b.type === "section" ? "Section"
+          : b.type === "card" ? `Card: ${(b.props as any).title || "Untitled"}`
+          : `Alert: ${(b.props as any).title || "Untitled"}`;
+        const key = b.type === "card" ? "card" : b.type === "alert" ? "alert" : "section";
+        out.push({ id: b.id, label: pad + label, containerKey: key });
+        out.push(...collectContainers((b.props as any).blocks || [], depth + 1));
+      }
+    }
+    return out;
+  };
   const availableContainers = [
     { id: "root", label: "Top Level Canvas", containerKey: "root" },
-    ...blocks.flatMap(b => {
-      if (b.type === "row") {
-        const cols = (b.props as any).columns || [];
-        return cols.map((_: any, i: number) => ({
-          id: b.id,
-          label: `Row (${cols.length} cols) — Column ${i + 1}`,
-          containerKey: `col-${i}`,
-        }));
-      } else if (b.type === "card") {
-        return [{ id: b.id, label: `Card: ${(b.props as any).title || "Untitled"}`, containerKey: "card" }];
-      } else if (b.type === "alert") {
-        return [{ id: b.id, label: `Alert: ${(b.props as any).title || "Untitled"}`, containerKey: "alert" }];
-      }
-      return [];
-    })
+    ...collectContainers(blocks),
   ];
 
+  // Move a block between containers at any depth. sourceContainerKey is "root"
+  // or "<parentId>.<key>"; targetContainerKey is "root" or a container key.
   const onMoveBlockBetweenContainers = (sourceId: string, sourceContainerKey: string, targetContainerKey: string, targetParentId?: string) => {
-    // 1. Find the block being moved
-    let movedBlock: Block | null = null;
+    const found = findBlockDeep(blocks, sourceId);
+    if (!found) return;
+    const moved = structuredClone(found);
+    const [srcParent, ...srcRest] = sourceContainerKey.split(".");
+    const srcKey = srcRest.join(".");
 
-    if (sourceContainerKey === "root") {
-      const idx = blocks.findIndex(b => b.id === sourceId);
-      if (idx !== -1) {
-        movedBlock = structuredClone(blocks[idx]);
+    let next = mapTree(blocks, (b) => {
+      let nb = b;
+      if (sourceContainerKey !== "root" && b.id === srcParent) {
+        nb = setChildList(nb, srcKey, getChildList(nb, srcKey).filter((c) => c.id !== sourceId));
       }
-    } else {
-      // Search inside containers
-      const [parentId, ...rest] = sourceContainerKey.split(".");
-      const containerKey = rest.join(".");
-
-      const parentBlock = blocks.find(b => b.id === parentId);
-      if (parentBlock) {
-        if (containerKey.startsWith("col-")) {
-          const colIdx = parseInt(containerKey.replace("col-", ""), 10);
-          const cols = (parentBlock.props as any).columns || [];
-          const list = cols[colIdx]?.blocks || [];
-          const child = list.find((c: any) => c.id === sourceId);
-          if (child) movedBlock = structuredClone(child);
-        } else {
-          const list = (parentBlock.props as any).blocks || [];
-          const child = list.find((c: any) => c.id === sourceId);
-          if (child) movedBlock = structuredClone(child);
-        }
+      if (targetContainerKey !== "root" && targetParentId && b.id === targetParentId) {
+        nb = setChildList(nb, targetContainerKey, [...getChildList(nb, targetContainerKey), moved]);
       }
-    }
-
-    if (!movedBlock) return;
-
-    // 2. Remove from source
-    let nextBlocks = blocks.map(b => {
-      if (sourceContainerKey === "root") return b;
-
-      const [parentId, ...rest] = sourceContainerKey.split(".");
-      const containerKey = rest.join(".");
-
-      if (b.id !== parentId) return b;
-
-      if (containerKey.startsWith("col-")) {
-        const colIdx = parseInt(containerKey.replace("col-", ""), 10);
-        const cols = structuredClone((b.props as any).columns || []);
-        if (cols[colIdx]) {
-          cols[colIdx].blocks = (cols[colIdx].blocks || []).filter((child: any) => child.id !== sourceId);
-        }
-        return { ...b, props: { ...b.props, columns: cols } } as Block;
-      } else {
-        const list = ((b.props as any).blocks || []).filter((child: any) => child.id !== sourceId);
-        return { ...b, props: { ...b.props, blocks: list } } as Block;
-      }
-    }).filter(b => sourceContainerKey === "root" ? b.id !== sourceId : true);
-
-    // 3. Insert into target
-    if (targetContainerKey === "root") {
-      nextBlocks.push(movedBlock);
-    } else if (targetParentId) {
-      nextBlocks = nextBlocks.map(b => {
-        if (b.id !== targetParentId) return b;
-
-        if (targetContainerKey.startsWith("col-")) {
-          const colIdx = parseInt(targetContainerKey.replace("col-", ""), 10);
-          const cols = structuredClone((b.props as any).columns || []);
-          if (cols[colIdx]) {
-            cols[colIdx].blocks = [...(cols[colIdx].blocks || []), movedBlock];
-          }
-          return { ...b, props: { ...b.props, columns: cols } } as Block;
-        } else {
-          const list = [...((b.props as any).blocks || []), movedBlock];
-          return { ...b, props: { ...b.props, blocks: list } } as Block;
-        }
-      });
-    }
-
-    commit(nextBlocks);
-    setSelectedId(movedBlock.id);
+      return nb;
+    });
+    if (sourceContainerKey === "root") next = next.filter((b) => b.id !== sourceId);
+    if (targetContainerKey === "root") next = [...next, moved];
+    commit(next);
+    setSelectedId(moved.id);
   };
 
+  // RowBlock column drag-resize (percentage widths).
   const onColumnUpdate = (blockId: string, colIdx1: number, pct1: number, colIdx2: number, pct2: number) => {
-    commit(
-      blocks.map(b => {
-        if (b.id !== blockId) return b;
-        const cols = structuredClone((b.props as any).columns || []);
-        if (cols[colIdx1] && cols[colIdx2]) {
-          cols[colIdx1].customWidth = pct1;
-          cols[colIdx2].customWidth = pct2;
-        }
-        return { ...b, props: { ...b.props, columns: cols } } as Block;
-      })
-    );
+    commit(mapTree(blocks, (b) => {
+      if (b.id !== blockId) return b;
+      const cols = structuredClone((b.props as any).columns || []);
+      if (cols[colIdx1] && cols[colIdx2]) {
+        cols[colIdx1].customWidth = pct1;
+        cols[colIdx2].customWidth = pct2;
+      }
+      return { ...b, props: { ...b.props, columns: cols } } as Block;
+    }));
+  };
+
+  // ColumnsBlock grid col/row span drag-resize.
+  const onColumnSpanUpdate = (blockId: string, colIdx: number, key: "colSpan" | "rowSpan", value: number) => {
+    commit(mapTree(blocks, (b) => {
+      if (b.id !== blockId) return b;
+      const cols = structuredClone((b.props as any).columns || []);
+      if (cols[colIdx]) cols[colIdx][key] = value;
+      return { ...b, props: { ...b.props, columns: cols } } as Block;
+    }));
+  };
+
+  // Convert a monolithic pre-made block into its editable basic-block composition.
+  const onBreakApart = (id: string) => {
+    const target = findBlockDeep(blocks, id);
+    if (!target || !isComposable(target.type)) return;
+    const composed = composeBlock(target);
+    commit(mapTree(blocks, (b) => (b.id === id ? composed : b)));
+    setSelectedId(composed.id);
   };
 
   const editorProps = {
@@ -924,6 +875,8 @@ export function BlockEditor({
     onDeleteChild,
     onMoveBlockBetweenContainers,
     onColumnUpdate,
+    onColumnSpanUpdate,
+    onBreakApart,
     availableContainers,
   };
 
@@ -960,7 +913,7 @@ export function BlockEditor({
             }
           }
           return { ...b, props: { ...b.props, columns: cols } } as Block;
-        } else if (b.type === "card" || b.type === "alert") {
+        } else if (b.type === "card" || b.type === "alert" || b.type === "section") {
           const childList = (b.props as any).blocks ? replaceDeep((b.props as any).blocks) : [];
           return { ...b, props: { ...b.props, blocks: childList } } as Block;
         }
@@ -1007,7 +960,7 @@ export function BlockEditor({
           const found = findBlockDeep(col.blocks || [], targetId);
           if (found) return found;
         }
-      } else if (b.type === "card" || b.type === "alert") {
+      } else if (b.type === "card" || b.type === "alert" || b.type === "section") {
         const found = findBlockDeep((b.props as any).blocks || [], targetId);
         if (found) return found;
       }

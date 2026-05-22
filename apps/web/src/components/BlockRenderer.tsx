@@ -23,6 +23,9 @@ import { RowBlock } from "@/components/blocks/RowBlock";
 import { CardBlock } from "@/components/blocks/CardBlock";
 import { AlertBlock } from "@/components/blocks/AlertBlock";
 import { ButtonBlock } from "@/components/blocks/ButtonBlock";
+import { SectionBlock } from "@/components/blocks/SectionBlock";
+import { IconBlock } from "@/components/blocks/IconBlock";
+import { ListBlock } from "@/components/blocks/ListBlock";
 
 // Lazy-load AnimationWrapper so framer-motion isn't bundled for pages without animations
 const AnimationWrapper = lazy(() =>
@@ -163,6 +166,9 @@ function renderBlockContent(block: Block, editorProps?: any) {
     case "newsletter": return <NewsletterBlock props={block.props} />;
     case "contact": return <ContactBlock props={block.props} />;
     case "button": return <ButtonBlock props={block.props} />;
+    case "section": return <SectionBlock props={block.props} editorProps={editorProps} blockId={block.id} />;
+    case "icon": return <IconBlock props={block.props} />;
+    case "list": return <ListBlock props={block.props} />;
     // Animated + social blocks — lazy, grouped into blocks-animated / blocks-social
     default: return renderLazyBlock(block.type, block.props);
   }
@@ -176,8 +182,8 @@ const DARK_SURFACE_BLOCKS = new Set([
 
 function blockSurface(block: Block): "dark" | undefined {
   if (DARK_SURFACE_BLOCKS.has(block.type)) return "dark";
-  // Hero/CTA expose a textColor prop — "light" text means a dark background.
-  if ((block.type === "hero" || block.type === "cta")
+  // Hero/CTA/Section expose a textColor prop — "light" text means a dark background.
+  if ((block.type === "hero" || block.type === "cta" || block.type === "section")
     && (block.props as { textColor?: string })?.textColor === "light") {
     return "dark";
   }

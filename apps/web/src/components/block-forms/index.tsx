@@ -47,6 +47,9 @@ import { FooterSocialForm } from "./FooterSocialForm";
 import { SocialProofFeedForm } from "./SocialProofFeedForm";
 import { SocialButtonsForm } from "./SocialButtonsForm";
 import { ButtonForm } from "./ButtonForm";
+import { SectionForm } from "./SectionForm";
+import { IconForm } from "./IconForm";
+import { ListForm } from "./ListForm";
 
 // Re-export shared field helpers for external use
 export { Field, Textarea, ColorField, ImagePickerField, SelectField, CtaButtonField, ItemHeader } from "./shared";
@@ -77,6 +80,9 @@ export function BlockPropsForm({ block, onChange }: { block: Block; onChange: (b
     case "newsletter": return <NewsletterForm props={block.props} onChange={(p) => onChange({ ...block, props: p })} />;
     case "contact": return <ContactForm props={block.props} onChange={(p) => onChange({ ...block, props: p })} />;
     case "button": return <ButtonForm props={block.props} onChange={(p) => onChange({ ...block, props: p })} />;
+    case "section": return <SectionForm props={block.props} onChange={(p) => onChange({ ...block, props: p })} />;
+    case "icon": return <IconForm props={block.props} onChange={(p) => onChange({ ...block, props: p })} />;
+    case "list": return <ListForm props={block.props} onChange={(p) => onChange({ ...block, props: p })} />;
     // Sprint 4: Animated Wave 1
     case "animated-hero": return <AnimatedHeroForm props={block.props} onChange={(p) => onChange({ ...block, props: p })} />;
     case "animated-text": return <AnimatedTextForm props={block.props} onChange={(p) => onChange({ ...block, props: p })} />;

@@ -8,7 +8,7 @@ import {
   Wand2, TextCursorInput, Grid3x3, Layers, ArrowRightLeft, Hash,
   LayoutDashboard, Palette, Grip, PanelTop, Scroll,
   SquareStack, ChevronsUpDown, SplitSquareHorizontal, Anchor,
-  Milestone, Share2, MousePointerClick,
+  Milestone, Share2, MousePointerClick, Star, List,
 } from "lucide-react";
 
 // Features-block icon picker map — re-exported from a lightweight module so
@@ -220,6 +220,34 @@ export type SpacerBlockProps = {
   height: 16 | 32 | 48 | 64 | 96 | 128;
 };
 
+// Full-width container — the backbone of editable pre-made block compositions.
+export type SectionBlockProps = {
+  backgroundColor: string;
+  backgroundImage: string;
+  backgroundOpacity: number;
+  paddingY: "none" | "sm" | "md" | "lg" | "xl";
+  paddingX: "none" | "sm" | "md" | "lg" | "xl";
+  maxWidth: "sm" | "md" | "lg" | "xl" | "2xl" | "full";
+  align: "left" | "center" | "right";
+  textColor: "light" | "dark" | "auto";
+  blocks: any[];
+};
+
+export type IconBlockProps = {
+  icon: string;
+  size: "sm" | "md" | "lg" | "xl";
+  color: string;
+  align: "left" | "center" | "right";
+};
+
+export type ListBlockProps = {
+  items: string[];
+  ordered: boolean;
+  marker: "check" | "dot" | "dash" | "number";
+  iconColor: string;
+  align: "left" | "center";
+};
+
 export type HeadingBlockProps = {
   text: string;
   level: "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
@@ -231,11 +259,14 @@ export type ColumnItem = {
   id?: string;
   width?: string;
   mobileWidth?: string;
+  colSpan?: number;   // grid-column span (default 1)
+  rowSpan?: number;   // grid-row span (default 1)
   content: string;
   blocks?: any[];
 };
 export type ColumnsBlockProps = {
   columns: ColumnItem[];
+  gridColumns?: number;  // grid track count; default = columns.length
   gap: "sm" | "md" | "lg";
   paddingY: "sm" | "md" | "lg";
   bgColor: string;
@@ -522,7 +553,7 @@ export type BlockType =
   | "hero" | "cta" | "features" | "bio-cards" | "slideshow" | "pricing"
   | "testimonials" | "faq" | "stats" | "logo-cloud" | "text" | "image" | "spacer"
   | "heading" | "columns" | "divider" | "row" | "card" | "alert" | "social-buttons"
-  | "navbar" | "newsletter" | "contact" | "button"
+  | "navbar" | "newsletter" | "contact" | "button" | "section" | "icon" | "list"
   // Sprint 4: Animated Wave 1
   | "animated-hero" | "animated-text" | "bento-grid" | "animated-cards"
   | "marquee" | "logo-marquee" | "animated-counter" | "card-grid"
@@ -557,6 +588,9 @@ export type Block =
   | { id: string; type: "newsletter"; props: NewsletterBlockProps; meta?: BlockMeta }
   | { id: string; type: "contact"; props: ContactBlockProps; meta?: BlockMeta }
   | { id: string; type: "button"; props: ButtonBlockProps; meta?: BlockMeta }
+  | { id: string; type: "section"; props: SectionBlockProps; meta?: BlockMeta }
+  | { id: string; type: "icon"; props: IconBlockProps; meta?: BlockMeta }
+  | { id: string; type: "list"; props: ListBlockProps; meta?: BlockMeta }
   // Sprint 4: Animated Wave 1
   | { id: string; type: "animated-hero"; props: AnimatedHeroBlockProps; meta?: BlockMeta }
   | { id: string; type: "animated-text"; props: AnimatedTextBlockProps; meta?: BlockMeta }
@@ -901,6 +935,48 @@ export const BLOCK_REGISTRY: BlockRegistryEntry[] = [
       color: "#e5e7eb",
       paddingY: 16,
     } as DividerBlockProps,
+  },
+  {
+    type: "section",
+    label: "Section",
+    category: "Basic",
+    Icon: PanelTop,
+    defaultProps: {
+      backgroundColor: "",
+      backgroundImage: "",
+      backgroundOpacity: 100,
+      paddingY: "lg",
+      paddingX: "md",
+      maxWidth: "xl",
+      align: "left",
+      textColor: "auto",
+      blocks: [],
+    } as SectionBlockProps,
+  },
+  {
+    type: "icon",
+    label: "Icon",
+    category: "Basic",
+    Icon: Star,
+    defaultProps: {
+      icon: "sparkles",
+      size: "md",
+      color: "",
+      align: "left",
+    } as IconBlockProps,
+  },
+  {
+    type: "list",
+    label: "List",
+    category: "Basic",
+    Icon: List,
+    defaultProps: {
+      items: ["First item", "Second item", "Third item"],
+      ordered: false,
+      marker: "check",
+      iconColor: "",
+      align: "left",
+    } as ListBlockProps,
   },
   {
     type: "spacer",
