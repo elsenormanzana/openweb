@@ -5,6 +5,7 @@
 const STORAGE_KEY = "openweb_theme";
 
 export type Theme = "light" | "dark";
+export type PageTheme = "auto" | "light" | "dark";
 
 /** The visitor's explicit choice, if they've used the toggle. */
 export function getStoredTheme(): Theme | null {
@@ -35,9 +36,20 @@ export function toggleTheme() {
   setTheme(isDark() ? "light" : "dark");
 }
 
-/** Apply a page's default theme — unless the visitor has set an explicit preference. */
-export function applyPageTheme(pageTheme: Theme | null | undefined) {
+/**
+ * Resolve and apply the effective theme. Precedence:
+ * visitor's saved choice → the page's theme (when not "auto") → the site
+ * default → light.
+ */
+export function applyPageTheme(
+  pageTheme: PageTheme | null | undefined,
+  siteDefault: Theme | null | undefined,
+) {
   if (typeof document === "undefined") return;
-  const effective = getStoredTheme() ?? (pageTheme === "dark" ? "dark" : "light");
+  const stored = getStoredTheme();
+  let effective: Theme;
+  if (stored) effective = stored;
+  else if (pageTheme === "dark" || pageTheme === "light") effective = pageTheme;
+  else effective = siteDefault === "dark" ? "dark" : "light";
   applyClass(effective);
 }

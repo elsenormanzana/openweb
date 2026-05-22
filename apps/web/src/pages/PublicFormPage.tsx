@@ -21,7 +21,9 @@ export function PublicFormPage() {
   const [error, setError] = useState<string | null>(null);
   const settings = initial.settings ?? null;
 
-  useEffect(() => { applyPageTheme(null); }, []);
+  useEffect(() => {
+    applyPageTheme(null, settings?.navConfig?.defaultTheme);
+  }, [settings]);
 
   useEffect(() => {
     if (!slug || (form && form.slug === slug)) return;

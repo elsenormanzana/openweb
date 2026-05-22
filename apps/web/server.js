@@ -92,9 +92,14 @@ async function loadInitialData(pathname, host) {
 
 function assembleHtml(template, headHtml, appHtml, data) {
   let html = template;
-  // Pages can default to dark — render the class server-side so there's no
-  // flash. The no-flash script in index.html still lets a visitor override it.
-  if (data.page && data.page.theme === "dark") {
+  // Resolve the effective theme server-side so dark pages render with no flash.
+  // The no-flash script in index.html still lets a visitor override it.
+  const pageTheme = data.page?.theme;
+  const siteDefault = data.settings?.navConfig?.defaultTheme;
+  const effectiveTheme = pageTheme === "light" || pageTheme === "dark"
+    ? pageTheme
+    : (siteDefault === "dark" ? "dark" : "light");
+  if (effectiveTheme === "dark") {
     html = html.replace(/<html(\s|>)/i, '<html class="dark"$1');
   }
   return html

@@ -63,7 +63,8 @@ await db.execute(sql.raw(`
   ALTER TABLE "pages"
   ADD COLUMN IF NOT EXISTS "disable_elevated_nav_spacing" boolean DEFAULT false NOT NULL
 `));
-await db.execute(sql.raw(`ALTER TABLE "pages" ADD COLUMN IF NOT EXISTS "theme" text NOT NULL DEFAULT 'light'`));
+await db.execute(sql.raw(`ALTER TABLE "pages" ADD COLUMN IF NOT EXISTS "theme" text NOT NULL DEFAULT 'auto'`));
+await db.execute(sql.raw(`ALTER TABLE "pages" ALTER COLUMN "theme" SET DEFAULT 'auto'`));
 
 // Runtime compatibility patch for SSO user linkage fields.
 await db.execute(sql.raw(`
@@ -651,7 +652,7 @@ app.put<{ Params: { id: string } }>("/api/pages/:id", { preHandler: requireAuth(
   const body = req.body as {
     title?: string; slug?: string; content?: string;
     isHomepage?: boolean; ignoreGlobalLayout?: boolean;
-    disableElevatedNavSpacing?: boolean; theme?: "light" | "dark";
+    disableElevatedNavSpacing?: boolean; theme?: "auto" | "light" | "dark";
     seoTitle?: string | null; seoDescription?: string | null;
     seoKeywords?: string | null; ogImage?: string | null;
     noIndex?: boolean; canonicalUrl?: string | null;
@@ -669,7 +670,7 @@ app.put<{ Params: { id: string } }>("/api/pages/:id", { preHandler: requireAuth(
   if (body.content !== undefined) updates.content = body.content ?? null;
   if (body.ignoreGlobalLayout !== undefined) updates.ignoreGlobalLayout = body.ignoreGlobalLayout;
   if (body.disableElevatedNavSpacing !== undefined) updates.disableElevatedNavSpacing = body.disableElevatedNavSpacing;
-  if (body.theme !== undefined) updates.theme = body.theme === "dark" ? "dark" : "light";
+  if (body.theme !== undefined) updates.theme = ["auto", "light", "dark"].includes(body.theme) ? body.theme : "auto";
   if (body.seoTitle !== undefined) updates.seoTitle = body.seoTitle ?? null;
   if (body.seoDescription !== undefined) updates.seoDescription = body.seoDescription ?? null;
   if (body.seoKeywords !== undefined) updates.seoKeywords = body.seoKeywords ?? null;

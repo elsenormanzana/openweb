@@ -8,7 +8,7 @@ export type Page = {
   isHomepage: boolean;
   ignoreGlobalLayout: boolean;
   disableElevatedNavSpacing: boolean;
-  theme: "light" | "dark";
+  theme: "auto" | "light" | "dark";
   siteId: number;
   seoTitle: string | null;
   seoDescription: string | null;
@@ -281,6 +281,8 @@ export type NavConfig = {
   headerStyle?: "transparent" | "solid";
   headerBg?: string;
   headerTextColor?: string;
+  themeToggle?: "hidden" | "nav" | "actions";
+  defaultTheme?: "light" | "dark";
   ctaPrimaryText?: string;
   ctaPrimaryHref?: string;
   ctaSecondaryText?: string;

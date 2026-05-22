@@ -20,10 +20,10 @@ export function ThemeToggle({ className }: { className?: string }) {
       aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
       className={
         className ??
-        "inline-flex items-center justify-center size-9 rounded-lg text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-white/10 transition-colors"
+        "inline-flex items-center justify-center size-11 rounded-xl text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-white/10 transition-colors"
       }
     >
-      {dark ? <Sun className="size-[1.05rem]" /> : <Moon className="size-[1.05rem]" />}
+      {dark ? <Sun className="size-5" /> : <Moon className="size-5" />}
     </button>
   );
 }

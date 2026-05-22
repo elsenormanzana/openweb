@@ -91,6 +91,8 @@ export function SiteLayout() {
   const [headerStyle, setHeaderStyle] = useState<"transparent" | "solid">("solid");
   const [headerBg, setHeaderBg] = useState("#ffffff");
   const [headerTextColor, setHeaderTextColor] = useState("#000000");
+  const [themeToggle, setThemeToggle] = useState<"hidden" | "nav" | "actions">("nav");
+  const [defaultTheme, setDefaultTheme] = useState<"light" | "dark">("light");
   const [ctaPrimaryText, setCtaPrimaryText] = useState("");
   const [ctaPrimaryHref, setCtaPrimaryHref] = useState("");
   const [ctaSecondaryText, setCtaSecondaryText] = useState("");
@@ -123,6 +125,8 @@ export function SiteLayout() {
         setHeaderStyle(s.navConfig?.headerStyle ?? "solid");
         setHeaderBg(s.navConfig?.headerBg ?? "#ffffff");
         setHeaderTextColor(s.navConfig?.headerTextColor ?? "#000000");
+        setThemeToggle(s.navConfig?.themeToggle ?? "nav");
+        setDefaultTheme(s.navConfig?.defaultTheme ?? "light");
         setCtaPrimaryText(s.navConfig?.ctaPrimaryText ?? "");
         setCtaPrimaryHref(s.navConfig?.ctaPrimaryHref ?? "");
         setCtaSecondaryText(s.navConfig?.ctaSecondaryText ?? "");
@@ -147,6 +151,7 @@ export function SiteLayout() {
         navType,
         navConfig: {
           logoText, logoImage, logoHref, navLinks, navVariant, navLinkStyle, dropdownStyle, dropdownAnimation, headerStyle, headerBg, headerTextColor,
+          themeToggle, defaultTheme,
           ctaPrimaryText, ctaPrimaryHref, ctaSecondaryText, ctaSecondaryHref,
           heroBadge, heroHeadline, heroDescription, palette,
         },
@@ -523,6 +528,35 @@ export function SiteLayout() {
             <ColorField label="Background color" value={headerBg} onChange={setHeaderBg} />
           )}
           <ColorField label="Text / logo color" value={headerTextColor} onChange={setHeaderTextColor} />
+        </CardContent>
+      </Card>
+
+      {/* Dark mode */}
+      <Card>
+        <CardHeader><CardTitle>Dark mode</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <Field label="Default theme">
+            <select
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={defaultTheme}
+              onChange={(e) => setDefaultTheme(e.target.value as "light" | "dark")}
+            >
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+            <p className="text-xs text-muted-foreground mt-1">Applies to every page set to "Auto". A visitor's toggle choice overrides it.</p>
+          </Field>
+          <Field label="Dark/Light toggle">
+            <select
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={themeToggle}
+              onChange={(e) => setThemeToggle(e.target.value as "hidden" | "nav" | "actions")}
+            >
+              <option value="nav">Show — among the nav links</option>
+              <option value="actions">Show — in the button / CTA area</option>
+              <option value="hidden">Hidden</option>
+            </select>
+          </Field>
         </CardContent>
       </Card>
 

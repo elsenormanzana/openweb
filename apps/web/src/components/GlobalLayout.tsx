@@ -102,6 +102,7 @@ export function GlobalLayout({ children }: { children: React.ReactNode }) {
     headerStyle: nav.headerStyle ?? "solid",
     headerBg: nav.headerBg ?? "#ffffff",
     headerTextColor: nav.headerTextColor ?? "#000000",
+    themeToggle: nav.themeToggle ?? "nav",
   };
 
   const copyright = footer.copyright ?? "";

@@ -2,8 +2,10 @@
 
 /* Dark mode is opt-in only — `dark:` utilities apply when a `.dark` class is
    present, NOT from the OS `prefers-color-scheme`. The site is always light by
-   default; dark mode is enabled by a page setting or the navbar toggle. */
-@custom-variant dark (&:where(.dark, .dark *));
+   default; dark mode is enabled by a page setting or the navbar toggle.
+   `dark:` also applies inside any block marked `data-surface="dark"`, so a
+   button or element on a dark section uses its dark variant even in light mode. */
+@custom-variant dark (&:where(.dark, .dark *, [data-surface="dark"], [data-surface="dark"] *));
 
 @theme inline {
   --color-background: var(--background);

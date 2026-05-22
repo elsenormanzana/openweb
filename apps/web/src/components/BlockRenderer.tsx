@@ -168,6 +168,22 @@ function renderBlockContent(block: Block, editorProps?: any) {
   }
 }
 
+// Block types that render a dark background. Their `data-surface="dark"` makes
+// buttons and content inside use the dark variant even in light mode.
+const DARK_SURFACE_BLOCKS = new Set([
+  "stats", "social-proof-feed", "team-social", "animated-hero", "gradient-section",
+]);
+
+function blockSurface(block: Block): "dark" | undefined {
+  if (DARK_SURFACE_BLOCKS.has(block.type)) return "dark";
+  // Hero/CTA expose a textColor prop — "light" text means a dark background.
+  if ((block.type === "hero" || block.type === "cta")
+    && (block.props as { textColor?: string })?.textColor === "light") {
+    return "dark";
+  }
+  return undefined;
+}
+
 export function renderBlock(block: Block, editorProps?: any) {
   const content = renderBlockContent(block, editorProps);
   const hasAnimation = block.meta?.animation && block.meta.animation.entrance !== "none";
@@ -194,6 +210,7 @@ export function renderBlock(block: Block, editorProps?: any) {
       key={block.id}
       id={anchorId || undefined}
       data-block-id={block.id}
+      data-surface={blockSurface(block)}
       style={spacing ? styleObj : undefined}
     >
       {hasCustomCSS && (

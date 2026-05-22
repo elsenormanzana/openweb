@@ -40,10 +40,11 @@ export function CtaButtonRenderer({
     baseClass += "border border-current bg-transparent hover:bg-black/5 dark:hover:bg-white/10 ";
     if (cta.color) customStyle.borderColor = cta.color;
     if (cta.textColor || cta.color) customStyle.color = cta.textColor || cta.color;
+    // Surface-aware default — dark on light surfaces, light on dark ones.
+    else baseClass += "text-neutral-800 dark:text-neutral-100 ";
   } else if (activeVariant === "glass") {
-    baseClass += "bg-white/10 backdrop-blur-md border border-white/20 hover:bg-white/20 hover:shadow-lg ";
+    baseClass += "backdrop-blur-md border hover:shadow-lg bg-black/5 border-black/10 text-neutral-800 hover:bg-black/10 dark:bg-white/10 dark:border-white/20 dark:text-white dark:hover:bg-white/20 ";
     if (cta.textColor) customStyle.color = cta.textColor;
-    else customStyle.color = "#ffffff";
   } else if (activeVariant === "shimmer") {
     baseClass += "relative overflow-hidden bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-600 text-white hover:shadow-lg hover:scale-[1.02] ";
     if (cta.textColor) customStyle.color = cta.textColor;

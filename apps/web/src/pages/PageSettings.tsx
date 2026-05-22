@@ -106,7 +106,7 @@ export function PageSettings() {
   const [isHomepage, setIsHomepage] = useState(false);
   const [ignoreGlobalLayout, setIgnoreGlobalLayout] = useState(false);
   const [disableElevatedNavSpacing, setDisableElevatedNavSpacing] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [theme, setTheme] = useState<"auto" | "light" | "dark">("auto");
 
   // SEO fields
   const [seoTitle, setSeoTitle] = useState("");
@@ -137,7 +137,7 @@ export function PageSettings() {
         setIsHomepage(data.isHomepage);
         setIgnoreGlobalLayout(data.ignoreGlobalLayout ?? false);
         setDisableElevatedNavSpacing(data.disableElevatedNavSpacing ?? false);
-        setTheme(data.theme === "dark" ? "dark" : "light");
+        setTheme(data.theme ?? "auto");
         setSeoTitle(data.seoTitle ?? "");
         setSeoDescription(data.seoDescription ?? "");
         setSeoKeywords(data.seoKeywords ?? "");
@@ -249,13 +249,14 @@ export function PageSettings() {
             <select
               id="page-theme"
               value={theme}
-              onChange={(e) => setTheme(e.target.value === "dark" ? "dark" : "light")}
+              onChange={(e) => setTheme(e.target.value as "auto" | "light" | "dark")}
               className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
             >
+              <option value="auto">Auto (site default)</option>
               <option value="light">Light</option>
               <option value="dark">Dark</option>
             </select>
-            <p className="text-xs text-muted-foreground">Default theme for this page. A visitor can still override it with the navbar toggle.</p>
+            <p className="text-xs text-muted-foreground">Theme for this page. "Auto" follows the site's default theme. A visitor can still override it with the navbar toggle.</p>
           </div>
           <Button asChild variant="outline" size="sm">
             <Link to={`/admin/pages/${pageId}/editor`}>Open web editor</Link>

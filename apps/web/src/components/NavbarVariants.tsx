@@ -21,6 +21,7 @@ export type NavVariantProps = {
   headerStyle?: "transparent" | "solid";
   headerBg?: string;
   headerTextColor?: string;
+  themeToggle?: "hidden" | "nav" | "actions";
 };
 
 function HamburgerIcon() {
@@ -476,12 +477,14 @@ function DesktopNav({
   navLinkStyle = "classic",
   dropdownStyle = "minimal",
   dropdownAnimation = "fade",
+  themeToggle = "nav",
 }: {
   links: NavMenuItem[];
   linkStyle?: CSSProperties;
   navLinkStyle?: "classic" | "underline" | "pill" | "art-gradient";
   dropdownStyle?: "minimal" | "modern-card" | "gradient-border" | "glassmorphic";
   dropdownAnimation?: "fade" | "slide-up" | "scale-up" | "fade-slide";
+  themeToggle?: "hidden" | "nav" | "actions";
 }) {
   const location = useLocation();
 
@@ -568,7 +571,7 @@ function DesktopNav({
             </li>
           );
         })}
-        <li className="ml-1"><ThemeToggle /></li>
+        {themeToggle === "nav" && <li className="ml-1"><ThemeToggle /></li>}
       </ul>
     </nav>
   );
@@ -611,10 +614,12 @@ function MobileDrawer({
   links,
   open,
   navLinkStyle = "classic",
+  themeToggle = "nav",
 }: {
   links: NavMenuItem[];
   open: boolean;
   navLinkStyle?: "classic" | "underline" | "pill" | "art-gradient";
+  themeToggle?: "hidden" | "nav" | "actions";
 }) {
   const [openIndexes, setOpenIndexes] = useState<Record<number, boolean>>({});
   const location = useLocation();
@@ -624,10 +629,12 @@ function MobileDrawer({
   return (
     <div className="border-t mt-2 pt-2 lg:hidden">
       <nav className="flex flex-col gap-1.5 px-2 pb-2">
-        <div className="flex items-center justify-between rounded-md px-3 py-1.5">
-          <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Theme</span>
-          <ThemeToggle />
-        </div>
+        {themeToggle !== "hidden" && (
+          <div className="flex items-center justify-between rounded-md px-3 py-1.5">
+            <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Theme</span>
+            <ThemeToggle />
+          </div>
+        )}
         {links.map((item, i) => {
           const hasDropdown = (item.dropdown ?? []).length > 0;
           const isActive = isLinkActive(item.href, location.pathname, location.hash);
@@ -690,7 +697,7 @@ function MobileDrawer({
 }
 
 /** Navbar 1 — Minimal clean */
-export function NavbarMinimal({ logoText, logoImage, logoHref, navLinks, navLinkStyle, dropdownStyle, dropdownAnimation, ctaPrimaryText, ctaPrimaryHref, ctaSecondaryText, ctaSecondaryHref, headerStyle, headerBg, headerTextColor }: NavVariantProps) {
+export function NavbarMinimal({ logoText, logoImage, logoHref, navLinks, navLinkStyle, dropdownStyle, dropdownAnimation, ctaPrimaryText, ctaPrimaryHref, ctaSecondaryText, ctaSecondaryHref, headerStyle, headerBg, headerTextColor, themeToggle }: NavVariantProps) {
   const [open, setOpen] = useState(false);
   const isTransparent = headerStyle === "transparent";
   const wrapStyle: CSSProperties = isTransparent
@@ -708,9 +715,10 @@ export function NavbarMinimal({ logoText, logoImage, logoHref, navLinks, navLink
       <div className="max-w-7xl mx-auto px-4 xl:px-0 flex items-center justify-between gap-x-4 lg:grid lg:grid-cols-[1fr_auto_1fr] lg:justify-stretch lg:gap-x-12">
         <LogoBrand logoText={logoText} logoImage={logoImage} logoHref={logoHref} linkStyle={linkStyle} />
 
-        <DesktopNav links={navLinks} linkStyle={linkStyle} navLinkStyle={navLinkStyle} dropdownStyle={dropdownStyle} dropdownAnimation={dropdownAnimation} />
+        <DesktopNav links={navLinks} linkStyle={linkStyle} navLinkStyle={navLinkStyle} dropdownStyle={dropdownStyle} dropdownAnimation={dropdownAnimation} themeToggle={themeToggle} />
 
         <div className="flex flex-wrap items-center justify-center gap-3 justify-self-end lg:flex-nowrap lg:gap-x-2">
+          {themeToggle === "actions" && <ThemeToggle />}
           {ctaSecondaryText && (
             <NavAnchor href={ctaSecondaryHref ?? "#"} className="hidden lg:flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all px-3 py-2 rounded-[0.625rem] border border-neutral-100 bg-white text-neutral-700 hover:border-neutral-200 hover:bg-neutral-100">
               {ctaSecondaryText}
@@ -726,13 +734,13 @@ export function NavbarMinimal({ logoText, logoImage, logoHref, navLinks, navLink
           </button>
         </div>
       </div>
-      <MobileDrawer links={navLinks} open={open} navLinkStyle={navLinkStyle} />
+      <MobileDrawer links={navLinks} open={open} navLinkStyle={navLinkStyle} themeToggle={themeToggle} />
     </header>
   );
 }
 
 /** Navbar 2 — Elevated floating card (absolutely positioned over page content) */
-export function NavbarElevated({ logoText, logoImage, logoHref, navLinks, navLinkStyle, dropdownStyle, dropdownAnimation, ctaPrimaryText, ctaPrimaryHref, ctaSecondaryText, ctaSecondaryHref }: NavVariantProps) {
+export function NavbarElevated({ logoText, logoImage, logoHref, navLinks, navLinkStyle, dropdownStyle, dropdownAnimation, ctaPrimaryText, ctaPrimaryHref, ctaSecondaryText, ctaSecondaryHref, themeToggle }: NavVariantProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -745,11 +753,12 @@ export function NavbarElevated({ logoText, logoImage, logoHref, navLinks, navLin
               <span className="hidden h-4 w-[1px] bg-neutral-300 lg:block" />
             </div>
 
-            <DesktopNav links={navLinks} navLinkStyle={navLinkStyle} dropdownStyle={dropdownStyle} dropdownAnimation={dropdownAnimation} />
+            <DesktopNav links={navLinks} navLinkStyle={navLinkStyle} dropdownStyle={dropdownStyle} dropdownAnimation={dropdownAnimation} themeToggle={themeToggle} />
 
             <div className="flex items-center gap-x-10 justify-self-end">
               <span className="hidden h-4 w-[1px] bg-neutral-300 lg:block" />
               <div className="flex items-center gap-x-3 lg:gap-x-2">
+                {themeToggle === "actions" && <ThemeToggle />}
                 {ctaSecondaryText && (
                   <NavAnchor href={ctaSecondaryHref ?? "#"} className="hidden lg:flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all shadow-[0_2px_10px_0px_rgba(0,0,0,0.05)] border border-neutral-100 bg-white text-neutral-700 hover:border-neutral-200 hover:bg-neutral-100 px-3 py-2 rounded-[0.625rem]">
                     {ctaSecondaryText}
@@ -769,7 +778,7 @@ export function NavbarElevated({ logoText, logoImage, logoHref, navLinks, navLin
 
           {open && (
             <div className="mt-2 bg-white rounded-2xl shadow-[0_2px_10px_0px_rgba(0,0,0,0.15)] overflow-hidden">
-              <MobileDrawer links={navLinks} open={open} navLinkStyle={navLinkStyle} />
+              <MobileDrawer links={navLinks} open={open} navLinkStyle={navLinkStyle} themeToggle={themeToggle} />
             </div>
           )}
         </div>
@@ -780,7 +789,7 @@ export function NavbarElevated({ logoText, logoImage, logoHref, navLinks, navLin
 }
 
 /** Header 1 — SaaS landing with dual CTAs */
-export function HeaderSaasCta({ logoText, logoImage, logoHref, navLinks, navLinkStyle, dropdownStyle, dropdownAnimation, ctaPrimaryText, ctaPrimaryHref, ctaSecondaryText, ctaSecondaryHref, heroBadge, heroHeadline, heroDescription }: NavVariantProps) {
+export function HeaderSaasCta({ logoText, logoImage, logoHref, navLinks, navLinkStyle, dropdownStyle, dropdownAnimation, ctaPrimaryText, ctaPrimaryHref, ctaSecondaryText, ctaSecondaryHref, heroBadge, heroHeadline, heroDescription, themeToggle }: NavVariantProps) {
   const [open, setOpen] = useState(false);
   const hasHero = heroBadge || heroHeadline || heroDescription;
 
@@ -789,8 +798,9 @@ export function HeaderSaasCta({ logoText, logoImage, logoHref, navLinks, navLink
       <header className="py-4 w-full border-b">
         <div className="max-w-7xl mx-auto px-4 xl:px-0 flex items-center justify-between gap-x-4">
           <LogoBrand logoText={logoText} logoImage={logoImage} logoHref={logoHref} />
-          <DesktopNav links={navLinks} navLinkStyle={navLinkStyle} dropdownStyle={dropdownStyle} dropdownAnimation={dropdownAnimation} />
+          <DesktopNav links={navLinks} navLinkStyle={navLinkStyle} dropdownStyle={dropdownStyle} dropdownAnimation={dropdownAnimation} themeToggle={themeToggle} />
           <div className="flex items-center gap-2">
+            {themeToggle === "actions" && <ThemeToggle />}
             {ctaSecondaryText && (
               <NavAnchor href={ctaSecondaryHref ?? "#"} className="hidden lg:flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all px-3 py-2 rounded-[0.625rem] border border-neutral-100 bg-white text-neutral-700 hover:border-neutral-200 hover:bg-neutral-100">
                 {ctaSecondaryText}
@@ -806,7 +816,7 @@ export function HeaderSaasCta({ logoText, logoImage, logoHref, navLinks, navLink
             </button>
           </div>
         </div>
-        <MobileDrawer links={navLinks} open={open} navLinkStyle={navLinkStyle} />
+        <MobileDrawer links={navLinks} open={open} navLinkStyle={navLinkStyle} themeToggle={themeToggle} />
       </header>
 
       {hasHero && (
@@ -850,7 +860,7 @@ export function HeaderSaasCta({ logoText, logoImage, logoHref, navLinks, navLink
 }
 
 /** Header 2 — SaaS landing with email capture */
-export function HeaderSaasEmail({ logoText, logoImage, logoHref, navLinks, navLinkStyle, dropdownStyle, dropdownAnimation, ctaPrimaryText, ctaPrimaryHref, heroBadge, heroHeadline, heroDescription }: NavVariantProps) {
+export function HeaderSaasEmail({ logoText, logoImage, logoHref, navLinks, navLinkStyle, dropdownStyle, dropdownAnimation, ctaPrimaryText, ctaPrimaryHref, heroBadge, heroHeadline, heroDescription, themeToggle }: NavVariantProps) {
   const [open, setOpen] = useState(false);
   const hasHero = heroBadge || heroHeadline || heroDescription;
 
@@ -859,12 +869,15 @@ export function HeaderSaasEmail({ logoText, logoImage, logoHref, navLinks, navLi
       <header className="py-4 w-full border-b border-transparent">
         <div className="max-w-7xl mx-auto px-4 xl:px-0 flex items-center justify-between gap-x-4">
           <LogoBrand logoText={logoText} logoImage={logoImage} logoHref={logoHref} />
-          <DesktopNav links={navLinks} navLinkStyle={navLinkStyle} dropdownStyle={dropdownStyle} dropdownAnimation={dropdownAnimation} />
-          <button type="button" aria-label="Open menu" onClick={() => setOpen(!open)} className="lg:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md">
-            <HamburgerIcon />
-          </button>
+          <DesktopNav links={navLinks} navLinkStyle={navLinkStyle} dropdownStyle={dropdownStyle} dropdownAnimation={dropdownAnimation} themeToggle={themeToggle} />
+          <div className="flex items-center gap-2">
+            {themeToggle === "actions" && <ThemeToggle />}
+            <button type="button" aria-label="Open menu" onClick={() => setOpen(!open)} className="lg:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md">
+              <HamburgerIcon />
+            </button>
+          </div>
         </div>
-        <MobileDrawer links={navLinks} open={open} navLinkStyle={navLinkStyle} />
+        <MobileDrawer links={navLinks} open={open} navLinkStyle={navLinkStyle} themeToggle={themeToggle} />
       </header>
 
       {hasHero && (

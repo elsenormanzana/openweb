@@ -18,7 +18,9 @@ export function PublicPage() {
   const [seoConfig, setSeoConfig] = useState<SeoConfig>(initial.settings?.seoConfig ?? {});
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { applyPageTheme(page?.theme); }, [page?.theme]);
+  useEffect(() => {
+    applyPageTheme(page?.theme, initial.settings?.navConfig?.defaultTheme);
+  }, [page?.theme, initial.settings]);
 
   useEffect(() => {
     if (!slug) return;
