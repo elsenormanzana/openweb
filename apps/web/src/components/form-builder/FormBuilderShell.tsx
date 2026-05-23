@@ -104,7 +104,7 @@ export function FormBuilderShell() {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-muted/20 flex flex-col">
+    <div className="fixed inset-0 z-50 bg-background flex flex-col">
       {/* Toolbar */}
       <div className="h-14 shrink-0 flex items-center gap-2 px-3 border-b border-border bg-background">
         <button onClick={() => navigate("/admin/forms")} className="rounded-lg p-2 hover:bg-muted" aria-label="Back to forms">
@@ -157,7 +157,7 @@ export function FormBuilderShell() {
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto bg-muted/20 p-6">
         {tab === "questions" && !preview && (
           <QuestionsTab
             name={draft.name}
@@ -173,29 +173,31 @@ export function FormBuilderShell() {
         )}
         {tab === "questions" && preview && (
           <div
-            className="max-w-xl mx-auto rounded-2xl border border-border overflow-hidden"
+            className="max-w-xl mx-auto rounded-2xl"
             style={{ backgroundColor: draft.theme.backgroundColor }}
           >
-            <div className="h-2.5 w-full" style={{ backgroundColor: draft.theme.themeColor }} />
-            {draft.theme.headerImage && <img src={draft.theme.headerImage} alt="" className="w-full max-h-36 object-cover" />}
-            <div className="bg-white m-3 rounded-xl p-6">
-              <h1
-                className="text-xl font-semibold text-gray-900"
-                style={{ fontFamily: FONT_PRESET_CSS[draft.theme.headerFont] }}
-              >
-                {draft.name || "Untitled form"}
-              </h1>
-              {draft.description && <p className="text-sm text-gray-500 mt-1">{draft.description}</p>}
-              <div className="mt-4">
-                <FormRenderer
-                  sections={draft.sections}
-                  layout={draft.layout}
-                  submitLabel={draft.submitLabel}
-                  successMessage={draft.successMessage}
-                  theme={draft.theme}
-                  settings={draft.settings}
-                  slug={draft.slug}
-                />
+            <div className="bg-white m-4 rounded-2xl border border-border overflow-hidden">
+              {draft.theme.headerImage && <img src={draft.theme.headerImage} alt="" className="w-full max-h-36 object-cover" />}
+              <div className="p-6">
+                <h1
+                  className="text-2xl font-semibold tracking-tight text-gray-900"
+                  style={{ fontFamily: FONT_PRESET_CSS[draft.theme.headerFont] }}
+                >
+                  {draft.name || "Untitled form"}
+                </h1>
+                <div className="mt-2 h-1 w-10 rounded-full" style={{ backgroundColor: draft.theme.themeColor }} />
+                {draft.description && <p className="text-sm text-gray-500 mt-3">{draft.description}</p>}
+                <div className="mt-5">
+                  <FormRenderer
+                    sections={draft.sections}
+                    layout={draft.layout}
+                    submitLabel={draft.submitLabel}
+                    successMessage={draft.successMessage}
+                    theme={draft.theme}
+                    settings={draft.settings}
+                    slug={draft.slug}
+                  />
+                </div>
               </div>
             </div>
           </div>

@@ -68,23 +68,25 @@ export function PublicFormPage() {
           </div>
         ) : (
           <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden dark:border-neutral-800 dark:bg-neutral-900">
-            {theme && <div className="h-2.5 w-full" style={{ backgroundColor: theme.themeColor }} />}
             {theme?.headerImage && (
               <img src={theme.headerImage} alt="" className="w-full max-h-44 object-cover" />
             )}
             <div className="p-6 sm:p-8">
               {(form.name || form.description) && (
-                <div className="mb-5">
+                <div className="mb-6">
                   {form.name && (
                     <h1
-                      className="text-xl font-semibold text-gray-900 dark:text-neutral-100"
+                      className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-neutral-100"
                       style={theme ? { fontFamily: FONT_PRESET_CSS[theme.headerFont] } : undefined}
                     >
                       {form.name}
                     </h1>
                   )}
+                  {theme && (
+                    <div className="mt-2 h-1 w-10 rounded-full" style={{ backgroundColor: theme.themeColor }} />
+                  )}
                   {form.description && (
-                    <p className="text-sm text-gray-500 dark:text-neutral-400 mt-1">{form.description}</p>
+                    <p className="text-sm text-gray-500 dark:text-neutral-400 mt-3">{form.description}</p>
                   )}
                 </div>
               )}

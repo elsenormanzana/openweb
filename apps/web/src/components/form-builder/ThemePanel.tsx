@@ -23,10 +23,13 @@ export function ThemePanel({ theme, onChange, onClose }: ThemePanelProps) {
         </div>
 
         <div className="rounded-xl border border-border overflow-hidden">
-          <div className="h-2 w-full" style={{ backgroundColor: theme.themeColor }} />
-          {theme.headerImage && <img src={theme.headerImage} alt="" className="w-full h-20 object-cover" />}
           <div className="p-3" style={{ backgroundColor: theme.backgroundColor }}>
-            <div className="rounded-lg bg-white p-2 text-xs text-gray-600 shadow-sm">Live preview</div>
+            <div className="rounded-lg bg-white p-3 shadow-sm">
+              {theme.headerImage && <img src={theme.headerImage} alt="" className="w-full h-12 object-cover rounded-md mb-2" />}
+              <p className="text-xs font-semibold text-gray-900">Preview</p>
+              <div className="mt-1 h-0.5 w-6 rounded-full" style={{ backgroundColor: theme.themeColor }} />
+              <p className="mt-1.5 text-[10px] text-gray-500">Sample form text</p>
+            </div>
           </div>
         </div>
 

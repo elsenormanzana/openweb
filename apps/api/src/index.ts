@@ -2980,8 +2980,8 @@ function normalizeFormTheme(input: unknown): FormTheme {
   const font = (v: unknown): FontPreset => (FONT_PRESETS.includes(v as FontPreset) ? (v as FontPreset) : "default");
   return {
     headerImage: typeof t.headerImage === "string" ? t.headerImage : "",
-    themeColor: typeof t.themeColor === "string" && t.themeColor ? t.themeColor : "#673ab7",
-    backgroundColor: typeof t.backgroundColor === "string" && t.backgroundColor ? t.backgroundColor : "#f0ebf8",
+    themeColor: typeof t.themeColor === "string" && t.themeColor ? t.themeColor : "#0f766e",
+    backgroundColor: typeof t.backgroundColor === "string" && t.backgroundColor ? t.backgroundColor : "#f1f5f9",
     headerFont: font(t.headerFont),
     questionFont: font(t.questionFont),
     textFont: font(t.textFont),

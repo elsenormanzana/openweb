@@ -90,7 +90,6 @@ export function QuestionsTab(props: QuestionsTabProps) {
     <div className="max-w-2xl mx-auto space-y-4">
       {/* Form header */}
       <div className="rounded-xl border border-border bg-background overflow-hidden">
-        <div className="h-2.5 w-full" style={{ backgroundColor: theme.themeColor }} />
         {theme.headerImage && <img src={theme.headerImage} alt="" className="w-full max-h-36 object-cover" />}
         <div className="p-5 space-y-2">
           <input
@@ -99,6 +98,7 @@ export function QuestionsTab(props: QuestionsTabProps) {
             onChange={(e) => onName(e.target.value)}
             placeholder="Form title"
           />
+          <div className="h-1 w-10 rounded-full" style={{ backgroundColor: theme.themeColor }} />
           <input
             className="w-full border-0 bg-transparent text-sm text-muted-foreground focus:outline-none"
             value={description}

@@ -186,8 +186,8 @@ export const FONT_PRESET_OPTIONS: { value: FontPreset; label: string }[] = [
 export function defaultTheme(): FormTheme {
   return {
     headerImage: "",
-    themeColor: "#673ab7",
-    backgroundColor: "#f0ebf8",
+    themeColor: "#0f766e",      // teal-700
+    backgroundColor: "#f1f5f9", // slate-100
     headerFont: "default",
     questionFont: "default",
     textFont: "default",
