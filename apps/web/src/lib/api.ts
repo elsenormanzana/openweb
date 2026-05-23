@@ -126,6 +126,26 @@ export type FormSettings = {
   showProgressBar: boolean;
 };
 export type FormFile = { url: string; name: string; size: number; mime: string };
+export type FieldTranslations = {
+  label?: string;
+  description?: string;
+  placeholder?: string;
+  options?: string[];
+  rows?: string[];
+  columns?: string[];
+  scaleMinLabel?: string;
+  scaleMaxLabel?: string;
+};
+export type SectionTranslations = { title?: string; description?: string };
+export type FormTranslations = {
+  name?: string;
+  description?: string;
+  submitLabel?: string;
+  successMessage?: string;
+  closedMessage?: string;
+  sections?: Record<string, SectionTranslations>;
+  fields?: Record<string, FieldTranslations>;
+};
 export type QuizScoreBreakdown = {
   name: string; label: string; points: number; earned: number; correct: boolean;
 };
@@ -217,6 +237,8 @@ export type CmsForm = {
   fields: FormField[];
   theme: FormTheme;
   settings: FormSettings;
+  primaryLanguage: string;
+  translations: Record<string, FormTranslations>;
   createdAt: string;
   updatedAt: string;
 };
@@ -668,10 +690,14 @@ export const api = {
     list: () => request<CmsForm[]>("/api/forms"),
     get: (id: number) => request<CmsForm>(`/api/forms/${id}`),
     getBySlug: (slug: string) => request<CmsForm>(`/api/forms/by-slug/${encodeURIComponent(slug)}`),
-    create: (body: { name: string; slug?: string; description?: string | null; status?: "active" | "inactive"; submitLabel?: string; successMessage?: string; layout?: FormLayout; sections?: FormSection[]; fields?: FormField[]; theme?: FormTheme; settings?: FormSettings }) =>
+    create: (body: { name: string; slug?: string; description?: string | null; status?: "active" | "inactive"; submitLabel?: string; successMessage?: string; layout?: FormLayout; sections?: FormSection[]; fields?: FormField[]; theme?: FormTheme; settings?: FormSettings; primaryLanguage?: string; translations?: Record<string, FormTranslations> }) =>
       request<CmsForm>("/api/forms", { method: "POST", body: JSON.stringify(body) }),
-    update: (id: number, body: Partial<Pick<CmsForm, "name" | "slug" | "description" | "status" | "submitLabel" | "successMessage" | "layout" | "sections" | "fields" | "theme" | "settings">>) =>
+    update: (id: number, body: Partial<Pick<CmsForm, "name" | "slug" | "description" | "status" | "submitLabel" | "successMessage" | "layout" | "sections" | "fields" | "theme" | "settings" | "primaryLanguage" | "translations">>) =>
       request<CmsForm>(`/api/forms/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+    translate: (id: number, targetLang: string, languageName?: string) =>
+      request<{ translations: FormTranslations; warning?: string }>(`/api/forms/${id}/translate`, {
+        method: "POST", body: JSON.stringify({ targetLang, languageName }),
+      }),
     delete: (id: number) => request<{ ok: true }>(`/api/forms/${id}`, { method: "DELETE" }),
     submit: (slug: string, body: { values: Record<string, unknown>; meta?: Record<string, unknown> }) =>
       request<{ ok: true; message: string; lead: CrmLead; score: QuizScore | null }>(`/api/forms/submit/${encodeURIComponent(slug)}`, { method: "POST", body: JSON.stringify(body) }),

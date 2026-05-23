@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Eye, Palette, Pencil, Save } from "lucide-react";
+import { ArrowLeft, Eye, Languages, Palette, Pencil, Save } from "lucide-react";
 import {
   api, type CmsForm, type FormLayout, type FormSection, type FormSettings, type FormTheme,
+  type FormTranslations,
 } from "@/lib/api";
 import { defaultSettings, defaultTheme, FONT_PRESET_CSS, uid } from "@/lib/formFields";
 import { FormRenderer } from "@/components/FormRenderer";
@@ -10,6 +11,7 @@ import { QuestionsTab } from "@/components/form-builder/QuestionsTab";
 import { SettingsTab } from "@/components/form-builder/SettingsTab";
 import { ResponsesTab } from "@/components/form-builder/ResponsesTab";
 import { ThemePanel } from "@/components/form-builder/ThemePanel";
+import { LanguagesPanel } from "@/components/form-builder/LanguagesPanel";
 
 type FormDraft = {
   name: string;
@@ -22,6 +24,8 @@ type FormDraft = {
   sections: FormSection[];
   theme: FormTheme;
   settings: FormSettings;
+  primaryLanguage: string;
+  translations: Record<string, FormTranslations>;
 };
 
 type BuilderTab = "questions" | "responses" | "settings";
@@ -40,6 +44,8 @@ function draftFromForm(form: CmsForm): FormDraft {
       : [{ id: uid("s"), title: "", description: "", condition: null, afterSection: null, fields: form.fields }],
     theme: form.theme ?? defaultTheme(),
     settings: form.settings ?? defaultSettings(),
+    primaryLanguage: form.primaryLanguage || "en",
+    translations: form.translations ?? {},
   };
 }
 
@@ -56,6 +62,7 @@ export function FormBuilderShell() {
   );
   const [preview, setPreview] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
+  const [languagesOpen, setLanguagesOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,6 +86,7 @@ export function FormBuilderShell() {
         name: draft.name, slug: draft.slug, description: draft.description, status: draft.status,
         submitLabel: draft.submitLabel, successMessage: draft.successMessage,
         layout: draft.layout, sections: draft.sections, theme: draft.theme, settings: draft.settings,
+        primaryLanguage: draft.primaryLanguage, translations: draft.translations,
       });
       setForm(updated);
       setDraft(draftFromForm(updated));
@@ -123,6 +131,16 @@ export function FormBuilderShell() {
             className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-sm hover:bg-muted"
           >
             <Palette className="size-4" /> Theme
+          </button>
+          <button
+            onClick={() => setLanguagesOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-sm hover:bg-muted"
+          >
+            <Languages className="size-4" />
+            Languages
+            {Object.keys(draft.translations).length > 0 && (
+              <span className="ml-0.5 rounded-full bg-foreground text-background text-[10px] px-1.5">{Object.keys(draft.translations).length}</span>
+            )}
           </button>
           {tab === "questions" && (
             <button
@@ -222,6 +240,25 @@ export function FormBuilderShell() {
           theme={draft.theme}
           onChange={(patch) => patchDraft({ theme: { ...draft.theme, ...patch } })}
           onClose={() => setThemeOpen(false)}
+        />
+      )}
+
+      {languagesOpen && (
+        <LanguagesPanel
+          formId={form.id}
+          primary={{
+            name: draft.name,
+            description: draft.description,
+            submitLabel: draft.submitLabel,
+            successMessage: draft.successMessage,
+            closedMessage: draft.settings.closedMessage,
+            sections: draft.sections,
+          }}
+          primaryLanguage={draft.primaryLanguage}
+          translations={draft.translations}
+          onPrimaryLanguage={(lang) => patchDraft({ primaryLanguage: lang })}
+          onTranslations={(next) => patchDraft({ translations: next })}
+          onClose={() => setLanguagesOpen(false)}
         />
       )}
     </div>

@@ -16,6 +16,12 @@ export type QuestionInputProps = {
   accent: string;
   /** Builder preview — inputs render but uploads are disabled. */
   disabled?: boolean;
+  /**
+   * Display-only label overrides for choice/grid questions. Underlying field.options /
+   * rows / columns stay as stored values; only the rendered label changes. Used by the
+   * multilingual translator so branching/grading/analytics keep working in any language.
+   */
+  labels?: { options?: string[]; rows?: string[]; columns?: string[] };
 };
 
 export function QuestionInput(props: QuestionInputProps) {
@@ -66,7 +72,8 @@ function TextareaInput({ field, value, onChange, disabled }: QuestionInputProps)
   );
 }
 
-function DropdownInput({ field, value, onChange, disabled }: QuestionInputProps) {
+function DropdownInput({ field, value, onChange, disabled, labels }: QuestionInputProps) {
+  const opts = field.options ?? [];
   return (
     <select
       value={typeof value === "string" ? value : ""}
@@ -75,7 +82,7 @@ function DropdownInput({ field, value, onChange, disabled }: QuestionInputProps)
       className={INPUT_CLASS}
     >
       <option value="">{field.placeholder || "Select…"}</option>
-      {(field.options || []).map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+      {opts.map((opt, i) => <option key={opt} value={opt}>{labels?.options?.[i] || opt}</option>)}
     </select>
   );
 }
@@ -96,10 +103,11 @@ function SingleCheckboxInput({ field, value, onChange, accent, disabled }: Quest
   );
 }
 
-function MultipleChoiceInput({ field, value, onChange, accent, disabled }: QuestionInputProps) {
+function MultipleChoiceInput({ field, value, onChange, accent, disabled, labels }: QuestionInputProps) {
+  const opts = field.options ?? [];
   return (
     <div className="space-y-2">
-      {(field.options || []).map((opt) => (
+      {opts.map((opt, i) => (
         <label key={opt} className="flex items-center gap-2.5 text-sm text-gray-800 dark:text-neutral-200 cursor-pointer">
           <input
             type="radio"
@@ -110,21 +118,22 @@ function MultipleChoiceInput({ field, value, onChange, accent, disabled }: Quest
             className="size-4"
             style={{ accentColor: accent }}
           />
-          {opt}
+          {labels?.options?.[i] || opt}
         </label>
       ))}
     </div>
   );
 }
 
-function CheckboxesInput({ field, value, onChange, accent, disabled }: QuestionInputProps) {
+function CheckboxesInput({ field, value, onChange, accent, disabled, labels }: QuestionInputProps) {
   const selected = Array.isArray(value) ? (value as string[]) : [];
+  const opts = field.options ?? [];
   const toggle = (opt: string) => {
     onChange(selected.includes(opt) ? selected.filter((o) => o !== opt) : [...selected, opt]);
   };
   return (
     <div className="space-y-2">
-      {(field.options || []).map((opt) => (
+      {opts.map((opt, i) => (
         <label key={opt} className="flex items-center gap-2.5 text-sm text-gray-800 dark:text-neutral-200 cursor-pointer">
           <input
             type="checkbox"
@@ -134,7 +143,7 @@ function CheckboxesInput({ field, value, onChange, accent, disabled }: QuestionI
             className="size-4 rounded"
             style={{ accentColor: accent }}
           />
-          {opt}
+          {labels?.options?.[i] || opt}
         </label>
       ))}
     </div>
@@ -272,11 +281,13 @@ function FileInput({ field, value, onChange, slug, disabled }: QuestionInputProp
   );
 }
 
-function GridInput({ field, value, onChange, accent, disabled }: QuestionInputProps) {
+function GridInput({ field, value, onChange, accent, disabled, labels }: QuestionInputProps) {
   const rows = field.rows ?? [];
   const cols = field.columns ?? [];
   const isCheckbox = field.type === "grid_checkbox";
   const grid = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  const rowLabels = labels?.rows;
+  const colLabels = labels?.columns;
 
   function setCell(row: string, col: string) {
     if (isCheckbox) {
@@ -299,15 +310,15 @@ function GridInput({ field, value, onChange, accent, disabled }: QuestionInputPr
         <thead>
           <tr>
             <th />
-            {cols.map((c) => (
-              <th key={c} className="px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-neutral-400 text-center">{c}</th>
+            {cols.map((c, i) => (
+              <th key={c} className="px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-neutral-400 text-center">{colLabels?.[i] || c}</th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
+          {rows.map((r, ri) => (
             <tr key={r} className="border-t border-gray-100 dark:border-neutral-800">
-              <td className="px-3 py-2 text-gray-800 dark:text-neutral-200 whitespace-nowrap">{r}</td>
+              <td className="px-3 py-2 text-gray-800 dark:text-neutral-200 whitespace-nowrap">{rowLabels?.[ri] || r}</td>
               {cols.map((c) => (
                 <td key={c} className="px-3 py-2 text-center">
                   <input

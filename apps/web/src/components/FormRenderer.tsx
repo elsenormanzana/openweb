@@ -22,16 +22,22 @@ type FormRendererProps = {
   settings?: FormSettings;
   /** Public form slug — required for file-upload questions. */
   slug?: string;
+  /**
+   * Display-only label overrides per field id, used by the translator to render
+   * option/row/column text in the active language while storing original values.
+   */
+  labelOverrides?: Record<string, { options?: string[]; rows?: string[]; columns?: string[] }>;
   /** When omitted the form is a no-op preview (inputs work, submit does nothing). */
   onSubmit?: (values: FormValues, meta: Record<string, unknown>) => Promise<SubmitResult>;
   className?: string;
 };
 
 function QuestionRow({
-  field, value, onChange, error, slug, accent, theme, isQuiz,
+  field, value, onChange, error, slug, accent, theme, isQuiz, labels,
 }: {
   field: FormField; value: unknown; onChange: (v: unknown) => void;
   error?: string; slug?: string; accent: string; theme?: FormTheme; isQuiz: boolean;
+  labels?: { options?: string[]; rows?: string[]; columns?: string[] };
 }) {
   const labelFont = theme ? { fontFamily: FONT_PRESET_CSS[theme.questionFont] } : undefined;
   return (
@@ -48,7 +54,7 @@ function QuestionRow({
       {field.description && (
         <p className="text-xs text-gray-500 dark:text-neutral-400">{field.description}</p>
       )}
-      <QuestionInput field={field} value={value} onChange={onChange} slug={slug} accent={accent} />
+      <QuestionInput field={field} value={value} onChange={onChange} slug={slug} accent={accent} labels={labels} />
       {error && <p className="text-xs text-red-600">{error}</p>}
     </div>
   );
@@ -100,7 +106,7 @@ function QuizResult({ score, sections }: { score: QuizScore; sections: FormSecti
 export function FormRenderer({
   sections, layout = "single", submitLabel = "Submit",
   successMessage = "Thanks, we received your submission.",
-  theme, settings, slug, onSubmit, className,
+  theme, settings, slug, labelOverrides, onSubmit, className,
 }: FormRendererProps) {
   const [values, setValues] = useState<FormValues>({});
   const [respondentEmail, setRespondentEmail] = useState("");
@@ -269,6 +275,7 @@ export function FormRenderer({
               accent={accent}
               theme={theme}
               isQuiz={settings?.isQuiz ?? false}
+              labels={labelOverrides?.[field.id]}
             />
           ))}
         </div>

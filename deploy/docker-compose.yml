@@ -41,6 +41,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-openweb}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openweb}
       JWT_SECRET: ${JWT_SECRET:-change_me}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_ADMIN_KEY: ${ANTHROPIC_ADMIN_KEY:-}
       LETSENCRYPT_LIVE_DIR: /etc/letsencrypt/live
       LETSENCRYPT_WEBROOT: /var/www/certbot
       LETSENCRYPT_CERTBOT_BIN: certbot

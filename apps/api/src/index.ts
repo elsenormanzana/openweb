@@ -8,7 +8,7 @@ import { asc, desc, eq, ne, and, isNull, sql } from "drizzle-orm";
 import {
   pages, themePacks, siteSettings, storageConfig, mediaItems, sites, users, plugins,
   blogPosts, blogCategories, blogTags, blogPostAuthors, blogPostCategories, blogPostTags,
-  forms, newsletterSubscribers, crmChannels, crmLeads,
+  forms, newsletterSubscribers, crmChannels, crmLeads, anthropicUsage,
 } from "./db/schema.js";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
@@ -95,6 +95,9 @@ await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "layout" 
 // Forms: per-form art style (theme) + behavior settings (Google Forms parity).
 await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "theme" text NOT NULL DEFAULT '{}'`));
 await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "settings" text NOT NULL DEFAULT '{}'`));
+// Forms: multilingual support — primary language + per-language translations.
+await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "primary_language" text NOT NULL DEFAULT 'en'`));
+await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "translations" text NOT NULL DEFAULT '{}'`));
 
 await db.execute(sql.raw(`
   CREATE TABLE IF NOT EXISTS "crm_lead_activities" (
@@ -154,6 +157,18 @@ await db.execute(sql.raw(`
     "created_at" timestamp NOT NULL DEFAULT now(),
     "updated_at" timestamp NOT NULL DEFAULT now(),
     UNIQUE ("site_id")
+  )
+`));
+
+await db.execute(sql.raw(`
+  CREATE TABLE IF NOT EXISTS "anthropic_usage" (
+    "id" serial PRIMARY KEY,
+    "site_id" integer REFERENCES "sites"("id") ON DELETE SET NULL,
+    "endpoint" text NOT NULL,
+    "model" text NOT NULL,
+    "input_tokens" integer NOT NULL DEFAULT 0,
+    "output_tokens" integer NOT NULL DEFAULT 0,
+    "created_at" timestamp NOT NULL DEFAULT now()
   )
 `));
 
@@ -2804,6 +2819,26 @@ type FormSettings = {
   collectEmail: boolean;
   showProgressBar: boolean;
 };
+type FieldTranslations = {
+  label?: string;
+  description?: string;
+  placeholder?: string;
+  options?: string[];
+  rows?: string[];
+  columns?: string[];
+  scaleMinLabel?: string;
+  scaleMaxLabel?: string;
+};
+type SectionTranslations = { title?: string; description?: string };
+type FormTranslations = {
+  name?: string;
+  description?: string;
+  submitLabel?: string;
+  successMessage?: string;
+  closedMessage?: string;
+  sections?: Record<string, SectionTranslations>;
+  fields?: Record<string, FieldTranslations>;
+};
 
 const CONDITION_OPERATORS: ConditionOperator[] = ["equals", "not_equals", "contains", "is_empty", "is_not_empty"];
 
@@ -2988,6 +3023,56 @@ function normalizeFormTheme(input: unknown): FormTheme {
   };
 }
 
+function normalizeSectionTranslations(input: unknown): SectionTranslations {
+  const o = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  const out: SectionTranslations = {};
+  if (typeof o.title === "string") out.title = o.title;
+  if (typeof o.description === "string") out.description = o.description;
+  return out;
+}
+function normalizeFieldTranslations(input: unknown): FieldTranslations {
+  const o = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  const out: FieldTranslations = {};
+  if (typeof o.label === "string") out.label = o.label;
+  if (typeof o.description === "string") out.description = o.description;
+  if (typeof o.placeholder === "string") out.placeholder = o.placeholder;
+  const opts = coerceStringArray(o.options); if (opts.length) out.options = opts;
+  const rows = coerceStringArray(o.rows); if (rows.length) out.rows = rows;
+  const cols = coerceStringArray(o.columns); if (cols.length) out.columns = cols;
+  if (typeof o.scaleMinLabel === "string") out.scaleMinLabel = o.scaleMinLabel;
+  if (typeof o.scaleMaxLabel === "string") out.scaleMaxLabel = o.scaleMaxLabel;
+  return out;
+}
+function normalizeFormTranslation(input: unknown): FormTranslations {
+  const o = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  const out: FormTranslations = {};
+  if (typeof o.name === "string") out.name = o.name;
+  if (typeof o.description === "string") out.description = o.description;
+  if (typeof o.submitLabel === "string") out.submitLabel = o.submitLabel;
+  if (typeof o.successMessage === "string") out.successMessage = o.successMessage;
+  if (typeof o.closedMessage === "string") out.closedMessage = o.closedMessage;
+  if (o.sections && typeof o.sections === "object") {
+    const sections: Record<string, SectionTranslations> = {};
+    for (const [k, v] of Object.entries(o.sections as Record<string, unknown>)) sections[k] = normalizeSectionTranslations(v);
+    out.sections = sections;
+  }
+  if (o.fields && typeof o.fields === "object") {
+    const fields: Record<string, FieldTranslations> = {};
+    for (const [k, v] of Object.entries(o.fields as Record<string, unknown>)) fields[k] = normalizeFieldTranslations(v);
+    out.fields = fields;
+  }
+  return out;
+}
+function normalizeTranslationsMap(input: unknown): Record<string, FormTranslations> {
+  if (!input || typeof input !== "object") return {};
+  const out: Record<string, FormTranslations> = {};
+  for (const [lang, v] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof lang !== "string" || !lang.trim()) continue;
+    out[lang.trim()] = normalizeFormTranslation(v);
+  }
+  return out;
+}
+
 function normalizeFormSettings(input: unknown): FormSettings {
   const s = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
   const bool = (v: unknown, d: boolean) => (typeof v === "boolean" ? v : d);
@@ -3059,6 +3144,8 @@ function mapFormRow(row: typeof forms.$inferSelect) {
     fields: deriveFlatFields(sections),
     theme: normalizeFormTheme(parseJsonObject(row.theme)),
     settings: normalizeFormSettings(parseJsonObject(row.settings)),
+    primaryLanguage: row.primaryLanguage || "en",
+    translations: normalizeTranslationsMap(parseJsonObject(row.translations)),
   };
 }
 
@@ -3300,6 +3387,158 @@ function gradeSubmission(sections: FormSection[], values: Record<string, unknown
   return { earned, total, percent: total > 0 ? Math.round((earned / total) * 100) : 0, breakdown };
 }
 
+// ── Translation helpers ──────────────────────────────────────────────────────
+
+type MappedForm = ReturnType<typeof mapFormRow>;
+
+/** Flatten every translatable string in a form to a stable-keyed map. */
+function collectFormStrings(form: MappedForm): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (form.name) out["form.name"] = form.name;
+  if (form.description) out["form.description"] = form.description;
+  if (form.submitLabel) out["form.submitLabel"] = form.submitLabel;
+  if (form.successMessage) out["form.successMessage"] = form.successMessage;
+  if (form.settings?.closedMessage) out["form.closedMessage"] = form.settings.closedMessage;
+  for (const s of form.sections) {
+    if (s.title) out[`section.${s.id}.title`] = s.title;
+    if (s.description) out[`section.${s.id}.description`] = s.description;
+    for (const f of s.fields) {
+      if (f.label) out[`field.${f.id}.label`] = f.label;
+      if (f.description) out[`field.${f.id}.description`] = f.description;
+      if (f.placeholder) out[`field.${f.id}.placeholder`] = f.placeholder;
+      if (f.scaleMinLabel) out[`field.${f.id}.scaleMinLabel`] = f.scaleMinLabel;
+      if (f.scaleMaxLabel) out[`field.${f.id}.scaleMaxLabel`] = f.scaleMaxLabel;
+      (f.options ?? []).forEach((opt, i) => { if (opt) out[`field.${f.id}.option.${i}`] = opt; });
+      (f.rows ?? []).forEach((r, i) => { if (r) out[`field.${f.id}.row.${i}`] = r; });
+      (f.columns ?? []).forEach((c, i) => { if (c) out[`field.${f.id}.col.${i}`] = c; });
+    }
+  }
+  return out;
+}
+
+/** Inverse of collectFormStrings — folds the flat translated map back into FormTranslations. */
+function rehydrateTranslations(translated: Record<string, string>): FormTranslations {
+  const out: FormTranslations = {};
+  const sections: Record<string, SectionTranslations> = {};
+  const fields: Record<string, FieldTranslations> = {};
+  for (const [key, val] of Object.entries(translated)) {
+    if (typeof val !== "string") continue;
+    const parts = key.split(".");
+    if (parts[0] === "form") {
+      const k = parts[1];
+      if (k === "name") out.name = val;
+      else if (k === "description") out.description = val;
+      else if (k === "submitLabel") out.submitLabel = val;
+      else if (k === "successMessage") out.successMessage = val;
+      else if (k === "closedMessage") out.closedMessage = val;
+    } else if (parts[0] === "section" && parts[1]) {
+      const id = parts[1];
+      const k = parts[2];
+      sections[id] = sections[id] ?? {};
+      if (k === "title") sections[id].title = val;
+      else if (k === "description") sections[id].description = val;
+    } else if (parts[0] === "field" && parts[1]) {
+      const id = parts[1];
+      const k = parts[2];
+      fields[id] = fields[id] ?? {};
+      if (k === "label") fields[id].label = val;
+      else if (k === "description") fields[id].description = val;
+      else if (k === "placeholder") fields[id].placeholder = val;
+      else if (k === "scaleMinLabel") fields[id].scaleMinLabel = val;
+      else if (k === "scaleMaxLabel") fields[id].scaleMaxLabel = val;
+      else if (k === "option" || k === "row" || k === "col") {
+        const i = Number(parts[3]);
+        if (Number.isFinite(i)) {
+          const arrKey = k === "option" ? "options" : k === "row" ? "rows" : "columns";
+          const arr = (fields[id][arrKey] ?? []) as string[];
+          arr[i] = val;
+          fields[id][arrKey] = arr;
+        }
+      }
+    }
+  }
+  if (Object.keys(sections).length) out.sections = sections;
+  if (Object.keys(fields).length) out.fields = fields;
+  return out;
+}
+
+function stripJsonFence(text: string): string {
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  return (fence ? fence[1] : text).trim();
+}
+
+/** Translate string values via the Anthropic Messages API. Falls back to copy-source. */
+async function translateStringsViaAnthropic(
+  strings: Record<string, string>, sourceLang: string, targetLang: string, targetName?: string,
+  siteId?: number | null,
+): Promise<{ translated: Record<string, string>; warning?: string }> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return { translated: { ...strings }, warning: "ANTHROPIC_API_KEY is not set — copied the source strings so you can edit them manually." };
+  }
+  const model = "claude-haiku-4-5-20251001";
+  const prompt =
+    `Translate the string VALUES in the JSON object below from ${sourceLang} to ${targetName || targetLang} (${targetLang}). ` +
+    `Keep every key exactly as it is. Preserve placeholders like {name}, %s, and any HTML tags. ` +
+    `Return ONLY the resulting JSON object — no commentary, no code fence.\n\n` +
+    JSON.stringify(strings, null, 2);
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 4096,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      return { translated: { ...strings }, warning: `Translation API failed (${res.status}). Source strings copied — edit manually. ${errText.slice(0, 200)}` };
+    }
+    const data = await res.json() as {
+      content?: Array<{ type: string; text?: string }>;
+      usage?: { input_tokens?: number; output_tokens?: number };
+    };
+    void recordAnthropicUsage({
+      endpoint: "forms.translate",
+      model,
+      inputTokens: data.usage?.input_tokens ?? 0,
+      outputTokens: data.usage?.output_tokens ?? 0,
+      siteId: siteId ?? null,
+    });
+    const text = data.content?.find((c) => c.type === "text")?.text ?? "";
+    const parsed = JSON.parse(stripJsonFence(text)) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object") throw new Error("Translation response was not an object");
+    const translated: Record<string, string> = {};
+    for (const [k, v] of Object.entries(parsed)) translated[k] = typeof v === "string" ? v : String(v ?? "");
+    return { translated };
+  } catch (e) {
+    return { translated: { ...strings }, warning: `Translation could not be parsed (${(e as Error).message}). Source strings copied — edit manually.` };
+  }
+}
+
+/** Fire-and-forget insert; failures are logged but never bubble to the caller. */
+async function recordAnthropicUsage(row: {
+  endpoint: string; model: string; inputTokens: number; outputTokens: number; siteId: number | null;
+}): Promise<void> {
+  try {
+    await db.insert(anthropicUsage).values({
+      endpoint: row.endpoint,
+      model: row.model,
+      inputTokens: row.inputTokens,
+      outputTokens: row.outputTokens,
+      siteId: row.siteId,
+    });
+  } catch (e) {
+    app.log.warn({ err: e }, "anthropic_usage insert failed");
+  }
+}
+
 const FORM_UPLOAD_MIME = new Set([
   "image/jpeg", "image/png", "image/webp", "image/gif", "image/avif",
   "application/pdf", "text/plain", "text/csv",
@@ -3383,6 +3622,8 @@ app.post("/api/forms", { preHandler: requireAuth(["admin", "page_developer", "bl
     sections?: unknown[];
     theme?: unknown;
     settings?: unknown;
+    primaryLanguage?: string;
+    translations?: unknown;
   };
   if (!body.name?.trim()) return reply.status(400).send({ error: "name required" });
   const slug = await uniqueFormSlug(req.siteId, body.slug ?? body.name);
@@ -3402,6 +3643,8 @@ app.post("/api/forms", { preHandler: requireAuth(["admin", "page_developer", "bl
     layout: body.layout === "steps" ? "steps" : "single",
     theme: JSON.stringify(normalizeFormTheme(body.theme)),
     settings: JSON.stringify(normalizeFormSettings(body.settings)),
+    primaryLanguage: body.primaryLanguage?.trim() || "en",
+    translations: JSON.stringify(normalizeTranslationsMap(body.translations)),
     createdAt: new Date(),
     updatedAt: new Date(),
   }).returning();
@@ -3423,6 +3666,8 @@ app.put<{ Params: { id: string } }>("/api/forms/:id", { preHandler: requireAuth(
     sections?: unknown[];
     theme?: unknown;
     settings?: unknown;
+    primaryLanguage?: string;
+    translations?: unknown;
   };
   const [existing] = await db.select().from(forms)
     .where(and(eq(forms.id, id), eq(forms.siteId, req.siteId)))
@@ -3450,6 +3695,8 @@ app.put<{ Params: { id: string } }>("/api/forms/:id", { preHandler: requireAuth(
     layout: body.layout !== undefined ? (body.layout === "steps" ? "steps" : "single") : existing.layout,
     theme: body.theme !== undefined ? JSON.stringify(normalizeFormTheme(body.theme)) : existing.theme,
     settings: body.settings !== undefined ? JSON.stringify(normalizeFormSettings(body.settings)) : existing.settings,
+    primaryLanguage: body.primaryLanguage !== undefined ? (body.primaryLanguage.trim() || "en") : existing.primaryLanguage,
+    translations: body.translations !== undefined ? JSON.stringify(normalizeTranslationsMap(body.translations)) : existing.translations,
     updatedAt: new Date(),
   }).where(eq(forms.id, id)).returning();
   return mapFormRow(updated);
@@ -3465,6 +3712,109 @@ app.delete<{ Params: { id: string } }>("/api/forms/:id", { preHandler: requireAu
   await db.delete(forms).where(eq(forms.id, id));
   return { ok: true };
 });
+
+app.post<{ Params: { id: string }; Body: { targetLang?: string; languageName?: string } }>(
+  "/api/forms/:id/translate",
+  { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) },
+  async (req, reply) => {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) return reply.status(400).send({ error: "Invalid id" });
+    const targetLang = (req.body?.targetLang ?? "").trim();
+    if (!targetLang) return reply.status(400).send({ error: "targetLang required" });
+    const [row] = await db.select().from(forms)
+      .where(and(eq(forms.id, id), eq(forms.siteId, req.siteId)))
+      .limit(1);
+    if (!row) return reply.status(404).send({ error: "Form not found" });
+    const form = mapFormRow(row);
+    if (targetLang === form.primaryLanguage) {
+      return reply.status(400).send({ error: "Target language matches the primary language" });
+    }
+    const strings = collectFormStrings(form);
+    if (Object.keys(strings).length === 0) {
+      return { translations: {} as FormTranslations, warning: "Nothing to translate yet — add some questions first." };
+    }
+    const { translated, warning } = await translateStringsViaAnthropic(
+      strings, form.primaryLanguage, targetLang, req.body?.languageName, req.siteId,
+    );
+    const translations = rehydrateTranslations(translated);
+    return warning ? { translations, warning } : { translations };
+  },
+);
+
+// ── Anthropic API usage report ────────────────────────────────────────────────
+// Returns aggregated token counts recorded by recordAnthropicUsage().
+// Auth: either a valid admin/page_developer JWT, OR a loopback request (used
+// by the setup-deploy.sh wizard via `docker exec api wget …`).
+app.get<{ Querystring: { range?: string } }>(
+  "/api/anthropic/usage",
+  async (req, reply) => {
+    const ip = req.ip || "";
+    const isLoopback = ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+    if (!isLoopback) {
+      try {
+        await req.jwtVerify();
+        const u = req.user as JwtPayload;
+        if (!u || !["admin", "page_developer", "blogger_admin"].includes(u.role)) {
+          return reply.status(403).send({ error: "Forbidden" });
+        }
+      } catch {
+        return reply.status(401).send({ error: "Unauthorized" });
+      }
+    }
+
+    const range = (req.query?.range ?? "30d").toLowerCase();
+    let cutoff: Date | null = null;
+    if (range === "7d")  cutoff = new Date(Date.now() - 7  * 24 * 60 * 60 * 1000);
+    else if (range === "30d") cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    else if (range !== "all") {
+      return reply.status(400).send({ error: "range must be 7d, 30d, or all" });
+    }
+
+    const whereExpr = cutoff
+      ? sql`${anthropicUsage.createdAt} >= ${cutoff}`
+      : sql`true`;
+
+    const totals = await db.execute(sql<{
+      total_requests: number; total_input: number; total_output: number; last_call: Date | null;
+    }>`
+      SELECT
+        COUNT(*)::int                          AS total_requests,
+        COALESCE(SUM(input_tokens), 0)::int    AS total_input,
+        COALESCE(SUM(output_tokens), 0)::int   AS total_output,
+        MAX(created_at)                        AS last_call
+      FROM anthropic_usage
+      WHERE ${whereExpr}
+    `);
+
+    const byModel = await db.execute(sql<{
+      model: string; requests: number; input_tokens: number; output_tokens: number;
+    }>`
+      SELECT model,
+             COUNT(*)::int                        AS requests,
+             COALESCE(SUM(input_tokens), 0)::int  AS input_tokens,
+             COALESCE(SUM(output_tokens), 0)::int AS output_tokens
+      FROM anthropic_usage
+      WHERE ${whereExpr}
+      GROUP BY model
+      ORDER BY requests DESC
+    `);
+
+    const t = (totals as unknown as Array<{
+      total_requests: number; total_input: number; total_output: number; last_call: Date | null;
+    }>)[0] ?? { total_requests: 0, total_input: 0, total_output: 0, last_call: null };
+
+    return {
+      range,
+      totalRequests:     Number(t.total_requests ?? 0),
+      totalInputTokens:  Number(t.total_input ?? 0),
+      totalOutputTokens: Number(t.total_output ?? 0),
+      lastCall:          t.last_call ? new Date(t.last_call).toISOString() : null,
+      byModel:           byModel as unknown as Array<{
+        model: string; requests: number; input_tokens: number; output_tokens: number;
+      }>,
+    };
+  },
+);
 
 // Public file-upload endpoint for `file` question types. Unauthenticated — gated by the
 // form being active and accepting responses. Stores files in UPLOADS_DIR with UUID names.

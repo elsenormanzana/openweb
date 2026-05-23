@@ -180,6 +180,8 @@ export const forms = pgTable("forms", {
   layout: text("layout").notNull().default("single"), // single|steps
   theme: text("theme").notNull().default("{}"), // JSON: FormTheme — art style
   settings: text("settings").notNull().default("{}"), // JSON: FormSettings — behavior
+  primaryLanguage: text("primary_language").notNull().default("en"),
+  translations: text("translations").notNull().default("{}"), // JSON: Record<lang, FormTranslations>
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => ({
@@ -228,6 +230,16 @@ export const crmLeads = pgTable("crm_leads", {
   payload: text("payload").notNull().default("{}"), // JSON, raw submission
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const anthropicUsage = pgTable("anthropic_usage", {
+  id: serial("id").primaryKey(),
+  siteId: integer("site_id").references(() => sites.id, { onDelete: "set null" }),
+  endpoint: text("endpoint").notNull(),
+  model: text("model").notNull(),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 export type Site = typeof sites.$inferSelect;
