@@ -178,6 +178,8 @@ export const forms = pgTable("forms", {
   fields: text("fields").notNull().default("[]"), // JSON: FormField[] — derived flat mirror
   sections: text("sections").notNull().default("[]"), // JSON: FormSection[] — source of truth
   layout: text("layout").notNull().default("single"), // single|steps
+  theme: text("theme").notNull().default("{}"), // JSON: FormTheme — art style
+  settings: text("settings").notNull().default("{}"), // JSON: FormSettings — behavior
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => ({

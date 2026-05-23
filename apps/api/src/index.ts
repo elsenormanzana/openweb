@@ -92,6 +92,9 @@ await db.execute(sql.raw(`ALTER TABLE "crm_leads" ADD COLUMN IF NOT EXISTS "scor
 // Forms: sections (grouped fields) + per-form layout (single page vs multi-step).
 await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "sections" text NOT NULL DEFAULT '[]'`));
 await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "layout" text NOT NULL DEFAULT 'single'`));
+// Forms: per-form art style (theme) + behavior settings (Google Forms parity).
+await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "theme" text NOT NULL DEFAULT '{}'`));
+await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "settings" text NOT NULL DEFAULT '{}'`));
 
 await db.execute(sql.raw(`
   CREATE TABLE IF NOT EXISTS "crm_lead_activities" (
@@ -2725,10 +2728,28 @@ app.get<{ Params: { slug: string } }>("/api/blog/public/posts/:slug", async (req
 
 // ── Forms, Newsletter, CRM ───────────────────────────────────────────────────
 
-type FormFieldType = "text" | "email" | "textarea" | "select" | "checkbox";
+type FormFieldType =
+  | "text" | "email" | "textarea" | "select" | "checkbox"
+  | "multiple_choice" | "checkboxes" | "dropdown" | "number" | "date" | "time"
+  | "linear_scale" | "rating" | "file" | "grid_multiple_choice" | "grid_checkbox";
+const FORM_FIELD_TYPES: FormFieldType[] = [
+  "text", "email", "textarea", "select", "checkbox",
+  "multiple_choice", "checkboxes", "dropdown", "number", "date", "time",
+  "linear_scale", "rating", "file", "grid_multiple_choice", "grid_checkbox",
+];
+type FontPreset = "default" | "serif" | "mono" | "rounded" | "playful";
+const FONT_PRESETS: FontPreset[] = ["default", "serif", "mono", "rounded", "playful"];
 type ConditionOperator = "equals" | "not_equals" | "contains" | "is_empty" | "is_not_empty";
 type ConditionRule = { field: string; operator: ConditionOperator; value?: string };
 type Condition = { match: "all" | "any"; rules: ConditionRule[] };
+type FormFieldValidation = {
+  kind: "none" | "regex" | "number" | "length";
+  pattern?: string;
+  min?: number;
+  max?: number;
+  message?: string;
+};
+type SectionRouting = { kind: "next" | "goto" | "submit"; targetSectionId?: string };
 type FormField = {
   id: string;
   label: string;
@@ -2736,15 +2757,52 @@ type FormField = {
   type: FormFieldType;
   required?: boolean;
   placeholder?: string;
+  description?: string;
   options?: string[];
   condition?: Condition | null;
+  validation?: FormFieldValidation | null;
+  scaleMin?: number;
+  scaleMax?: number;
+  scaleMinLabel?: string;
+  scaleMaxLabel?: string;
+  ratingMax?: number;
+  ratingIcon?: "star" | "heart";
+  rows?: string[];
+  columns?: string[];
+  fileAccept?: string;
+  fileMaxMB?: number;
+  fileMaxCount?: number;
+  points?: number;
+  correctAnswers?: string[];
+  correctGrid?: Record<string, string[]>;
+  feedbackCorrect?: string;
+  feedbackIncorrect?: string;
+  optionRouting?: Record<string, string>;
 };
 type FormSection = {
   id: string;
   title: string;
   description?: string;
   condition?: Condition | null;
+  afterSection?: SectionRouting | null;
   fields: FormField[];
+};
+type FormTheme = {
+  headerImage: string;
+  themeColor: string;
+  backgroundColor: string;
+  headerFont: FontPreset;
+  questionFont: FontPreset;
+  textFont: FontPreset;
+};
+type FormSettings = {
+  acceptingResponses: boolean;
+  closedMessage: string;
+  responseLimit: number;
+  isQuiz: boolean;
+  showScoreImmediately: boolean;
+  collectEmail: boolean;
+  showProgressBar: boolean;
 };
 
 const CONDITION_OPERATORS: ConditionOperator[] = ["equals", "not_equals", "contains", "is_empty", "is_not_empty"];
@@ -2795,28 +2853,116 @@ function parseJsonObject(value: string | null | undefined): Record<string, unkno
   }
 }
 
+function coerceFormFieldType(raw: unknown): FormFieldType {
+  return (typeof raw === "string" && (FORM_FIELD_TYPES as string[]).includes(raw) ? raw : "text") as FormFieldType;
+}
+
+function coerceStringArray(input: unknown): string[] {
+  return Array.isArray(input) ? input.filter((o): o is string => typeof o === "string") : [];
+}
+
+function normalizeValidation(input: unknown): FormFieldValidation | null {
+  if (!input || typeof input !== "object") return null;
+  const v = input as Record<string, unknown>;
+  const kind = (["none", "regex", "number", "length"].includes(v.kind as string)
+    ? v.kind : "none") as FormFieldValidation["kind"];
+  if (kind === "none") return null;
+  const out: FormFieldValidation = { kind };
+  if (typeof v.pattern === "string") out.pattern = v.pattern;
+  if (typeof v.min === "number" && Number.isFinite(v.min)) out.min = v.min;
+  if (typeof v.max === "number" && Number.isFinite(v.max)) out.max = v.max;
+  if (typeof v.message === "string") out.message = v.message;
+  return out;
+}
+
+function normalizeRouting(input: unknown): SectionRouting | null {
+  if (!input || typeof input !== "object") return null;
+  const r = input as Record<string, unknown>;
+  const kind = (["next", "goto", "submit"].includes(r.kind as string) ? r.kind : "next") as SectionRouting["kind"];
+  if (kind === "next") return null;
+  const out: SectionRouting = { kind };
+  if (kind === "goto" && typeof r.targetSectionId === "string") out.targetSectionId = r.targetSectionId;
+  return out;
+}
+
+function normalizeStringMap(input: unknown): Record<string, string> | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof v === "string" && v) out[k] = v;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+function normalizeStringArrayMap(input: unknown): Record<string, string[]> | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const out: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    const arr = coerceStringArray(v);
+    if (arr.length) out[k] = arr;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+// Coerce one raw field object into a fully-shaped FormField. `slugifyName` is true on
+// the write path (normalizeFormFields) and false on the read path (parseFormFields).
+function normalizeFormField(item: unknown, index: number, slugifyName: boolean): FormField {
+  const field = (item && typeof item === "object" ? item : {}) as Record<string, unknown>;
+  const type = coerceFormFieldType(field.type);
+  const nameRaw = typeof field.name === "string" ? field.name.trim() : "";
+  let name = nameRaw || `field_${index + 1}`;
+  if (slugifyName) name = name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "_");
+  const out: FormField = {
+    id: typeof field.id === "string" && field.id.trim() ? field.id.trim() : `f_${index + 1}`,
+    label: typeof field.label === "string" ? field.label : name,
+    name,
+    type,
+    required: Boolean(field.required),
+    placeholder: typeof field.placeholder === "string" ? field.placeholder : "",
+    description: typeof field.description === "string" ? field.description : "",
+    options: coerceStringArray(field.options),
+    condition: normalizeCondition(field.condition),
+    validation: normalizeValidation(field.validation),
+  };
+  if (type === "linear_scale") {
+    out.scaleMin = typeof field.scaleMin === "number" ? field.scaleMin : 1;
+    out.scaleMax = typeof field.scaleMax === "number" ? field.scaleMax : 5;
+    out.scaleMinLabel = typeof field.scaleMinLabel === "string" ? field.scaleMinLabel : "";
+    out.scaleMaxLabel = typeof field.scaleMaxLabel === "string" ? field.scaleMaxLabel : "";
+  }
+  if (type === "rating") {
+    out.ratingMax = typeof field.ratingMax === "number" ? field.ratingMax : 5;
+    out.ratingIcon = field.ratingIcon === "heart" ? "heart" : "star";
+  }
+  if (type === "grid_multiple_choice" || type === "grid_checkbox") {
+    out.rows = coerceStringArray(field.rows);
+    out.columns = coerceStringArray(field.columns);
+  }
+  if (type === "file") {
+    out.fileAccept = typeof field.fileAccept === "string" ? field.fileAccept : "";
+    out.fileMaxMB = typeof field.fileMaxMB === "number" ? field.fileMaxMB : 10;
+    out.fileMaxCount = typeof field.fileMaxCount === "number" ? field.fileMaxCount : 1;
+  }
+  out.points = typeof field.points === "number" && Number.isFinite(field.points) ? Math.max(0, field.points) : 0;
+  const correctAnswers = coerceStringArray(field.correctAnswers);
+  if (correctAnswers.length) out.correctAnswers = correctAnswers;
+  const correctGrid = normalizeStringArrayMap(field.correctGrid);
+  if (correctGrid) out.correctGrid = correctGrid;
+  if (typeof field.feedbackCorrect === "string") out.feedbackCorrect = field.feedbackCorrect;
+  if (typeof field.feedbackIncorrect === "string") out.feedbackIncorrect = field.feedbackIncorrect;
+  const optionRouting = normalizeStringMap(field.optionRouting);
+  if (optionRouting) out.optionRouting = optionRouting;
+  return out;
+}
+
 function parseFormFields(value: string | null): FormField[] {
   if (!value) return [];
   try {
     const parsed = JSON.parse(value);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item) => item && typeof item === "object").map((item) => {
-      const f = item as Record<string, unknown>;
-      const type = typeof f.type === "string" ? f.type : "text";
-      const options = Array.isArray(f.options)
-        ? f.options.filter((o): o is string => typeof o === "string")
-        : [];
-      return {
-        id: typeof f.id === "string" ? f.id : `f_${Math.random().toString(36).slice(2, 10)}`,
-        label: typeof f.label === "string" ? f.label : "",
-        name: typeof f.name === "string" ? f.name : "",
-        type: (["text", "email", "textarea", "select", "checkbox"].includes(type) ? type : "text") as FormFieldType,
-        required: Boolean(f.required),
-        placeholder: typeof f.placeholder === "string" ? f.placeholder : "",
-        options,
-        condition: normalizeCondition(f.condition),
-      };
-    });
+    return parsed
+      .filter((item) => item && typeof item === "object")
+      .map((item, i) => normalizeFormField(item, i, false));
   } catch {
     return [];
   }
@@ -2826,23 +2972,37 @@ function normalizeFormFields(input: unknown): FormField[] {
   if (!Array.isArray(input)) return [];
   return input
     .filter((item) => item && typeof item === "object")
-    .map((item, index) => {
-      const field = item as Record<string, unknown>;
-      const typeRaw = typeof field.type === "string" ? field.type : "text";
-      const type = (["text", "email", "textarea", "select", "checkbox"].includes(typeRaw) ? typeRaw : "text") as FormFieldType;
-      const nameRaw = typeof field.name === "string" ? field.name.trim() : "";
-      const name = nameRaw || `field_${index + 1}`;
-      return {
-        id: typeof field.id === "string" && field.id.trim() ? field.id.trim() : `f_${index + 1}`,
-        label: typeof field.label === "string" ? field.label : name,
-        name: name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "_"),
-        type,
-        required: Boolean(field.required),
-        placeholder: typeof field.placeholder === "string" ? field.placeholder : "",
-        options: Array.isArray(field.options) ? field.options.filter((o): o is string => typeof o === "string") : [],
-        condition: normalizeCondition(field.condition),
-      };
-    });
+    .map((item, i) => normalizeFormField(item, i, true));
+}
+
+function normalizeFormTheme(input: unknown): FormTheme {
+  const t = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  const font = (v: unknown): FontPreset => (FONT_PRESETS.includes(v as FontPreset) ? (v as FontPreset) : "default");
+  return {
+    headerImage: typeof t.headerImage === "string" ? t.headerImage : "",
+    themeColor: typeof t.themeColor === "string" && t.themeColor ? t.themeColor : "#673ab7",
+    backgroundColor: typeof t.backgroundColor === "string" && t.backgroundColor ? t.backgroundColor : "#f0ebf8",
+    headerFont: font(t.headerFont),
+    questionFont: font(t.questionFont),
+    textFont: font(t.textFont),
+  };
+}
+
+function normalizeFormSettings(input: unknown): FormSettings {
+  const s = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  const bool = (v: unknown, d: boolean) => (typeof v === "boolean" ? v : d);
+  const limit = typeof s.responseLimit === "number" && Number.isFinite(s.responseLimit)
+    ? Math.max(0, Math.floor(s.responseLimit)) : 0;
+  return {
+    acceptingResponses: bool(s.acceptingResponses, true),
+    closedMessage: typeof s.closedMessage === "string" && s.closedMessage
+      ? s.closedMessage : "This form is no longer accepting responses.",
+    responseLimit: limit,
+    isQuiz: bool(s.isQuiz, false),
+    showScoreImmediately: bool(s.showScoreImmediately, true),
+    collectEmail: bool(s.collectEmail, false),
+    showProgressBar: bool(s.showProgressBar, true),
+  };
 }
 
 function normalizeFormSections(input: unknown): FormSection[] {
@@ -2854,6 +3014,7 @@ function normalizeFormSections(input: unknown): FormSection[] {
       title: typeof s.title === "string" ? s.title : "",
       description: typeof s.description === "string" ? s.description : "",
       condition: normalizeCondition(s.condition),
+      afterSection: normalizeRouting(s.afterSection),
       fields: normalizeFormFields(s.fields),
     }));
   // Field `name` must be unique across the whole form — conditions key off it.
@@ -2880,7 +3041,7 @@ function deriveFlatFields(sections: FormSection[]): FormField[] {
 }
 
 function synthesizeSections(fields: FormField[]): FormSection[] {
-  return fields.length ? [{ id: "default", title: "", description: "", condition: null, fields }] : [];
+  return fields.length ? [{ id: "default", title: "", description: "", condition: null, afterSection: null, fields }] : [];
 }
 
 // `sections` is the source of truth; legacy rows with only `fields` get one synthesized
@@ -2896,6 +3057,8 @@ function mapFormRow(row: typeof forms.$inferSelect) {
     layout: row.layout === "steps" ? "steps" : "single",
     sections,
     fields: deriveFlatFields(sections),
+    theme: normalizeFormTheme(parseJsonObject(row.theme)),
+    settings: normalizeFormSettings(parseJsonObject(row.settings)),
   };
 }
 
@@ -2992,6 +3155,8 @@ function mapFormResponseRow(row: typeof crmLeads.$inferSelect) {
     updatedAt: row.updatedAt,
     values,
     meta,
+    score: payload.score && typeof payload.score === "object"
+      ? (payload.score as Record<string, unknown>) : null,
     userAgent: typeof payload.userAgent === "string" ? payload.userAgent : "",
     ip: typeof payload.ip === "string" ? payload.ip : "",
   };
@@ -3012,6 +3177,138 @@ async function findOrCreateSourceChannel(siteId: number, source: "form" | "newsl
   }).returning();
   return created;
 }
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// True when a field has no meaningful answer — shape-aware per field type.
+// Mirrored in apps/web/src/lib/formValidation.ts.
+function isFieldValueEmpty(field: FormField, value: unknown): boolean {
+  switch (field.type) {
+    case "checkbox":
+      return value !== true && value !== "true";
+    case "checkboxes":
+    case "file":
+      return !Array.isArray(value) || value.length === 0;
+    case "grid_multiple_choice":
+    case "grid_checkbox": {
+      if (!value || typeof value !== "object") return true;
+      const v = value as Record<string, unknown>;
+      const rows = field.rows ?? [];
+      if (rows.length === 0) return true;
+      return rows.some((r) => {
+        const cell = v[r];
+        return field.type === "grid_checkbox"
+          ? !Array.isArray(cell) || cell.length === 0
+          : typeof cell !== "string" || cell === "";
+      });
+    }
+    default:
+      return value == null || value === "";
+  }
+}
+
+// Returns an error message, or null when the value is acceptable.
+// Mirrored in apps/web/src/lib/formValidation.ts.
+function validateFieldValue(field: FormField, value: unknown): string | null {
+  const label = field.label || field.name;
+  const empty = isFieldValueEmpty(field, value);
+  if (field.required && empty) return `${label} is required`;
+  if (empty) return null;
+  if (field.type === "email" && typeof value === "string" && !EMAIL_RE.test(value.trim())) {
+    return `${label} must be a valid email`;
+  }
+  if (field.type === "number" && !Number.isFinite(Number(value))) {
+    return `${label} must be a number`;
+  }
+  if (field.type === "file" && Array.isArray(value)) {
+    for (const f of value) {
+      const url = f && typeof f === "object" ? (f as Record<string, unknown>).url : null;
+      if (typeof url !== "string" || !url.startsWith("/uploads/")) return `${label}: invalid file`;
+    }
+    if ((field.fileMaxCount ?? 1) > 0 && value.length > (field.fileMaxCount ?? 1)) {
+      return `${label}: too many files`;
+    }
+  }
+  const rule = field.validation;
+  if (rule && rule.kind !== "none") {
+    const str = typeof value === "string" ? value : String(value ?? "");
+    if (rule.kind === "regex" && rule.pattern) {
+      try {
+        if (!new RegExp(rule.pattern).test(str)) return rule.message || `${label} is invalid`;
+      } catch { /* ignore malformed pattern */ }
+    }
+    if (rule.kind === "length") {
+      if (rule.min != null && str.length < rule.min) return rule.message || `${label} must be at least ${rule.min} characters`;
+      if (rule.max != null && str.length > rule.max) return rule.message || `${label} must be at most ${rule.max} characters`;
+    }
+    if (rule.kind === "number") {
+      const n = Number(str);
+      if (!Number.isFinite(n)) return rule.message || `${label} must be a number`;
+      if (rule.min != null && n < rule.min) return rule.message || `${label} must be ≥ ${rule.min}`;
+      if (rule.max != null && n > rule.max) return rule.message || `${label} must be ≤ ${rule.max}`;
+    }
+  }
+  return null;
+}
+
+const sortedCopy = (a: string[]) => a.slice().sort();
+const sameSet = (a: string[], b: string[]) =>
+  a.length === b.length && sortedCopy(a).every((x, i) => x === sortedCopy(b)[i]);
+
+// Quiz grading — compares a submitted answer against the field's answer key.
+function isAnswerCorrect(field: FormField, value: unknown): boolean {
+  if (field.type === "grid_multiple_choice" || field.type === "grid_checkbox") {
+    const cg = field.correctGrid ?? {};
+    const v = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+    const rows = field.rows ?? [];
+    if (rows.length === 0) return false;
+    return rows.every((r) => {
+      const want = cg[r] ?? [];
+      if (want.length === 0) return false;
+      const got = field.type === "grid_checkbox"
+        ? (Array.isArray(v[r]) ? (v[r] as string[]) : [])
+        : (typeof v[r] === "string" && v[r] ? [v[r] as string] : []);
+      return sameSet(want, got);
+    });
+  }
+  if (field.type === "checkboxes") {
+    const want = field.correctAnswers ?? [];
+    const got = Array.isArray(value) ? (value as string[]) : [];
+    return want.length > 0 && sameSet(want, got);
+  }
+  const correct = field.correctAnswers ?? [];
+  if (correct.length === 0) return false;
+  const str = typeof value === "string" ? value : String(value ?? "");
+  return correct.some((c) => c.trim().toLowerCase() === str.trim().toLowerCase());
+}
+
+function gradeSubmission(sections: FormSection[], values: Record<string, unknown>) {
+  let earned = 0;
+  let total = 0;
+  const breakdown: { name: string; label: string; points: number; earned: number; correct: boolean }[] = [];
+  for (const section of sections) {
+    for (const field of section.fields) {
+      const points = field.points ?? 0;
+      if (points <= 0) continue;
+      total += points;
+      const correct = isAnswerCorrect(field, values[field.name]);
+      const got = correct ? points : 0;
+      earned += got;
+      breakdown.push({ name: field.name, label: field.label || field.name, points, earned: got, correct });
+    }
+  }
+  return { earned, total, percent: total > 0 ? Math.round((earned / total) * 100) : 0, breakdown };
+}
+
+const FORM_UPLOAD_MIME = new Set([
+  "image/jpeg", "image/png", "image/webp", "image/gif", "image/avif",
+  "application/pdf", "text/plain", "text/csv",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+]);
+const FORM_UPLOAD_MAX_BYTES = 10_000_000;
 
 app.get("/api/forms", { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) }, async (req) => {
   const rows = await db.select().from(forms)
@@ -3084,6 +3381,8 @@ app.post("/api/forms", { preHandler: requireAuth(["admin", "page_developer", "bl
     layout?: "single" | "steps";
     fields?: unknown[];
     sections?: unknown[];
+    theme?: unknown;
+    settings?: unknown;
   };
   if (!body.name?.trim()) return reply.status(400).send({ error: "name required" });
   const slug = await uniqueFormSlug(req.siteId, body.slug ?? body.name);
@@ -3101,6 +3400,8 @@ app.post("/api/forms", { preHandler: requireAuth(["admin", "page_developer", "bl
     fields: JSON.stringify(deriveFlatFields(sections)),
     sections: JSON.stringify(sections),
     layout: body.layout === "steps" ? "steps" : "single",
+    theme: JSON.stringify(normalizeFormTheme(body.theme)),
+    settings: JSON.stringify(normalizeFormSettings(body.settings)),
     createdAt: new Date(),
     updatedAt: new Date(),
   }).returning();
@@ -3120,6 +3421,8 @@ app.put<{ Params: { id: string } }>("/api/forms/:id", { preHandler: requireAuth(
     layout?: "single" | "steps";
     fields?: unknown[];
     sections?: unknown[];
+    theme?: unknown;
+    settings?: unknown;
   };
   const [existing] = await db.select().from(forms)
     .where(and(eq(forms.id, id), eq(forms.siteId, req.siteId)))
@@ -3145,6 +3448,8 @@ app.put<{ Params: { id: string } }>("/api/forms/:id", { preHandler: requireAuth(
     fields: JSON.stringify(deriveFlatFields(sections)),
     sections: JSON.stringify(sections),
     layout: body.layout !== undefined ? (body.layout === "steps" ? "steps" : "single") : existing.layout,
+    theme: body.theme !== undefined ? JSON.stringify(normalizeFormTheme(body.theme)) : existing.theme,
+    settings: body.settings !== undefined ? JSON.stringify(normalizeFormSettings(body.settings)) : existing.settings,
     updatedAt: new Date(),
   }).where(eq(forms.id, id)).returning();
   return mapFormRow(updated);
@@ -3161,6 +3466,36 @@ app.delete<{ Params: { id: string } }>("/api/forms/:id", { preHandler: requireAu
   return { ok: true };
 });
 
+// Public file-upload endpoint for `file` question types. Unauthenticated — gated by the
+// form being active and accepting responses. Stores files in UPLOADS_DIR with UUID names.
+app.post<{ Params: { slug: string } }>("/api/forms/:slug/upload", async (req, reply) => {
+  const [form] = await db.select().from(forms)
+    .where(and(eq(forms.siteId, req.siteId), eq(forms.slug, req.params.slug), eq(forms.status, "active")))
+    .limit(1);
+  if (!form) return reply.status(404).send({ error: "Form not found" });
+  const settings = normalizeFormSettings(parseJsonObject(form.settings));
+  if (!settings.acceptingResponses) return reply.status(403).send({ error: settings.closedMessage });
+
+  ensureUploadsDir();
+  const file = await req.file();
+  if (!file) return reply.status(400).send({ error: "No file uploaded" });
+  if (!FORM_UPLOAD_MIME.has(file.mimetype)) {
+    return reply.status(415).send({ error: "File type not allowed" });
+  }
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of file.file) {
+    size += (chunk as Buffer).length;
+    if (size > FORM_UPLOAD_MAX_BYTES) return reply.status(413).send({ error: "File too large (max 10MB)" });
+    chunks.push(chunk as Buffer);
+  }
+  const buf = Buffer.concat(chunks);
+  const ext = extname(file.filename) || "";
+  const finalName = `${randomUUID()}${ext}`;
+  await writeFile(join(UPLOADS_DIR, finalName), buf);
+  return { url: `/uploads/${finalName}`, name: file.filename, size: buf.length, mime: file.mimetype };
+});
+
 app.post<{ Params: { slug: string } }>("/api/forms/submit/:slug", async (req, reply) => {
   const body = req.body as { values?: Record<string, unknown>; meta?: Record<string, unknown> };
   const [form] = await db.select().from(forms)
@@ -3168,37 +3503,66 @@ app.post<{ Params: { slug: string } }>("/api/forms/submit/:slug", async (req, re
     .limit(1);
   if (!form) return reply.status(404).send({ error: "Form not found" });
 
-  const sections = mapFormRow(form).sections;
+  const mapped = mapFormRow(form);
+  const sections = mapped.sections;
+  const settings = mapped.settings;
+
+  if (!settings.acceptingResponses) {
+    return reply.status(403).send({ error: settings.closedMessage });
+  }
+  if (settings.responseLimit > 0) {
+    const existing = await db.select({ id: crmLeads.id }).from(crmLeads)
+      .where(and(eq(crmLeads.siteId, req.siteId), eq(crmLeads.source, "form"), eq(crmLeads.formId, form.id)));
+    if (existing.length >= settings.responseLimit) {
+      return reply.status(403).send({ error: settings.closedMessage });
+    }
+  }
+
   const rawValues = body.values && typeof body.values === "object" ? body.values : {};
+  const meta = (body.meta && typeof body.meta === "object" ? body.meta : {}) as Record<string, unknown>;
+  const visitedRaw = meta.visitedSections;
+  const visited = Array.isArray(visitedRaw)
+    ? visitedRaw.filter((x): x is string => typeof x === "string")
+    : null;
+
+  // With branching the client reports the sections it actually showed; validate only
+  // those. Otherwise fall back to condition-based visibility.
+  const activeSections = visited
+    ? sections.filter((s) => visited.includes(s.id))
+    : sections.filter((s) => evaluateCondition(s.condition, rawValues));
+
   const values: Record<string, unknown> = {};
-  for (const section of sections) {
-    // Skip hidden sections/fields — a field hidden by a condition must not block submit.
-    if (!evaluateCondition(section.condition, rawValues)) continue;
+  for (const section of activeSections) {
     for (const field of section.fields) {
-      if (!evaluateCondition(field.condition, rawValues)) continue;
-      const value = (rawValues as Record<string, unknown>)[field.name];
-      const isEmpty = value == null || value === "";
-      if (field.required && isEmpty) {
-        return reply.status(400).send({ error: `${field.label || field.name} is required` });
-      }
-      if (field.type === "email" && typeof value === "string" && value.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())) {
-        return reply.status(400).send({ error: `${field.label || field.name} must be a valid email` });
-      }
-      values[field.name] = value ?? "";
+      if (!visited && !evaluateCondition(field.condition, rawValues)) continue;
+      const value = rawValues[field.name];
+      const err = validateFieldValue(field, value);
+      if (err) return reply.status(400).send({ error: err });
+      values[field.name] = isFieldValueEmpty(field, value)
+        ? (field.type === "checkboxes" || field.type === "file" ? [] : "")
+        : value;
     }
   }
 
   const channel = await findOrCreateSourceChannel(req.siteId, "form");
   const normalizedName = typeof values.name === "string" ? values.name : null;
-  const normalizedEmail = typeof values.email === "string" ? values.email : null;
+  const respondentEmail = typeof meta.respondentEmail === "string" ? meta.respondentEmail : null;
+  const normalizedEmail = typeof values.email === "string" && values.email
+    ? values.email
+    : (settings.collectEmail ? respondentEmail : null);
   const normalizedPhone = typeof values.phone === "string" ? values.phone : null;
   const normalizedCompany = typeof values.company === "string" ? values.company : null;
-  const payload = {
+
+  const score = settings.isQuiz ? gradeSubmission(activeSections, values) : null;
+
+  const payload: Record<string, unknown> = {
     values,
-    meta: body.meta ?? {},
+    meta,
     userAgent: req.headers["user-agent"] ?? "",
     ip: req.ip,
   };
+  if (score) payload.score = score;
+
   const [lead] = await db.insert(crmLeads).values({
     siteId: req.siteId,
     formId: form.id,
@@ -3215,7 +3579,12 @@ app.post<{ Params: { slug: string } }>("/api/forms/submit/:slug", async (req, re
     updatedAt: new Date(),
   }).returning();
 
-  return { ok: true, message: form.successMessage, lead: mapLeadRow(lead) };
+  return {
+    ok: true,
+    message: form.successMessage,
+    lead: mapLeadRow(lead),
+    score: score && settings.showScoreImmediately ? score : null,
+  };
 });
 
 app.post("/api/crm/public-lead", async (req) => {

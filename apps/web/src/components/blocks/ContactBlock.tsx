@@ -96,8 +96,10 @@ export function ContactBlock({ props }: { props: ContactBlockProps }) {
                 layout={form.layout}
                 submitLabel={submitLabel || form.submitLabel}
                 successMessage={form.successMessage}
-                onSubmit={async (values: FormValues) => {
-                  await api.forms.submit(formSlug as string, { values, meta: { source: "contact_block" } });
+                settings={form.settings}
+                slug={formSlug as string}
+                onSubmit={async (values: FormValues, meta) => {
+                  await api.forms.submit(formSlug as string, { values, meta: { ...meta, source: "contact_block" } });
                 }}
                 className="bg-white rounded-2xl border border-gray-100 p-8 shadow-sm"
               />

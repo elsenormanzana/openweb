@@ -35,3 +35,34 @@ export function getVisibleSections(sections: FormSection[], values: FormValues):
 export function getVisibleFields(section: FormSection, values: FormValues): FormField[] {
   return section.fields.filter((f) => evaluateCondition(f.condition, values));
 }
+
+/** Sentinel section id meaning "submit the form now" (branching target). */
+export const ROUTE_SUBMIT = "__submit__";
+
+/**
+ * Resolve where to go after `section`, given the entered values. Precedence:
+ *  1. per-option routing on a single-choice question (last one with a matched route wins)
+ *  2. the section's `afterSection` routing
+ *  3. the next visible section — or ROUTE_SUBMIT when there is none.
+ */
+export function getBranchTarget(
+  section: FormSection,
+  sections: FormSection[],
+  values: FormValues,
+): string {
+  for (let i = section.fields.length - 1; i >= 0; i--) {
+    const f = section.fields[i];
+    if (!f.optionRouting) continue;
+    const v = values[f.name];
+    if (typeof v === "string" && v && f.optionRouting[v]) return f.optionRouting[v];
+  }
+  const after = section.afterSection;
+  if (after) {
+    if (after.kind === "submit") return ROUTE_SUBMIT;
+    if (after.kind === "goto" && after.targetSectionId) return after.targetSectionId;
+  }
+  const visible = getVisibleSections(sections, values);
+  const idx = visible.findIndex((s) => s.id === section.id);
+  if (idx >= 0 && idx < visible.length - 1) return visible[idx + 1].id;
+  return ROUTE_SUBMIT;
+}

@@ -54,11 +54,23 @@ export type Site = {
 export type SiteRole = { siteId: number; role: string };
 export type UserSocial = { platform: string; url: string };
 export type BlogStatus = "draft" | "pending_review" | "approved" | "published" | "rejected";
-export type FormFieldType = "text" | "email" | "textarea" | "select" | "checkbox";
+export type FormFieldType =
+  | "text" | "email" | "textarea" | "select" | "checkbox"
+  | "multiple_choice" | "checkboxes" | "dropdown" | "number" | "date" | "time"
+  | "linear_scale" | "rating" | "file" | "grid_multiple_choice" | "grid_checkbox";
+export type FontPreset = "default" | "serif" | "mono" | "rounded" | "playful";
 export type ConditionOperator = "equals" | "not_equals" | "contains" | "is_empty" | "is_not_empty";
 export type ConditionRule = { field: string; operator: ConditionOperator; value?: string };
 export type Condition = { match: "all" | "any"; rules: ConditionRule[] };
 export type FormLayout = "single" | "steps";
+export type FormFieldValidation = {
+  kind: "none" | "regex" | "number" | "length";
+  pattern?: string;
+  min?: number;
+  max?: number;
+  message?: string;
+};
+export type SectionRouting = { kind: "next" | "goto" | "submit"; targetSectionId?: string };
 export type FormField = {
   id: string;
   label: string;
@@ -66,15 +78,62 @@ export type FormField = {
   type: FormFieldType;
   required?: boolean;
   placeholder?: string;
+  description?: string;
   options?: string[];
   condition?: Condition | null;
+  validation?: FormFieldValidation | null;
+  scaleMin?: number;
+  scaleMax?: number;
+  scaleMinLabel?: string;
+  scaleMaxLabel?: string;
+  ratingMax?: number;
+  ratingIcon?: "star" | "heart";
+  rows?: string[];
+  columns?: string[];
+  fileAccept?: string;
+  fileMaxMB?: number;
+  fileMaxCount?: number;
+  points?: number;
+  correctAnswers?: string[];
+  correctGrid?: Record<string, string[]>;
+  feedbackCorrect?: string;
+  feedbackIncorrect?: string;
+  optionRouting?: Record<string, string>;
 };
 export type FormSection = {
   id: string;
   title: string;
   description?: string;
   condition?: Condition | null;
+  afterSection?: SectionRouting | null;
   fields: FormField[];
+};
+export type FormTheme = {
+  headerImage: string;
+  themeColor: string;
+  backgroundColor: string;
+  headerFont: FontPreset;
+  questionFont: FontPreset;
+  textFont: FontPreset;
+};
+export type FormSettings = {
+  acceptingResponses: boolean;
+  closedMessage: string;
+  responseLimit: number;
+  isQuiz: boolean;
+  showScoreImmediately: boolean;
+  collectEmail: boolean;
+  showProgressBar: boolean;
+};
+export type FormFile = { url: string; name: string; size: number; mime: string };
+export type QuizScoreBreakdown = {
+  name: string; label: string; points: number; earned: number; correct: boolean;
+};
+export type QuizScore = {
+  earned: number;
+  total: number;
+  percent: number;
+  breakdown: QuizScoreBreakdown[];
 };
 
 export type User = {
@@ -156,6 +215,8 @@ export type CmsForm = {
   layout: FormLayout;
   sections: FormSection[];
   fields: FormField[];
+  theme: FormTheme;
+  settings: FormSettings;
   createdAt: string;
   updatedAt: string;
 };
@@ -173,6 +234,7 @@ export type FormResponse = {
   updatedAt: string;
   values: Record<string, unknown>;
   meta: Record<string, unknown>;
+  score: QuizScore | null;
   userAgent: string;
   ip: string;
 };
@@ -606,13 +668,18 @@ export const api = {
     list: () => request<CmsForm[]>("/api/forms"),
     get: (id: number) => request<CmsForm>(`/api/forms/${id}`),
     getBySlug: (slug: string) => request<CmsForm>(`/api/forms/by-slug/${encodeURIComponent(slug)}`),
-    create: (body: { name: string; slug?: string; description?: string | null; status?: "active" | "inactive"; submitLabel?: string; successMessage?: string; layout?: FormLayout; sections?: FormSection[]; fields?: FormField[] }) =>
+    create: (body: { name: string; slug?: string; description?: string | null; status?: "active" | "inactive"; submitLabel?: string; successMessage?: string; layout?: FormLayout; sections?: FormSection[]; fields?: FormField[]; theme?: FormTheme; settings?: FormSettings }) =>
       request<CmsForm>("/api/forms", { method: "POST", body: JSON.stringify(body) }),
-    update: (id: number, body: Partial<Pick<CmsForm, "name" | "slug" | "description" | "status" | "submitLabel" | "successMessage" | "layout" | "sections" | "fields">>) =>
+    update: (id: number, body: Partial<Pick<CmsForm, "name" | "slug" | "description" | "status" | "submitLabel" | "successMessage" | "layout" | "sections" | "fields" | "theme" | "settings">>) =>
       request<CmsForm>(`/api/forms/${id}`, { method: "PUT", body: JSON.stringify(body) }),
     delete: (id: number) => request<{ ok: true }>(`/api/forms/${id}`, { method: "DELETE" }),
     submit: (slug: string, body: { values: Record<string, unknown>; meta?: Record<string, unknown> }) =>
-      request<{ ok: true; message: string; lead: CrmLead }>(`/api/forms/submit/${encodeURIComponent(slug)}`, { method: "POST", body: JSON.stringify(body) }),
+      request<{ ok: true; message: string; lead: CrmLead; score: QuizScore | null }>(`/api/forms/submit/${encodeURIComponent(slug)}`, { method: "POST", body: JSON.stringify(body) }),
+    uploadFile: (slug: string, file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      return request<FormFile>(`/api/forms/${encodeURIComponent(slug)}/upload`, { method: "POST", body: fd });
+    },
     responses: {
       list: () => request<FormResponse[]>("/api/forms/responses"),
       listByFormId: (id: number) => request<FormResponse[]>(`/api/forms/${id}/responses`),

@@ -6,11 +6,12 @@ import { useInitialData } from "@/lib/initialData";
 import { useSeoHead } from "@/lib/useSeoHead";
 import { paletteToCSS, DEFAULT_PALETTE } from "@/lib/palette";
 import { applyPageTheme } from "@/lib/theme";
+import { FONT_PRESET_CSS } from "@/lib/formFields";
 import type { FormValues } from "@/lib/formConditions";
 
 /**
  * Standalone public form page at /forms/:slug — a minimal, distraction-free
- * page (logo + form), no site nav or footer.
+ * page (logo + themed form card), no site nav or footer.
  */
 export function PublicFormPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -43,8 +44,14 @@ export function PublicFormPage() {
 
   if (form === undefined) return null;
 
+  const theme = form?.theme;
+  const pageStyle = theme ? { backgroundColor: theme.backgroundColor } : undefined;
+
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12 bg-[var(--palette-background,#f8fafc)] dark:bg-neutral-950">
+    <div
+      className="min-h-screen flex flex-col items-center px-4 py-12 bg-[var(--palette-background,#f8fafc)] dark:bg-neutral-950"
+      style={pageStyle}
+    >
       <style>{paletteToCSS(palette)}</style>
       <div className="w-full max-w-xl">
         <div className="text-center mb-6">
@@ -60,22 +67,41 @@ export function PublicFormPage() {
             <p className="text-sm text-gray-500 dark:text-neutral-400">{error || "This form is not available."}</p>
           </div>
         ) : (
-          <div className="rounded-2xl border border-gray-200 bg-white p-6 sm:p-8 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-            {(form.name || form.description) && (
-              <div className="mb-5">
-                {form.name && <h1 className="text-xl font-semibold text-gray-900 dark:text-neutral-100">{form.name}</h1>}
-                {form.description && <p className="text-sm text-gray-500 dark:text-neutral-400 mt-1">{form.description}</p>}
-              </div>
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden dark:border-neutral-800 dark:bg-neutral-900">
+            {theme && <div className="h-2.5 w-full" style={{ backgroundColor: theme.themeColor }} />}
+            {theme?.headerImage && (
+              <img src={theme.headerImage} alt="" className="w-full max-h-44 object-cover" />
             )}
-            <FormRenderer
-              sections={form.sections}
-              layout={form.layout}
-              submitLabel={form.submitLabel}
-              successMessage={form.successMessage}
-              onSubmit={async (values: FormValues) => {
-                await api.forms.submit(form.slug, { values, meta: { source: "public_form" } });
-              }}
-            />
+            <div className="p-6 sm:p-8">
+              {(form.name || form.description) && (
+                <div className="mb-5">
+                  {form.name && (
+                    <h1
+                      className="text-xl font-semibold text-gray-900 dark:text-neutral-100"
+                      style={theme ? { fontFamily: FONT_PRESET_CSS[theme.headerFont] } : undefined}
+                    >
+                      {form.name}
+                    </h1>
+                  )}
+                  {form.description && (
+                    <p className="text-sm text-gray-500 dark:text-neutral-400 mt-1">{form.description}</p>
+                  )}
+                </div>
+              )}
+              <FormRenderer
+                sections={form.sections}
+                layout={form.layout}
+                submitLabel={form.submitLabel}
+                successMessage={form.successMessage}
+                theme={form.theme}
+                settings={form.settings}
+                slug={form.slug}
+                onSubmit={async (values: FormValues, meta) => {
+                  const res = await api.forms.submit(form.slug, { values, meta: { ...meta, source: "public_form" } });
+                  return { score: res.score };
+                }}
+              />
+            </div>
           </div>
         )}
       </div>
