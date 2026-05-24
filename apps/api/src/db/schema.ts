@@ -70,6 +70,7 @@ export const siteSettings = pgTable("site_settings", {
   footerConfig: text("footer_config"),
   seoConfig: text("seo_config"),
   blogApprovalMode: boolean("blog_approval_mode").notNull().default(false),
+  aiConfig: text("ai_config"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 

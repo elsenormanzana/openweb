@@ -733,6 +733,19 @@ const defaultSiteSettings = () => ({
   footerConfig: JSON.stringify({ copyright: "© 2025", links: [] }),
   seoConfig: JSON.stringify({}),
   blogApprovalMode: false,
+  aiConfig: JSON.stringify({
+    providers: {
+      claude: { connected: false, apiKey: "", model: "claude-haiku-4-5-20251001" },
+      gemini: { connected: false, apiKey: "", model: "gemini-2.5-flash" },
+      openai: { connected: false, apiKey: "", model: "gpt-4o-mini" },
+      custom: { connected: false, url: "", apiKey: "", model: "" }
+    },
+    agents: {
+      translation: "claude",
+      seo: "openai",
+      contentGeneration: "gemini"
+    }
+  }),
 });
 
 app.get("/api/site-settings", async (req) => {
@@ -748,6 +761,7 @@ app.get("/api/site-settings", async (req) => {
       footerConfig: JSON.parse(def.footerConfig),
       seoConfig: { siteName: siteRow?.name ?? "", siteTitle: siteRow?.name ?? "" },
       blogApprovalMode: def.blogApprovalMode,
+      aiConfig: JSON.parse(def.aiConfig),
     };
     return defaults;
   }
@@ -757,12 +771,13 @@ app.get("/api/site-settings", async (req) => {
     footerConfig: (() => { try { return JSON.parse(row.footerConfig ?? "{}"); } catch { return JSON.parse(def.footerConfig); } })(),
     seoConfig: (() => { try { return JSON.parse(row.seoConfig ?? "{}"); } catch { return {}; } })(),
     blogApprovalMode: row.blogApprovalMode ?? false,
+    aiConfig: (() => { try { return JSON.parse(row.aiConfig ?? "{}"); } catch { return JSON.parse(def.aiConfig); } })(),
   };
   return settings;
 });
 
 app.put("/api/site-settings", { preHandler: requireAuth(["admin", "page_developer"]) }, async (req, reply) => {
-  const body = req.body as { navType?: string; navConfig?: object; footerConfig?: object; seoConfig?: object; blogApprovalMode?: boolean };
+  const body = req.body as { navType?: string; navConfig?: object; footerConfig?: object; seoConfig?: object; blogApprovalMode?: boolean; aiConfig?: object };
   const [row] = await db.select().from(siteSettings)
     .where(eq(siteSettings.siteId, req.siteId))
     .limit(1);
@@ -770,6 +785,7 @@ app.put("/api/site-settings", { preHandler: requireAuth(["admin", "page_develope
   const navConfigStr = body.navConfig !== undefined ? JSON.stringify(body.navConfig) : undefined;
   const footerConfigStr = body.footerConfig !== undefined ? JSON.stringify(body.footerConfig) : undefined;
   const seoConfigStr = body.seoConfig !== undefined ? JSON.stringify(body.seoConfig) : undefined;
+  const aiConfigStr = body.aiConfig !== undefined ? JSON.stringify(body.aiConfig) : undefined;
   if (!row) {
     const def = defaultSiteSettings();
     const [siteRow] = await db.select().from(sites).where(eq(sites.id, req.siteId)).limit(1);
@@ -781,6 +797,7 @@ app.put("/api/site-settings", { preHandler: requireAuth(["admin", "page_develope
       footerConfig: footerConfigStr ?? def.footerConfig,
       seoConfig: seoConfigStr ?? defaultSeo,
       blogApprovalMode: body.blogApprovalMode ?? def.blogApprovalMode,
+      aiConfig: aiConfigStr ?? def.aiConfig,
       updatedAt: now,
     }).returning();
     const payload = {
@@ -789,6 +806,7 @@ app.put("/api/site-settings", { preHandler: requireAuth(["admin", "page_develope
       footerConfig: JSON.parse(created.footerConfig ?? "{}"),
       seoConfig: JSON.parse(created.seoConfig ?? "{}"),
       blogApprovalMode: created.blogApprovalMode ?? false,
+      aiConfig: JSON.parse(created.aiConfig ?? "{}"),
     };
     return payload;
   }
@@ -798,6 +816,7 @@ app.put("/api/site-settings", { preHandler: requireAuth(["admin", "page_develope
     footerConfig: footerConfigStr !== undefined ? footerConfigStr : row.footerConfig,
     seoConfig: seoConfigStr !== undefined ? seoConfigStr : row.seoConfig,
     blogApprovalMode: body.blogApprovalMode ?? row.blogApprovalMode,
+    aiConfig: aiConfigStr !== undefined ? aiConfigStr : row.aiConfig,
     updatedAt: now,
   }).where(eq(siteSettings.id, row.id)).returning();
   const payload = {
@@ -806,8 +825,22 @@ app.put("/api/site-settings", { preHandler: requireAuth(["admin", "page_develope
     footerConfig: JSON.parse(updated.footerConfig ?? "{}"),
     seoConfig: JSON.parse(updated.seoConfig ?? "{}"),
     blogApprovalMode: updated.blogApprovalMode ?? false,
+    aiConfig: JSON.parse(updated.aiConfig ?? "{}"),
   };
   return payload;
+});
+
+app.post("/api/ai/test", { preHandler: requireAuth(["admin", "page_developer"]) }, async (req, reply) => {
+  const body = req.body as { text?: string };
+  const textToTranslate = body.text || "Hello world, welcome to OpenWeb AI Integration!";
+  const strings = { test: textToTranslate };
+  const { translated, warning } = await translateStringsViaAI(
+    strings, "en", "es", "Spanish", req.siteId
+  );
+  if (warning) {
+    return { success: false, warning, translated };
+  }
+  return { success: true, translated };
 });
 
 // ── Sitemap & Robots ───────────────────────────────────────────────────────────
@@ -3467,60 +3500,214 @@ function stripJsonFence(text: string): string {
   return (fence ? fence[1] : text).trim();
 }
 
-/** Translate string values via the Anthropic Messages API. Falls back to copy-source. */
-async function translateStringsViaAnthropic(
-  strings: Record<string, string>, sourceLang: string, targetLang: string, targetName?: string,
+/** Translate string values via the configured AI provider. Falls back to copy-source. */
+async function translateStringsViaAI(
+  strings: Record<string, string>,
+  sourceLang: string,
+  targetLang: string,
+  targetName?: string,
   siteId?: number | null,
 ): Promise<{ translated: Record<string, string>; warning?: string }> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return { translated: { ...strings }, warning: "ANTHROPIC_API_KEY is not set — copied the source strings so you can edit them manually." };
+  // 1. Fetch site settings for aiConfig
+  let aiConfig: any = null;
+  if (siteId) {
+    const [settingsRow] = await db.select().from(siteSettings)
+      .where(eq(siteSettings.siteId, siteId))
+      .limit(1);
+    if (settingsRow && settingsRow.aiConfig) {
+      try {
+        aiConfig = JSON.parse(settingsRow.aiConfig);
+      } catch (e) {
+        // ignore
+      }
+    }
   }
-  const model = "claude-haiku-4-5-20251001";
+
+  // Fallback to default structure if config not found
+  if (!aiConfig) {
+    try {
+      aiConfig = JSON.parse(defaultSiteSettings().aiConfig);
+    } catch {
+      // should never happen
+    }
+  }
+
+  // Get configured provider for translation
+  const providerKey = aiConfig?.agents?.translation || "claude";
+  const provider = aiConfig?.providers?.[providerKey];
+
+  const model = provider?.model || "";
+  const apiKey = provider?.apiKey || "";
+
   const prompt =
     `Translate the string VALUES in the JSON object below from ${sourceLang} to ${targetName || targetLang} (${targetLang}). ` +
     `Keep every key exactly as it is. Preserve placeholders like {name}, %s, and any HTML tags. ` +
     `Return ONLY the resulting JSON object — no commentary, no code fence.\n\n` +
     JSON.stringify(strings, null, 2);
+
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
+    if (providerKey === "claude") {
+      const activeApiKey = apiKey || process.env.ANTHROPIC_API_KEY;
+      if (!activeApiKey) {
+        return { translated: { ...strings }, warning: "Claude API key is not configured — copied source strings so you can edit manually." };
+      }
+      const activeModel = model || "claude-haiku-4-5-20251001";
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": activeApiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: activeModel,
+          max_tokens: 4096,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        return { translated: { ...strings }, warning: `Claude translation API failed (${res.status}). Source strings copied — edit manually. ${errText.slice(0, 200)}` };
+      }
+      const data = await res.json() as any;
+      void recordAnthropicUsage({
+        endpoint: "forms.translate",
+        model: activeModel,
+        inputTokens: data.usage?.input_tokens ?? 0,
+        outputTokens: data.usage?.output_tokens ?? 0,
+        siteId: siteId ?? null,
+      });
+      const text = data.content?.find((c: any) => c.type === "text")?.text ?? "";
+      const parsed = JSON.parse(stripJsonFence(text)) as Record<string, unknown>;
+      const translated: Record<string, string> = {};
+      for (const [k, v] of Object.entries(parsed)) translated[k] = typeof v === "string" ? v : String(v ?? "");
+      return { translated };
+
+    } else if (providerKey === "openai") {
+      const activeApiKey = apiKey || process.env.OPENAI_API_KEY;
+      if (!activeApiKey) {
+        return { translated: { ...strings }, warning: "OpenAI API key is not configured — copied source strings so you can edit manually." };
+      }
+      const activeModel = model || "gpt-4o-mini";
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "Authorization": `Bearer ${activeApiKey}`,
+        },
+        body: JSON.stringify({
+          model: activeModel,
+          messages: [{ role: "user", content: prompt }],
+          response_format: { type: "json_object" },
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        return { translated: { ...strings }, warning: `OpenAI translation API failed (${res.status}). Source strings copied — edit manually. ${errText.slice(0, 200)}` };
+      }
+      const data = await res.json() as any;
+      void recordAnthropicUsage({
+        endpoint: "forms.translate",
+        model: activeModel,
+        inputTokens: data.usage?.prompt_tokens ?? 0,
+        outputTokens: data.usage?.completion_tokens ?? 0,
+        siteId: siteId ?? null,
+      });
+      const text = data.choices?.[0]?.message?.content ?? "";
+      const parsed = JSON.parse(stripJsonFence(text)) as Record<string, unknown>;
+      const translated: Record<string, string> = {};
+      for (const [k, v] of Object.entries(parsed)) translated[k] = typeof v === "string" ? v : String(v ?? "");
+      return { translated };
+
+    } else if (providerKey === "gemini") {
+      const activeApiKey = apiKey || process.env.GEMINI_API_KEY;
+      if (!activeApiKey) {
+        return { translated: { ...strings }, warning: "Gemini API key is not configured — copied source strings so you can edit manually." };
+      }
+      const activeModel = model || "gemini-2.5-flash";
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${activeApiKey}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            responseMimeType: "application/json",
+          },
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        return { translated: { ...strings }, warning: `Gemini translation API failed (${res.status}). Source strings copied — edit manually. ${errText.slice(0, 200)}` };
+      }
+      const data = await res.json() as any;
+      const inputTokens = data.usageMetadata?.promptTokenCount ?? 0;
+      const outputTokens = data.usageMetadata?.candidatesTokenCount ?? 0;
+      void recordAnthropicUsage({
+        endpoint: "forms.translate",
+        model: activeModel,
+        inputTokens,
+        outputTokens,
+        siteId: siteId ?? null,
+      });
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+      const parsed = JSON.parse(stripJsonFence(text)) as Record<string, unknown>;
+      const translated: Record<string, string> = {};
+      for (const [k, v] of Object.entries(parsed)) translated[k] = typeof v === "string" ? v : String(v ?? "");
+      return { translated };
+
+    } else if (providerKey === "custom") {
+      const activeUrl = provider?.url || "";
+      if (!activeUrl) {
+        return { translated: { ...strings }, warning: "Custom server URL is not configured — copied source strings so you can edit manually." };
+      }
+      const activeModel = model || "custom-model";
+      const headers: Record<string, string> = {
         "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 4096,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      return { translated: { ...strings }, warning: `Translation API failed (${res.status}). Source strings copied — edit manually. ${errText.slice(0, 200)}` };
+      };
+      if (apiKey) {
+        headers["Authorization"] = `Bearer ${apiKey}`;
+      }
+
+      const res = await fetch(activeUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          model: activeModel,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        return { translated: { ...strings }, warning: `Custom translation server failed (${res.status}). Source strings copied — edit manually. ${errText.slice(0, 200)}` };
+      }
+      const data = await res.json() as any;
+      
+      let text = "";
+      if (data.choices?.[0]?.message?.content) {
+        text = data.choices[0].message.content;
+      } else if (data.content) {
+        text = typeof data.content === "string" ? data.content : JSON.stringify(data.content);
+      } else if (data.text) {
+        text = data.text;
+      } else {
+        text = typeof data === "string" ? data : JSON.stringify(data);
+      }
+
+      const parsed = JSON.parse(stripJsonFence(text)) as Record<string, unknown>;
+      const translated: Record<string, string> = {};
+      for (const [k, v] of Object.entries(parsed)) translated[k] = typeof v === "string" ? v : String(v ?? "");
+      return { translated };
+
+    } else {
+      return { translated: { ...strings }, warning: `Unknown AI translation provider: ${providerKey}. Source strings copied — edit manually.` };
     }
-    const data = await res.json() as {
-      content?: Array<{ type: string; text?: string }>;
-      usage?: { input_tokens?: number; output_tokens?: number };
-    };
-    void recordAnthropicUsage({
-      endpoint: "forms.translate",
-      model,
-      inputTokens: data.usage?.input_tokens ?? 0,
-      outputTokens: data.usage?.output_tokens ?? 0,
-      siteId: siteId ?? null,
-    });
-    const text = data.content?.find((c) => c.type === "text")?.text ?? "";
-    const parsed = JSON.parse(stripJsonFence(text)) as Record<string, unknown>;
-    if (!parsed || typeof parsed !== "object") throw new Error("Translation response was not an object");
-    const translated: Record<string, string> = {};
-    for (const [k, v] of Object.entries(parsed)) translated[k] = typeof v === "string" ? v : String(v ?? "");
-    return { translated };
   } catch (e) {
-    return { translated: { ...strings }, warning: `Translation could not be parsed (${(e as Error).message}). Source strings copied — edit manually.` };
+    return { translated: { ...strings }, warning: `Translation API error or response parse failed (${(e as Error).message}). Source strings copied — edit manually.` };
   }
 }
+
 
 /** Fire-and-forget insert; failures are logged but never bubble to the caller. */
 async function recordAnthropicUsage(row: {
@@ -3733,7 +3920,7 @@ app.post<{ Params: { id: string }; Body: { targetLang?: string; languageName?: s
     if (Object.keys(strings).length === 0) {
       return { translations: {} as FormTranslations, warning: "Nothing to translate yet — add some questions first." };
     }
-    const { translated, warning } = await translateStringsViaAnthropic(
+    const { translated, warning } = await translateStringsViaAI(
       strings, form.primaryLanguage, targetLang, req.body?.languageName, req.siteId,
     );
     const translations = rehydrateTranslations(translated);

@@ -416,6 +416,7 @@ export type SiteSettings = {
   footerConfig: FooterConfig;
   seoConfig: SeoConfig;
   blogApprovalMode?: boolean;
+  aiConfig?: any;
 };
 
 export type StorageConfig = {
@@ -573,7 +574,7 @@ export const api = {
   },
   siteSettings: {
     get: () => request<SiteSettings>("/api/site-settings"),
-    update: (body: { navType?: string; navConfig?: NavConfig; footerConfig?: FooterConfig; seoConfig?: SeoConfig }) =>
+    update: (body: Partial<SiteSettings>) =>
       request<SiteSettings>("/api/site-settings", { method: "PUT", body: JSON.stringify(body) }),
   },
   storageConfig: {

@@ -92,6 +92,20 @@
       "when": 1772150279986,
       "tag": "0012_sso_provider_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1779655461474,
+      "tag": "0013_drop_redis_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1779655461475,
+      "tag": "0014_ai_config",
+      "breakpoints": true
     }
   ]
 }

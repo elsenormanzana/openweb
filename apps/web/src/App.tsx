@@ -34,6 +34,7 @@ const FormsList = lazy(() => import("@/pages/FormsList").then((m) => ({ default:
 const FormBuilder = lazy(() => import("@/pages/FormBuilder").then((m) => ({ default: m.FormBuilder })));
 const NewsletterAdmin = lazy(() => import("@/pages/NewsletterAdmin").then((m) => ({ default: m.NewsletterAdmin })));
 const CrmAdmin = lazy(() => import("@/pages/CrmAdmin").then((m) => ({ default: m.CrmAdmin })));
+const AiSettings = lazy(() => import("@/pages/AiSettings").then((m) => ({ default: m.AiSettings })));
 const BackupsAdmin = lazy(() => import("@/pages/BackupsAdmin").then((m) => ({ default: m.BackupsAdmin })));
 const PublicBlogList = lazy(() => import("@/pages/PublicBlogList").then((m) => ({ default: m.PublicBlogList })));
 const PublicBlogPost = lazy(() => import("@/pages/PublicBlogPost").then((m) => ({ default: m.PublicBlogPost })));
@@ -176,6 +177,11 @@ export default function App() {
             <Route path="plugins" element={
               <RequireAuth roles={["admin"]}>
                 <RouteLoader><Plugins /></RouteLoader>
+              </RequireAuth>
+            } />
+            <Route path="ai" element={
+              <RequireAuth roles={["admin", "page_developer"]}>
+                <RouteLoader><AiSettings /></RouteLoader>
               </RequireAuth>
             } />
             <Route path="profile" element={

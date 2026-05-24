@@ -3,7 +3,7 @@ import { NavLink, Outlet, Link } from "react-router-dom";
 import {
   Home, FileText, Palette, Layout, Image, HardDrive,
   Search, ExternalLink, Menu, X, Layers, Lock,
-  Users2, Globe, Puzzle, ChevronDown, LogOut, UserCircle2, BookOpenText, ClipboardList, Mail, BriefcaseBusiness, Archive, ShieldCheck,
+  Users2, Globe, Puzzle, ChevronDown, LogOut, UserCircle2, BookOpenText, ClipboardList, Mail, BriefcaseBusiness, Archive, ShieldCheck, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -30,6 +30,7 @@ const adminRoutePrefetchers: Record<string, () => Promise<unknown>> = {
   "/admin/forms": () => import("@/pages/FormsList"),
   "/admin/newsletter": () => import("@/pages/NewsletterAdmin"),
   "/admin/crm": () => import("@/pages/CrmAdmin"),
+  "/admin/ai": () => import("@/pages/AiSettings"),
 };
 
 function prefetchAdminRoute(route: string) {
@@ -61,6 +62,7 @@ const allNav = [
   { to: "/admin/backups", end: true, label: "Backups", icon: Archive, roles: ["admin"], globalOnly: true, group: "System" as NavGroup },
   { to: "/admin/sites", end: true, label: "Sites", icon: Globe, roles: ["admin"], globalOnly: true, group: "System" as NavGroup },
   { to: "/admin/plugins", end: true, label: "Plugins", icon: Puzzle, roles: ["admin"], group: "System" as NavGroup },
+  { to: "/admin/ai", end: true, label: "AI Integration", icon: Sparkles, roles: ["admin", "page_developer"], group: "System" as NavGroup },
 ];
 const NAV_GROUP_ORDER: NavGroup[] = ["General", "Content", "Design", "Growth", "System"];
 
