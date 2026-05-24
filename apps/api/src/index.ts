@@ -1071,6 +1071,88 @@ app.get("/api/oauth/google/status", { preHandler: requireAuth(["admin"]) }, asyn
   return { connected: !!oauth.config.accessToken, hasRefreshToken: !!oauth.config.refreshToken };
 });
 
+async function getGeminiOAuthConfig(siteId: number) {
+  const [row] = await db.select().from(siteSettings)
+    .where(eq(siteSettings.siteId, siteId))
+    .limit(1);
+  if (!row || !row.aiConfig) return null;
+  try {
+    const cfg = JSON.parse(row.aiConfig);
+    const gemini = cfg?.providers?.gemini;
+    const clientId = gemini?.clientId || process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = gemini?.clientSecret || process.env.GOOGLE_CLIENT_SECRET;
+    if (clientId && clientSecret) {
+      return { clientId, clientSecret, aiConfig: cfg, settingsId: row.id };
+    }
+  } catch {}
+  return null;
+}
+
+app.get("/api/ai/oauth/google/start", { preHandler: requireAuth(["admin", "page_developer"]) }, async (req, reply) => {
+  const oauth = await getGeminiOAuthConfig(req.siteId);
+  if (!oauth) return reply.status(400).send({ error: "Configure Google Client ID and Client Secret in Gemini settings first, then save before linking." });
+  const scope = "https://www.googleapis.com/auth/generative-language";
+  const redirectUri = `${req.protocol}://${req.hostname}:${(req.server.addresses()[0] as { port: number })?.port ?? 3000}/api/ai/oauth/google/callback`;
+  const params = new URLSearchParams({
+    client_id: oauth.clientId,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope,
+    access_type: "offline",
+    prompt: "consent",
+    state: String(req.siteId)
+  });
+  return reply.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+});
+
+app.get("/api/ai/oauth/google/callback", async (req, reply) => {
+  const { code, state } = req.query as { code?: string; state?: string };
+  if (!code) return reply.status(400).send({ error: "Missing code" });
+  const siteId = Number(state) || req.siteId;
+  const oauth = await getGeminiOAuthConfig(siteId);
+  if (!oauth) return reply.status(400).send({ error: "Gemini OAuth credentials not found in settings" });
+  const redirectUri = `${req.protocol}://${req.hostname}:${(req.server.addresses()[0] as { port: number })?.port ?? 3000}/api/ai/oauth/google/callback`;
+  
+  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code,
+      client_id: oauth.clientId,
+      client_secret: oauth.clientSecret,
+      redirect_uri: redirectUri,
+      grant_type: "authorization_code"
+    }),
+  });
+  
+  if (!tokenRes.ok) {
+    const err = await tokenRes.text();
+    return reply.status(502).send({ error: `Google Gemini token exchange failed: ${err}` });
+  }
+  
+  const tokens = (await tokenRes.json()) as { access_token: string; refresh_token?: string; expires_in?: number };
+  
+  const updatedAiConfig = {
+    ...oauth.aiConfig,
+    providers: {
+      ...oauth.aiConfig.providers,
+      gemini: {
+        ...oauth.aiConfig.providers.gemini,
+        connected: true,
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token ?? oauth.aiConfig.providers.gemini.refreshToken ?? "",
+        tokenExpiry: tokens.expires_in ? String(Date.now() + tokens.expires_in * 1000) : "",
+      }
+    }
+  };
+  
+  await db.update(siteSettings)
+    .set({ aiConfig: JSON.stringify(updatedAiConfig), updatedAt: new Date() })
+    .where(eq(siteSettings.id, oauth.settingsId));
+    
+  return reply.type("text/html").send(`<html><body><script>window.opener?.postMessage("google-gemini-oauth-done","*");window.close();</script><p>Google Account linked to Gemini successfully! You can close this window.</p></body></html>`);
+});
+
 // ── Media gallery ─────────────────────────────────────────────────────────────
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -3634,16 +3716,78 @@ async function translateStringsViaAI(
       return { translated };
 
     } else if (providerKey === "gemini") {
-      const activeApiKey = apiKey || process.env.GEMINI_API_KEY;
-      if (!activeApiKey) {
-        return { translated: { ...strings }, warning: "Gemini API key is not configured — copied source strings so you can edit manually." };
+      let activeApiKey = apiKey || process.env.GEMINI_API_KEY;
+      let accessToken = provider?.accessToken || "";
+      const refreshToken = provider?.refreshToken || "";
+      const tokenExpiry = Number(provider?.tokenExpiry || "0");
+      const hasOauth = !!(accessToken || refreshToken);
+
+      if (hasOauth) {
+        if (Date.now() + 60000 >= tokenExpiry && refreshToken) {
+          const clientId = provider?.clientId || process.env.GOOGLE_CLIENT_ID;
+          const clientSecret = provider?.clientSecret || process.env.GOOGLE_CLIENT_SECRET;
+          if (clientId && clientSecret) {
+            try {
+              const refreshRes = await fetch("https://oauth2.googleapis.com/token", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: new URLSearchParams({
+                  client_id: clientId,
+                  client_secret: clientSecret,
+                  refresh_token: refreshToken,
+                  grant_type: "refresh_token"
+                }),
+              });
+              if (refreshRes.ok) {
+                const refreshed = await refreshRes.json() as { access_token: string; expires_in?: number };
+                accessToken = refreshed.access_token;
+                const newExpiry = refreshed.expires_in ? String(Date.now() + refreshed.expires_in * 1000) : String(tokenExpiry);
+                
+                const updatedAiConfig = {
+                  ...aiConfig,
+                  providers: {
+                    ...aiConfig.providers,
+                    gemini: {
+                      ...aiConfig.providers.gemini,
+                      accessToken,
+                      tokenExpiry: newExpiry
+                    }
+                  }
+                };
+                const [settingsRow] = await db.select().from(siteSettings)
+                  .where(eq(siteSettings.siteId, siteId || 0))
+                  .limit(1);
+                if (settingsRow) {
+                  await db.update(siteSettings)
+                    .set({ aiConfig: JSON.stringify(updatedAiConfig), updatedAt: new Date() })
+                    .where(eq(siteSettings.id, settingsRow.id));
+                }
+              }
+            } catch (err) {
+              app.log.warn({ err }, "Google Gemini OAuth token refresh failed");
+            }
+          }
+        }
+      }
+
+      if (!activeApiKey && !accessToken) {
+        return { translated: { ...strings }, warning: "Gemini API credentials are not configured — copied source strings so you can edit manually." };
       }
       const activeModel = model || "gemini-2.5-flash";
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${activeApiKey}`, {
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+      };
+      
+      let url = `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent`;
+      if (accessToken) {
+        headers["Authorization"] = `Bearer ${accessToken}`;
+      } else {
+        url += `?key=${activeApiKey}`;
+      }
+
+      const res = await fetch(url, {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
+        headers,
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {

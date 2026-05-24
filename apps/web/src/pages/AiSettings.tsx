@@ -17,14 +17,21 @@ import {
   Plus,
   Trash2,
   Globe,
-  Database
+  Database,
+  Key,
+  Unlock
 } from "lucide-react";
 
 type AIProvider = {
   connected: boolean;
   apiKey: string;
   model: string;
-  url?: string;
+  authMode?: "apikey" | "oauth";
+  clientId?: string;
+  clientSecret?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  tokenExpiry?: string;
 };
 
 type CustomServer = {
@@ -40,7 +47,6 @@ type AIConfig = {
     claude: AIProvider;
     gemini: AIProvider;
     openai: AIProvider;
-    custom?: AIProvider;
   };
   customServers?: CustomServer[];
   agents: {
@@ -54,7 +60,7 @@ export function AiSettings() {
   const [config, setConfig] = useState<AIConfig>({
     providers: {
       claude: { connected: false, apiKey: "", model: "claude-haiku-4-5-20251001" },
-      gemini: { connected: false, apiKey: "", model: "gemini-2.5-flash" },
+      gemini: { connected: false, apiKey: "", model: "gemini-2.5-flash", authMode: "apikey" },
       openai: { connected: false, apiKey: "", model: "gpt-4o-mini" }
     },
     customServers: [],
@@ -80,6 +86,23 @@ export function AiSettings() {
   const [serverTestResult, setServerTestResult] = useState<Record<string, { success: boolean; text?: string; error?: string }>>({});
 
   useEffect(() => {
+    loadSettings();
+  }, []);
+
+  // Listen for Google Gemini OAuth completed callback
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data === "google-gemini-oauth-done") {
+        loadSettings();
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2500);
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
+
+  const loadSettings = () => {
     api.siteSettings.get()
       .then((s) => {
         if (s.aiConfig) {
@@ -89,40 +112,19 @@ export function AiSettings() {
             customServers: s.aiConfig.customServers || [],
             providers: {
               ...prev.providers,
-              ...s.aiConfig.providers
+              ...s.aiConfig.providers,
+              gemini: {
+                authMode: "apikey",
+                ...prev.providers.gemini,
+                ...s.aiConfig.providers.gemini
+              }
             }
           }));
         }
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
-
-  // Listen for OAuth messages from the popup window
-  useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      if (e.data && e.data.type === "ai-oauth-done") {
-        const { provider, key, model } = e.data;
-        setConfig((prev) => {
-          const next = {
-            ...prev,
-            providers: {
-              ...prev.providers,
-              [provider]: {
-                connected: true,
-                apiKey: key,
-                model: model
-              }
-            }
-          };
-          save(next);
-          return next;
-        });
-      }
-    };
-    window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, [config]);
+  };
 
   const save = (configOverride?: AIConfig) => {
     setSaving(true);
@@ -141,32 +143,63 @@ export function AiSettings() {
       .finally(() => setSaving(false));
   };
 
-  const startOauthFlow = (provider: "claude" | "gemini" | "openai") => {
+  const updateProviderField = (provider: keyof AIConfig["providers"], field: keyof AIProvider, value: any) => {
+    setConfig((prev) => {
+      const updatedProvider = {
+        ...prev.providers[provider],
+        [field]: value
+      };
+      // Automatically set connected true if they fill in apiKey
+      if (field === "apiKey") {
+        updatedProvider.connected = !!value;
+      }
+      return {
+        ...prev,
+        providers: {
+          ...prev.providers,
+          [provider]: updatedProvider
+        }
+      };
+    });
+  };
+
+  // Google Gemini OAuth Flow Trigger
+  const startGeminiOauth = () => {
+    const gemini = config.providers.gemini;
+    if (!gemini.clientId || !gemini.clientSecret) {
+      setError("Please save Google Client ID and Client Secret in Gemini credentials before linking.");
+      return;
+    }
     const width = 500;
     const height = 650;
     const left = window.screen.width / 2 - width / 2;
     const top = window.screen.height / 2 - height / 2;
     window.open(
-      `/ai-oauth-login?provider=${provider}`,
-      "ai-oauth",
+      "/api/ai/oauth/google/start",
+      "google-gemini-oauth",
       `width=${width},height=${height},left=${left},top=${top},popup=yes,resizable=yes`
     );
   };
 
-  const handleDisconnect = (provider: keyof AIConfig["providers"]) => {
-    const updatedConfig = {
-      ...config,
-      providers: {
-        ...config.providers,
-        [provider]: {
-          ...config.providers[provider],
-          connected: false,
-          apiKey: ""
+  const disconnectOauth = (provider: keyof AIConfig["providers"]) => {
+    setConfig((prev) => {
+      const updated = {
+        ...prev.providers[provider],
+        connected: false,
+        accessToken: "",
+        refreshToken: "",
+        tokenExpiry: ""
+      };
+      const next = {
+        ...prev,
+        providers: {
+          ...prev.providers,
+          [provider]: updated
         }
-      }
-    };
-    setConfig(updatedConfig);
-    save(updatedConfig);
+      };
+      save(next);
+      return next;
+    });
   };
 
   const addCustomServer = () => {
@@ -334,130 +367,246 @@ export function AiSettings() {
         <TabsContent value="providers" className="mt-4 space-y-4">
           {/* Claude Card */}
           <Card>
-            <CardContent className="pt-6 space-y-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex gap-3">
-                  <div className="size-10 shrink-0 rounded-lg flex items-center justify-center bg-[#FDF6EC] border border-[#E9A85B]/30">
-                    <svg viewBox="0 0 24 24" className="size-6 text-[#CC7B5C]" fill="currentColor">
-                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm3.3 12.3c-.4.5-.9.9-1.5 1.1s-1.3.2-1.9.1c-.6-.1-1.1-.3-1.6-.7S9.4 13.9 9.2 13.3s-.2-1.3-.1-1.9.3-1.1.7-1.6 1-.8 1.6-1.1c.5-.2 1.1-.2 1.7-.1.6.1 1.1.3 1.6.7s.9.9 1.1 1.5.2 1.3.1 1.9-.3 1.1-.7 1.6-.9.8-1.5 1z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold">Anthropic Claude</h3>
-                    <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                      Superior reasoning and translation quality. Ideal for complex multi-language forms.
-                    </p>
-                  </div>
+            <CardHeader className="pb-3 flex-row items-center justify-between space-y-0">
+              <div className="flex gap-3">
+                <div className="size-10 shrink-0 rounded-lg flex items-center justify-center bg-[#FDF6EC] border border-[#E9A85B]/30">
+                  <svg viewBox="0 0 24 24" className="size-6 text-[#CC7B5C]" fill="currentColor">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm3.3 12.3c-.4.5-.9.9-1.5 1.1s-1.3.2-1.9.1c-.6-.1-1.1-.3-1.6-.7S9.4 13.9 9.2 13.3s-.2-1.3-.1-1.9.3-1.1.7-1.6 1-.8 1.6-1.1c.5-.2 1.1-.2 1.7-.1.6.1 1.1.3 1.6.7s.9.9 1.1 1.5.2 1.3.1 1.9-.3 1.1-.7 1.6-.9.8-1.5 1z" />
+                  </svg>
                 </div>
-                <span className={cn(
-                  "inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold border",
-                  config.providers.claude.connected
-                    ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300"
-                    : "bg-muted border-border text-muted-foreground"
-                )}>
-                  {config.providers.claude.connected ? "Connected" : "Disconnected"}
-                </span>
+                <div>
+                  <CardTitle className="text-sm font-semibold">Anthropic Claude</CardTitle>
+                  <CardDescription className="text-xs">API Key Integration</CardDescription>
+                </div>
               </div>
-              <div className="text-[11px] font-mono bg-muted/50 p-2.5 rounded border border-border/40 text-muted-foreground flex justify-between items-center gap-4">
-                <span className="truncate">Model: {config.providers.claude.model}</span>
-                <span>Key: {config.providers.claude.connected ? `${config.providers.claude.apiKey.slice(0, 12)}...` : "Not set"}</span>
+              <span className={cn(
+                "inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold border",
+                config.providers.claude.connected
+                  ? "bg-green-50 border-green-200 text-green-700 dark:bg-green-950/30 dark:border-green-800 dark:text-green-300"
+                  : "bg-muted border-border text-muted-foreground"
+              )}>
+                {config.providers.claude.connected ? "Active" : "Inactive"}
+              </span>
+            </CardHeader>
+            <CardContent className="space-y-3.5">
+              <div className="space-y-1">
+                <Label className="text-xs">Anthropic API Key</Label>
+                <Input
+                  className="h-8 text-xs font-mono"
+                  type="password"
+                  placeholder="sk-ant-..."
+                  value={config.providers.claude.apiKey || ""}
+                  onChange={(e) => updateProviderField("claude", "apiKey", e.target.value)}
+                  onBlur={() => save()}
+                />
               </div>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => startOauthFlow("claude")}>
-                  {config.providers.claude.connected ? "Reconfigure" : "Link Claude Account"}
-                </Button>
-                {config.providers.claude.connected && (
-                  <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10" onClick={() => handleDisconnect("claude")}>
-                    Disconnect
-                  </Button>
-                )}
+              <div className="space-y-1">
+                <Label className="text-xs">Model Identifier</Label>
+                <Input
+                  className="h-8 text-xs font-mono"
+                  placeholder="e.g. claude-haiku-4-5-20251001"
+                  value={config.providers.claude.model}
+                  onChange={(e) => updateProviderField("claude", "model", e.target.value)}
+                  onBlur={() => save()}
+                />
               </div>
             </CardContent>
           </Card>
 
           {/* OpenAI Card */}
           <Card>
-            <CardContent className="pt-6 space-y-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex gap-3">
-                  <div className="size-10 shrink-0 rounded-lg flex items-center justify-center bg-[#E6F4EA] border border-[#10A37F]/20">
-                    <svg viewBox="0 0 24 24" fill="currentColor" className="size-6 text-[#10A37F]">
-                      <path d="M21.35 11.1C21.9 9.8 21.75 8.2 20.85 7.35C20.15 6.7 19.1 6.45 18.25 6.75C18.1 5.4 17.25 4.25 15.95 3.75C14.85 3.3 13.55 3.55 12.7 4.35C12.1 3.1 10.9 2.15 9.45 2.05C8.05 1.95 6.75 2.7 6.1 3.9C4.85 3.75 3.65 4.45 3.15 5.65C2.7 6.75 2.95 8.05 3.75 8.9C2.5 9.5 1.55 10.7 1.45 12.15C1.35 13.55 2.1 14.85 3.3 15.5C3.15 16.75 3.85 17.95 5.05 18.45C6.15 18.9 7.45 18.65 8.3 17.85C8.9 19.1 10.1 20.05 11.55 20.15C12.95 20.25 14.25 19.5 14.9 18.3C16.15 18.45 17.35 17.75 17.85 16.55C18.3 15.45 18.05 14.15 17.25 13.3C18.5 12.7 19.45 11.5 19.55 10.05C19.65 8.65 18.9 7.35 17.7 6.7C17.85 5.45 17.15 4.25 15.95 3.75C15.8 5.1 14.95 6.25 13.65 6.75C12.55 7.2 11.25 6.95 10.4 6.15C11 7.4 11.25 8.7 12.5 8.9C13.9 9.1 15.2 8.35 15.85 7.15C17.1 7.3 18.3 6.6 18.8 5.4C19.25 6.5 19 7.8 18.2 8.65C19.45 9.25 20.4 10.45 20.5 11.9C20.6 13.3 19.85 14.6 18.65 15.25C18.8 16.5 18.1 17.7 16.9 18.2C15.8 18.65 14.5 18.4 13.65 17.6C13.05 18.85 11.85 19.8 10.4 19.9C9 20 7.7 19.25 7.05 18.05C5.8 18.2 4.6 17.5 4.1 16.3C3.65 15.2 3.9 13.9 4.7 13.05C3.45 12.45 2.5 11.25 2.4 9.8C2.3 8.4 3.05 7.1 4.25 6.45C4.1 5.2 4.8 4 6 3.5C7.1 3.05 8.4 3.3 9.25 4.1C9.85 2.85 11.05 1.9 12.5 1.8C13.9 1.7 15.2 2.45 15.85 3.65C17.1 3.5 18.3 4.2 18.8 5.4C19.25 4.3 19.5 3 20.3 2.15C21.5 2.05 22.8 2.8 23.46 4C22.21 4.15 21.01 4.85 20.51 6.05C20.96 4.95 22.26 4.2 23.46 4M10.06 14.4l2.6 1.5v3l-2.6 1.5L7.46 18.9v-3l2.6-1.5z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold">OpenAI GPT</h3>
-                    <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                      Industry standard JSON formatting and logical structure builder.
-                    </p>
-                  </div>
+            <CardHeader className="pb-3 flex-row items-center justify-between space-y-0">
+              <div className="flex gap-3">
+                <div className="size-10 shrink-0 rounded-lg flex items-center justify-center bg-[#E6F4EA] border border-[#10A37F]/20">
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="size-6 text-[#10A37F]">
+                    <path d="M21.35 11.1C21.9 9.8 21.75 8.2 20.85 7.35C20.15 6.7 19.1 6.45 18.25 6.75C18.1 5.4 17.25 4.25 15.95 3.75C14.85 3.3 13.55 3.55 12.7 4.35C12.1 3.1 10.9 2.15 9.45 2.05C8.05 1.95 6.75 2.7 6.1 3.9C4.85 3.75 3.65 4.45 3.15 5.65C2.7 6.75 2.95 8.05 3.75 8.9C2.5 9.5 1.55 10.7 1.45 12.15C1.35 13.55 2.1 14.85 3.3 15.5C3.15 16.75 3.85 17.95 5.05 18.45C6.15 18.9 7.45 18.65 8.3 17.85C8.9 19.1 10.1 20.05 11.55 20.15C12.95 20.25 14.25 19.5 14.9 18.3C16.15 18.45 17.35 17.75 17.85 16.55C18.3 15.45 18.05 14.15 17.25 13.3C18.5 12.7 19.45 11.5 19.55 10.05C19.65 8.65 18.9 7.35 17.7 6.7C17.85 5.45 17.15 4.25 15.95 3.75C15.8 5.1 14.95 6.25 13.65 6.75C12.55 7.2 11.25 6.95 10.4 6.15C11 7.4 11.25 8.7 12.5 8.9C13.9 9.1 15.2 8.35 15.85 7.15C17.1 7.3 18.3 6.6 18.8 5.4C19.25 6.5 19 7.8 18.2 8.65C19.45 9.25 20.4 10.45 20.5 11.9C20.6 13.3 19.85 14.6 18.65 15.25C18.8 16.5 18.1 17.7 16.9 18.2C15.8 18.65 14.5 18.4 13.65 17.6C13.05 18.85 11.85 19.8 10.4 19.9C9 20 7.7 19.25 7.05 18.05C5.8 18.2 4.6 17.5 4.1 16.3C3.65 15.2 3.9 13.9 4.7 13.05C3.45 12.45 2.5 11.25 2.4 9.8C2.3 8.4 3.05 7.1 4.25 6.45C4.1 5.2 4.8 4 6 3.5C7.1 3.05 8.4 3.3 9.25 4.1C9.85 2.85 11.05 1.9 12.5 1.8C13.9 1.7 15.2 2.45 15.85 3.65C17.1 3.5 18.3 4.2 18.8 5.4C19.25 4.3 19.5 3 20.3 2.15C21.5 2.05 22.8 2.8 23.46 4C22.21 4.15 21.01 4.85 20.51 6.05C20.96 4.95 22.26 4.2 23.46 4M10.06 14.4l2.6 1.5v3l-2.6 1.5L7.46 18.9v-3l2.6-1.5z" />
+                  </svg>
                 </div>
-                <span className={cn(
-                  "inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold border",
-                  config.providers.openai.connected
-                    ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300"
-                    : "bg-muted border-border text-muted-foreground"
-                )}>
-                  {config.providers.openai.connected ? "Connected" : "Disconnected"}
-                </span>
+                <div>
+                  <CardTitle className="text-sm font-semibold">OpenAI GPT</CardTitle>
+                  <CardDescription className="text-xs">API Key Integration</CardDescription>
+                </div>
               </div>
-              <div className="text-[11px] font-mono bg-muted/50 p-2.5 rounded border border-border/40 text-muted-foreground flex justify-between items-center gap-4">
-                <span className="truncate">Model: {config.providers.openai.model}</span>
-                <span>Key: {config.providers.openai.connected ? `${config.providers.openai.apiKey.slice(0, 12)}...` : "Not set"}</span>
+              <span className={cn(
+                "inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold border",
+                config.providers.openai.connected
+                  ? "bg-green-50 border-green-200 text-green-700 dark:bg-green-950/30 dark:border-green-800 dark:text-green-300"
+                  : "bg-muted border-border text-muted-foreground"
+              )}>
+                {config.providers.openai.connected ? "Active" : "Inactive"}
+              </span>
+            </CardHeader>
+            <CardContent className="space-y-3.5">
+              <div className="space-y-1">
+                <Label className="text-xs">OpenAI API Key</Label>
+                <Input
+                  className="h-8 text-xs font-mono"
+                  type="password"
+                  placeholder="sk-proj-..."
+                  value={config.providers.openai.apiKey || ""}
+                  onChange={(e) => updateProviderField("openai", "apiKey", e.target.value)}
+                  onBlur={() => save()}
+                />
               </div>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => startOauthFlow("openai")}>
-                  {config.providers.openai.connected ? "Reconfigure" : "Link OpenAI Account"}
-                </Button>
-                {config.providers.openai.connected && (
-                  <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10" onClick={() => handleDisconnect("openai")}>
-                    Disconnect
-                  </Button>
-                )}
+              <div className="space-y-1">
+                <Label className="text-xs">Model Identifier</Label>
+                <Input
+                  className="h-8 text-xs font-mono"
+                  placeholder="e.g. gpt-4o-mini"
+                  value={config.providers.openai.model}
+                  onChange={(e) => updateProviderField("openai", "model", e.target.value)}
+                  onBlur={() => save()}
+                />
               </div>
             </CardContent>
           </Card>
 
           {/* Gemini Card */}
           <Card>
-            <CardContent className="pt-6 space-y-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex gap-3">
-                  <div className="size-10 shrink-0 rounded-lg flex items-center justify-center bg-[#EEF2FF] border border-[#818CF8]/25">
-                    <svg viewBox="0 0 24 24" className="size-6 text-indigo-500" fill="currentColor">
-                      <path d="M12 2c0 4-1 8-5 9 4 1 5 5 5 9 0-4 1-8 5-9-4-1-5-5-5-9z" />
-                      <path d="M19 13c0 2-.5 4-2.5 4.5 2 .5 2.5 2 2.5 4.5 0-2 .5-4 2.5-4.5-2-.5-2.5-2-2.5-4.5z" opacity="0.8" fill="#818CF8" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold">Google Gemini</h3>
-                    <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                      Enormous contexts and rapid speed responses. Ideal for draft composition.
-                    </p>
+            <CardHeader className="pb-3 flex-row items-center justify-between space-y-0">
+              <div className="flex gap-3">
+                <div className="size-10 shrink-0 rounded-lg flex items-center justify-center bg-[#EEF2FF] border border-[#818CF8]/25">
+                  <svg viewBox="0 0 24 24" className="size-6 text-indigo-500" fill="currentColor">
+                    <path d="M12 2c0 4-1 8-5 9 4 1 5 5 5 9 0-4 1-8 5-9-4-1-5-5-5-9z" />
+                    <path d="M19 13c0 2-.5 4-2.5 4.5 2 .5 2.5 2 2.5 4.5 0-2 .5-4 2.5-4.5-2-.5-2.5-2-2.5-4.5z" opacity="0.8" fill="#818CF8" />
+                  </svg>
+                </div>
+                <div>
+                  <CardTitle className="text-sm font-semibold">Google Gemini</CardTitle>
+                  <CardDescription className="text-xs">API Key or Google OAuth 2.0 Auth</CardDescription>
+                </div>
+              </div>
+              <span className={cn(
+                "inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold border",
+                config.providers.gemini.connected
+                  ? "bg-green-50 border-green-200 text-green-700 dark:bg-green-950/30 dark:border-green-800 dark:text-green-300"
+                  : "bg-muted border-border text-muted-foreground"
+              )}>
+                {config.providers.gemini.connected ? "Connected" : "Disconnected"}
+              </span>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-xs">Authentication Method</Label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => updateProviderField("gemini", "authMode", "apikey")}
+                    className={cn(
+                      "flex-1 py-1.5 text-xs rounded border font-medium text-center transition-colors",
+                      (config.providers.gemini.authMode || "apikey") === "apikey"
+                        ? "bg-muted border-foreground/60 text-foreground"
+                        : "bg-transparent border-border text-muted-foreground hover:bg-muted/30"
+                    )}
+                  >
+                    API Key
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateProviderField("gemini", "authMode", "oauth")}
+                    className={cn(
+                      "flex-1 py-1.5 text-xs rounded border font-medium text-center transition-colors",
+                      config.providers.gemini.authMode === "oauth"
+                        ? "bg-muted border-foreground/60 text-foreground"
+                        : "bg-transparent border-border text-muted-foreground hover:bg-muted/30"
+                    )}
+                  >
+                    Google OAuth
+                  </button>
+                </div>
+              </div>
+
+              {/* Mode A: API Key */}
+              {(config.providers.gemini.authMode || "apikey") === "apikey" && (
+                <div className="space-y-3.5 border-t pt-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Gemini API Key</Label>
+                    <Input
+                      className="h-8 text-xs font-mono"
+                      type="password"
+                      placeholder="AIzaSy..."
+                      value={config.providers.gemini.apiKey || ""}
+                      onChange={(e) => updateProviderField("gemini", "apiKey", e.target.value)}
+                      onBlur={() => save()}
+                    />
                   </div>
                 </div>
-                <span className={cn(
-                  "inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold border",
-                  config.providers.gemini.connected
-                    ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300"
-                    : "bg-muted border-border text-muted-foreground"
-                )}>
-                  {config.providers.gemini.connected ? "Connected" : "Disconnected"}
-                </span>
-              </div>
-              <div className="text-[11px] font-mono bg-muted/50 p-2.5 rounded border border-border/40 text-muted-foreground flex justify-between items-center gap-4">
-                <span className="truncate">Model: {config.providers.gemini.model}</span>
-                <span>Key: {config.providers.gemini.connected ? `${config.providers.gemini.apiKey.slice(0, 12)}...` : "Not set"}</span>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => startOauthFlow("gemini")}>
-                  {config.providers.gemini.connected ? "Reconfigure" : "Link Gemini Account"}
-                </Button>
-                {config.providers.gemini.connected && (
-                  <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10" onClick={() => handleDisconnect("gemini")}>
-                    Disconnect
-                  </Button>
-                )}
+              )}
+
+              {/* Mode B: Google OAuth */}
+              {config.providers.gemini.authMode === "oauth" && (
+                <div className="space-y-3.5 border-t pt-3">
+                  <p className="text-[10px] text-muted-foreground leading-normal">
+                    Create credentials in Google Cloud Console. Redirect URI must be:<br />
+                    <code className="bg-muted px-1.5 py-0.5 rounded text-[9px] break-all">{window.location.origin}/api/ai/oauth/google/callback</code>
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Google Client ID</Label>
+                      <Input
+                        className="h-8 text-xs font-mono"
+                        placeholder="...apps.googleusercontent.com"
+                        value={config.providers.gemini.clientId || ""}
+                        onChange={(e) => updateProviderField("gemini", "clientId", e.target.value)}
+                        onBlur={() => save()}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Google Client Secret</Label>
+                      <Input
+                        className="h-8 text-xs font-mono"
+                        type="password"
+                        placeholder="GOCSPX-..."
+                        value={config.providers.gemini.clientSecret || ""}
+                        onChange={(e) => updateProviderField("gemini", "clientSecret", e.target.value)}
+                        onBlur={() => save()}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-1 flex gap-2 items-center justify-between">
+                    <div className="text-[10px] text-muted-foreground flex-1 min-w-0">
+                      {config.providers.gemini.accessToken ? (
+                        <span className="text-green-600 dark:text-green-400 font-semibold flex items-center gap-1">
+                          <Check className="size-3.5" /> Token Link Active
+                        </span>
+                      ) : (
+                        <span className="italic">Click link account to authorize.</span>
+                      )}
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={!config.providers.gemini.clientId || !config.providers.gemini.clientSecret}
+                        onClick={startGeminiOauth}
+                      >
+                        Link Google Account
+                      </Button>
+                      {config.providers.gemini.accessToken && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:bg-destructive/10"
+                          onClick={() => disconnectOauth("gemini")}
+                        >
+                          Disconnect
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-1 border-t pt-3">
+                <Label className="text-xs">Model Identifier</Label>
+                <Input
+                  className="h-8 text-xs font-mono"
+                  placeholder="e.g. gemini-2.5-flash"
+                  value={config.providers.gemini.model}
+                  onChange={(e) => updateProviderField("gemini", "model", e.target.value)}
+                  onBlur={() => save()}
+                />
               </div>
             </CardContent>
           </Card>
