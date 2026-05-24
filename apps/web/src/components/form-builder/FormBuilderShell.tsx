@@ -204,7 +204,12 @@ export function FormBuilderShell() {
                   {draft.name || "Untitled form"}
                 </h1>
                 <div className="mt-2 h-1 w-10 rounded-full" style={{ backgroundColor: draft.theme.themeColor }} />
-                {draft.description && <p className="text-sm text-gray-500 mt-3">{draft.description}</p>}
+                {draft.description && (
+                  <div
+                    className="text-sm text-gray-500 mt-3 prose prose-sm max-w-none prose-p:my-0.5"
+                    dangerouslySetInnerHTML={{ __html: draft.description }}
+                  />
+                )}
                 <div className="mt-5">
                   <FormRenderer
                     sections={draft.sections}

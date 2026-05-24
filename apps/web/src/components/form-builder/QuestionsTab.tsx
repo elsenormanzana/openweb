@@ -11,6 +11,7 @@ import type { FormField, FormFieldType, FormLayout, FormSection, FormTheme } fro
 import { emptyField, QUESTION_TYPE_LIST, uid } from "@/lib/formFields";
 import { QuestionCard } from "@/components/form-builder/QuestionCard";
 import { SectionRoutingEditor, type ConditionRefField } from "@/components/form-builder/editors";
+import { RichTextEditor } from "@/components/editor/RichTextEditor";
 
 type QuestionsTabProps = {
   name: string;
@@ -91,7 +92,7 @@ export function QuestionsTab(props: QuestionsTabProps) {
       {/* Form header */}
       <div className="rounded-xl border border-border bg-background overflow-hidden">
         {theme.headerImage && <img src={theme.headerImage} alt="" className="w-full max-h-36 object-cover" />}
-        <div className="p-5 space-y-2">
+        <div className="p-5 space-y-3">
           <input
             className="w-full border-0 border-b border-border bg-transparent pb-1.5 text-2xl font-semibold tracking-tight focus:outline-none focus:border-foreground"
             value={name}
@@ -99,12 +100,14 @@ export function QuestionsTab(props: QuestionsTabProps) {
             placeholder="Form title"
           />
           <div className="h-1 w-10 rounded-full" style={{ backgroundColor: theme.themeColor }} />
-          <input
-            className="w-full border-0 bg-transparent text-sm text-muted-foreground focus:outline-none"
-            value={description}
-            onChange={(e) => onDescription(e.target.value)}
-            placeholder="Form description"
-          />
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Form description</label>
+            <RichTextEditor
+              content={description}
+              onChange={onDescription}
+              placeholder="Form description"
+            />
+          </div>
         </div>
       </div>
 
@@ -130,12 +133,14 @@ export function QuestionsTab(props: QuestionsTabProps) {
                 onChange={(e) => patchSection(section.id, { title: e.target.value })}
                 placeholder="Section title"
               />
-              <input
-                className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs"
-                value={section.description ?? ""}
-                onChange={(e) => patchSection(section.id, { description: e.target.value })}
-                placeholder="Section description"
-              />
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-muted-foreground">Section description</label>
+                <RichTextEditor
+                  content={section.description ?? ""}
+                  onChange={(v) => patchSection(section.id, { description: v })}
+                  placeholder="Section description"
+                />
+              </div>
               {layout === "steps" && (
                 <SectionRoutingEditor section={section} sections={sections} onChange={(p) => patchSection(section.id, p)} />
               )}

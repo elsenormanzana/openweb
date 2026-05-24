@@ -125,7 +125,10 @@ export function PublicFormPage() {
                     <div className="mt-2 h-1 w-10 rounded-full" style={{ backgroundColor: theme.themeColor }} />
                   )}
                   {translated.description && (
-                    <p className="text-sm text-gray-500 dark:text-neutral-400 mt-3">{translated.description}</p>
+                    <div
+                      className="text-sm text-gray-500 dark:text-neutral-400 mt-3 prose prose-sm max-w-none prose-p:my-0.5"
+                      dangerouslySetInnerHTML={{ __html: translated.description }}
+                    />
                   )}
                 </div>
               )}

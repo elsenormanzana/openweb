@@ -52,7 +52,10 @@ function QuestionRow({
         </label>
       )}
       {field.description && (
-        <p className="text-xs text-gray-500 dark:text-neutral-400">{field.description}</p>
+        <div
+          className="text-xs text-gray-500 dark:text-neutral-400 prose prose-sm max-w-none prose-p:my-0.5"
+          dangerouslySetInnerHTML={{ __html: field.description }}
+        />
       )}
       <QuestionInput field={field} value={value} onChange={onChange} slug={slug} accent={accent} labels={labels} />
       {error && <p className="text-xs text-red-600">{error}</p>}
@@ -260,7 +263,10 @@ export function FormRenderer({
                 <h3 className="text-base font-semibold text-gray-900 dark:text-neutral-100">{section.title}</h3>
               )}
               {section.description && (
-                <p className="text-sm text-gray-500 dark:text-neutral-400 mt-0.5">{section.description}</p>
+                <div
+                  className="text-sm text-gray-500 dark:text-neutral-400 mt-0.5 prose prose-sm max-w-none prose-p:my-0.5"
+                  dangerouslySetInnerHTML={{ __html: section.description }}
+                />
               )}
             </div>
           )}

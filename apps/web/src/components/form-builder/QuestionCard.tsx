@@ -10,6 +10,7 @@ import {
   QuizFieldEditor, RatingEditor, ScaleEditor, ValidationEditor, type ConditionRefField,
 } from "@/components/form-builder/editors";
 import { QuestionInput } from "@/components/form-fields/QuestionInput";
+import { RichTextEditor } from "@/components/editor/RichTextEditor";
 
 type QuestionCardProps = {
   field: FormField;
@@ -109,12 +110,14 @@ export function QuestionCard(props: QuestionCardProps) {
           onChange={(e) => onChange({ label: e.target.value })}
           placeholder="Question"
         />
-        <input
-          className="w-full border-0 bg-transparent text-xs text-muted-foreground focus:outline-none"
-          value={field.description ?? ""}
-          onChange={(e) => onChange({ description: e.target.value })}
-          placeholder="Description (optional)"
-        />
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">Description (optional)</label>
+          <RichTextEditor
+            content={field.description ?? ""}
+            onChange={(v) => onChange({ description: v })}
+            placeholder="Description (optional)"
+          />
+        </div>
 
         {/* Type-specific editor */}
         {caps.hasOptions && <OptionsEditor field={field} onChange={onChange} />}

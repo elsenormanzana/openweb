@@ -284,7 +284,14 @@ function RowEditor({
     <div className="grid grid-cols-2 gap-2 items-start">
       <div className="min-w-0">
         <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
-        <p className="text-xs text-foreground/70 break-words">{primary || <span className="italic text-muted-foreground">—</span>}</p>
+        {primary ? (
+          <div
+            className="text-xs text-foreground/70 break-words prose prose-sm max-w-none"
+            dangerouslySetInnerHTML={{ __html: primary }}
+          />
+        ) : (
+          <p className="text-xs text-muted-foreground italic">—</p>
+        )}
       </div>
       {multiline ? (
         <textarea
