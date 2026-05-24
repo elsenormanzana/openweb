@@ -3,21 +3,21 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import {
-  Sparkles,
   Check,
   X,
   RefreshCw,
   Play,
-  Settings,
-  Key,
   Terminal,
   Sliders,
   Radio,
-  Cpu,
-  Fingerprint
+  Plus,
+  Trash2,
+  Globe,
+  Database
 } from "lucide-react";
 
 type AIProvider = {
@@ -27,13 +27,22 @@ type AIProvider = {
   url?: string;
 };
 
+type CustomServer = {
+  id: string;
+  name: string;
+  url: string;
+  apiKey: string;
+  model: string;
+};
+
 type AIConfig = {
   providers: {
     claude: AIProvider;
     gemini: AIProvider;
     openai: AIProvider;
-    custom: AIProvider;
+    custom?: AIProvider;
   };
+  customServers?: CustomServer[];
   agents: {
     translation: string;
     seo: string;
@@ -46,9 +55,9 @@ export function AiSettings() {
     providers: {
       claude: { connected: false, apiKey: "", model: "claude-haiku-4-5-20251001" },
       gemini: { connected: false, apiKey: "", model: "gemini-2.5-flash" },
-      openai: { connected: false, apiKey: "", model: "gpt-4o-mini" },
-      custom: { connected: false, url: "", apiKey: "", model: "" }
+      openai: { connected: false, apiKey: "", model: "gpt-4o-mini" }
     },
+    customServers: [],
     agents: {
       translation: "claude",
       seo: "openai",
@@ -59,18 +68,16 @@ export function AiSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   // Connection tester state
   const [testerText, setTesterText] = useState("Hello world! Empowering web applications with premium agentic workflows.");
   const [testResult, setTestResult] = useState<{ success: boolean; text?: string; error?: string } | null>(null);
   const [testing, setTesting] = useState(false);
 
-  // OAuth Modal state
-  const [activeOauth, setActiveOauth] = useState<"claude" | "gemini" | "openai" | null>(null);
-  const [oauthStep, setOauthStep] = useState<"auth" | "loading" | "success">("auth");
-  const [oauthKey, setOauthKey] = useState("");
-  const [oauthModel, setOauthModel] = useState("");
+  // Custom server testing states
+  const [testingServerId, setTestingServerId] = useState<string | null>(null);
+  const [serverTestResult, setServerTestResult] = useState<Record<string, { success: boolean; text?: string; error?: string }>>({});
 
   useEffect(() => {
     api.siteSettings.get()
@@ -78,7 +85,12 @@ export function AiSettings() {
         if (s.aiConfig) {
           setConfig((prev) => ({
             ...prev,
-            ...s.aiConfig
+            ...s.aiConfig,
+            customServers: s.aiConfig.customServers || [],
+            providers: {
+              ...prev.providers,
+              ...s.aiConfig.providers
+            }
           }));
         }
       })
@@ -86,55 +98,59 @@ export function AiSettings() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleSave = async (customConfig?: AIConfig) => {
+  // Listen for OAuth messages from the popup window
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data && e.data.type === "ai-oauth-done") {
+        const { provider, key, model } = e.data;
+        setConfig((prev) => {
+          const next = {
+            ...prev,
+            providers: {
+              ...prev.providers,
+              [provider]: {
+                connected: true,
+                apiKey: key,
+                model: model
+              }
+            }
+          };
+          save(next);
+          return next;
+        });
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [config]);
+
+  const save = (configOverride?: AIConfig) => {
     setSaving(true);
     setError(null);
-    setSuccess(false);
-    const targetConfig = customConfig || config;
-    try {
-      await api.siteSettings.update({ aiConfig: targetConfig });
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
-    } catch (e: any) {
-      setError(e.message || "Failed to save AI configuration");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const openOauthModal = (provider: "claude" | "gemini" | "openai") => {
-    const current = config.providers[provider];
-    setOauthKey(current.apiKey.startsWith("mock-") ? "" : current.apiKey);
-    setOauthModel(current.model);
-    setOauthStep("auth");
-    setActiveOauth(provider);
-  };
-
-  const handleOauthConnect = () => {
-    if (!activeOauth) return;
-    setOauthStep("loading");
-
-    // Simulate authenticating/connecting
-    setTimeout(() => {
-      setOauthStep("success");
-      const updatedConfig = {
-        ...config,
-        providers: {
-          ...config.providers,
-          [activeOauth]: {
-            connected: true,
-            apiKey: oauthKey.trim() || `mock-${activeOauth}-key-${Math.random().toString(36).substring(2, 10)}`,
-            model: oauthModel.trim() || config.providers[activeOauth].model
-          }
+    setSaved(false);
+    const target = configOverride || config;
+    api.siteSettings.update({ aiConfig: target })
+      .then((res) => {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2500);
+        if (res.aiConfig) {
+          setConfig(res.aiConfig);
         }
-      };
-      setConfig(updatedConfig);
-      handleSave(updatedConfig);
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setSaving(false));
+  };
 
-      setTimeout(() => {
-        setActiveOauth(null);
-      }, 1500);
-    }, 1800);
+  const startOauthFlow = (provider: "claude" | "gemini" | "openai") => {
+    const width = 500;
+    const height = 650;
+    const left = window.screen.width / 2 - width / 2;
+    const top = window.screen.height / 2 - height / 2;
+    window.open(
+      `/ai-oauth-login?provider=${provider}`,
+      "ai-oauth",
+      `width=${width},height=${height},left=${left},top=${top},popup=yes,resizable=yes`
+    );
   };
 
   const handleDisconnect = (provider: keyof AIConfig["providers"]) => {
@@ -150,26 +166,123 @@ export function AiSettings() {
       }
     };
     setConfig(updatedConfig);
-    handleSave(updatedConfig);
+    save(updatedConfig);
+  };
+
+  const addCustomServer = () => {
+    const newServer: CustomServer = {
+      id: Math.random().toString(36).substring(2, 9),
+      name: `Local server ${ (config.customServers?.length || 0) + 1 }`,
+      url: "http://localhost:11434/v1/chat/completions",
+      apiKey: "",
+      model: "llama3"
+    };
+    const updated = {
+      ...config,
+      customServers: [...(config.customServers || []), newServer]
+    };
+    setConfig(updated);
+    save(updated);
+  };
+
+  const updateCustomServer = (id: string, patch: Partial<CustomServer>) => {
+    const updatedServers = (config.customServers || []).map((s) => {
+      if (s.id === id) return { ...s, ...patch };
+      return s;
+    });
+    setConfig({
+      ...config,
+      customServers: updatedServers
+    });
+  };
+
+  const deleteCustomServer = (id: string) => {
+    const updatedServers = (config.customServers || []).filter((s) => s.id !== id);
+    const updated = {
+      ...config,
+      customServers: updatedServers
+    };
+    setConfig(updated);
+    save(updated);
+  };
+
+  const testCustomServer = async (server: CustomServer) => {
+    setTestingServerId(server.id);
+    const configOverride = {
+      agents: { translation: "custom" },
+      providers: {
+        claude: config.providers.claude,
+        gemini: config.providers.gemini,
+        openai: config.providers.openai,
+        custom: { connected: true, url: server.url, apiKey: server.apiKey, model: server.model }
+      }
+    };
+
+    try {
+      const res = await fetch("/api/ai/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "Ping", configOverride })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setServerTestResult((prev) => ({
+          ...prev,
+          [server.id]: { success: true, text: data.translated?.test || "Connected successfully!" }
+        }));
+      } else {
+        setServerTestResult((prev) => ({
+          ...prev,
+          [server.id]: { success: false, error: data.warning || "Failed to reach server. Check endpoint URL & CORS." }
+        }));
+      }
+    } catch (e: any) {
+      setServerTestResult((prev) => ({
+        ...prev,
+        [server.id]: { success: false, error: e.message || "Network error. Failed to reach custom server." }
+      }));
+    } finally {
+      setTestingServerId(null);
+    }
   };
 
   const runConnectionTest = async () => {
     setTesting(true);
     setTestResult(null);
+
+    const activeAgentKey = config.agents.translation;
+    let configOverride: any = {
+      agents: { translation: activeAgentKey },
+      providers: { ...config.providers }
+    };
+
+    if (activeAgentKey.startsWith("custom__")) {
+      const customId = activeAgentKey.split("__")[1];
+      const customServer = config.customServers?.find((s) => s.id === customId);
+      if (customServer) {
+        configOverride.providers.custom = {
+          connected: true,
+          url: customServer.url,
+          apiKey: customServer.apiKey,
+          model: customServer.model
+        };
+      }
+    }
+
     try {
       const res = await fetch("/api/ai/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: testerText })
+        body: JSON.stringify({ text: testerText, configOverride })
       });
       const data = await res.json();
       if (res.ok && data.success) {
         setTestResult({ success: true, text: data.translated?.test || JSON.stringify(data.translated) });
       } else {
-        setTestResult({ success: false, error: data.warning || "Connection failed. Please verify API keys and provider models." });
+        setTestResult({ success: false, error: data.warning || "Connection failed. Verify API credentials." });
       }
     } catch (e: any) {
-      setTestResult({ success: false, error: e.message || "Network error. Failed to hit test endpoint." });
+      setTestResult({ success: false, error: e.message || "Failed to communicate with API test gateway." });
     } finally {
       setTesting(false);
     }
@@ -178,630 +291,475 @@ export function AiSettings() {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-20 space-y-4">
-        <RefreshCw className="size-8 text-primary animate-spin" />
+        <RefreshCw className="size-6 text-muted-foreground animate-spin" />
         <p className="text-sm text-muted-foreground">Loading AI integration settings...</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8 max-w-5xl mx-auto px-4 sm:px-6">
-      {/* Title Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b pb-5">
+    <div className="max-w-2xl space-y-6">
+      {/* Header matching SeoSettings */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight flex items-center gap-2">
-            <Sparkles className="size-8 text-indigo-500 animate-pulse" />
-            AI Integration & Agent Mapping
-          </h1>
-          <p className="text-muted-foreground mt-1 text-sm sm:text-base">
-            Login directly to third-party AI services, map key backend jobs to providers, and build robust automated pipelines.
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">AI Settings</h1>
+          <p className="text-sm text-muted-foreground mt-1">Configure your LLM providers, agent routing, and custom servers.</p>
         </div>
         <div className="flex items-center gap-3">
-          {error && <span className="text-xs text-destructive bg-destructive/10 px-3 py-1.5 rounded-lg border border-destructive/20 font-medium">{error}</span>}
-          {success && <span className="text-xs text-green-600 bg-green-50 dark:bg-green-950/20 px-3 py-1.5 rounded-lg border border-green-500/20 font-medium">Settings saved successfully!</span>}
-          <Button
-            onClick={() => handleSave()}
-            disabled={saving}
-            className="shadow-md hover:shadow-lg transition-all"
-          >
-            {saving ? "Saving Changes..." : "Save AI Settings"}
+          {error && <span className="text-xs text-destructive bg-destructive/10 px-2.5 py-1.5 rounded border border-destructive/20 font-medium">{error}</span>}
+          {saved && <span className="text-xs text-green-600 bg-green-50 dark:bg-green-950/20 px-2.5 py-1.5 rounded border border-green-500/20 font-medium">Saved!</span>}
+          <Button onClick={() => save()} disabled={saving} size="sm">
+            {saving ? "Saving…" : saved ? "Saved!" : "Save changes"}
           </Button>
         </div>
       </div>
 
-      {/* Grid of Providers */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Claude Card */}
-        <Card className="overflow-hidden border-t-4 border-t-amber-700 bg-gradient-to-b from-amber-50/10 to-transparent dark:from-amber-950/5 hover:shadow-md transition-shadow">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="size-9 rounded-xl bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center font-bold text-amber-800 dark:text-amber-300">
-                  𝓒
+      <Tabs defaultValue="providers">
+        <TabsList className="w-full">
+          <TabsTrigger value="providers" className="flex-1 gap-1.5">
+            <Globe className="size-3.5" /> Built-in
+          </TabsTrigger>
+          <TabsTrigger value="custom" className="flex-1 gap-1.5">
+            <Database className="size-3.5" /> Custom Servers
+          </TabsTrigger>
+          <TabsTrigger value="routing" className="flex-1 gap-1.5">
+            <Sliders className="size-3.5" /> Agent Mapping
+          </TabsTrigger>
+          <TabsTrigger value="tester" className="flex-1 gap-1.5">
+            <Radio className="size-3.5" /> Tester
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ── Built-in Providers Tab ── */}
+        <TabsContent value="providers" className="mt-4 space-y-4">
+          {/* Claude Card */}
+          <Card>
+            <CardContent className="pt-6 space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex gap-3">
+                  <div className="size-10 shrink-0 rounded-lg flex items-center justify-center bg-[#FDF6EC] border border-[#E9A85B]/30">
+                    <svg viewBox="0 0 24 24" className="size-6 text-[#CC7B5C]" fill="currentColor">
+                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm3.3 12.3c-.4.5-.9.9-1.5 1.1s-1.3.2-1.9.1c-.6-.1-1.1-.3-1.6-.7S9.4 13.9 9.2 13.3s-.2-1.3-.1-1.9.3-1.1.7-1.6 1-.8 1.6-1.1c.5-.2 1.1-.2 1.7-.1.6.1 1.1.3 1.6.7s.9.9 1.1 1.5.2 1.3.1 1.9-.3 1.1-.7 1.6-.9.8-1.5 1z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold">Anthropic Claude</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                      Superior reasoning and translation quality. Ideal for complex multi-language forms.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <CardTitle className="text-base font-bold">Claude</CardTitle>
-                  <CardDescription className="text-xs">Anthropic Models</CardDescription>
-                </div>
+                <span className={cn(
+                  "inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold border",
+                  config.providers.claude.connected
+                    ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300"
+                    : "bg-muted border-border text-muted-foreground"
+                )}>
+                  {config.providers.claude.connected ? "Connected" : "Disconnected"}
+                </span>
               </div>
-              <span className={cn(
-                "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-semibold border transition-all",
-                config.providers.claude.connected
-                  ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300"
-                  : "bg-muted border-border text-muted-foreground"
-              )}>
-                {config.providers.claude.connected ? "Connected" : "Not Linked"}
-              </span>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4 pt-0">
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Superb linguistic capabilities, deep context comprehension, and premium translation output quality.
-            </p>
-            <div className="text-[11px] font-mono bg-muted/60 p-2 rounded border border-border/40 text-muted-foreground space-y-1">
-              <div>Model: {config.providers.claude.model}</div>
-              <div>Key: {config.providers.claude.connected ? `${config.providers.claude.apiKey.slice(0, 10)}...` : "None"}</div>
-            </div>
-            <div className="flex gap-2 pt-1">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => openOauthModal("claude")}
-                className="w-full text-xs font-semibold"
-              >
-                {config.providers.claude.connected ? "Configure Settings" : "Login to Claude"}
-              </Button>
-              {config.providers.claude.connected && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleDisconnect("claude")}
-                  className="text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-                >
-                  Unlink
+              <div className="text-[11px] font-mono bg-muted/50 p-2.5 rounded border border-border/40 text-muted-foreground flex justify-between items-center gap-4">
+                <span className="truncate">Model: {config.providers.claude.model}</span>
+                <span>Key: {config.providers.claude.connected ? `${config.providers.claude.apiKey.slice(0, 12)}...` : "Not set"}</span>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => startOauthFlow("claude")}>
+                  {config.providers.claude.connected ? "Reconfigure" : "Link Claude Account"}
                 </Button>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* OpenAI Card */}
-        <Card className="overflow-hidden border-t-4 border-t-emerald-600 bg-gradient-to-b from-emerald-50/10 to-transparent dark:from-emerald-950/5 hover:shadow-md transition-shadow">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="size-9 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center font-bold text-emerald-800 dark:text-emerald-300">
-                  𝓞
-                </div>
-                <div>
-                  <CardTitle className="text-base font-bold">OpenAI</CardTitle>
-                  <CardDescription className="text-xs">GPT-4o & Mini Models</CardDescription>
-                </div>
-              </div>
-              <span className={cn(
-                "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-semibold border transition-all",
-                config.providers.openai.connected
-                  ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300"
-                  : "bg-muted border-border text-muted-foreground"
-              )}>
-                {config.providers.openai.connected ? "Connected" : "Not Linked"}
-              </span>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4 pt-0">
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Highly stable, standardized JSON mode responses, ideal for bulk SEO metadata mapping and logical routines.
-            </p>
-            <div className="text-[11px] font-mono bg-muted/60 p-2 rounded border border-border/40 text-muted-foreground space-y-1">
-              <div>Model: {config.providers.openai.model}</div>
-              <div>Key: {config.providers.openai.connected ? `${config.providers.openai.apiKey.slice(0, 10)}...` : "None"}</div>
-            </div>
-            <div className="flex gap-2 pt-1">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => openOauthModal("openai")}
-                className="w-full text-xs font-semibold"
-              >
-                {config.providers.openai.connected ? "Configure Settings" : "Login to OpenAI"}
-              </Button>
-              {config.providers.openai.connected && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleDisconnect("openai")}
-                  className="text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-                >
-                  Unlink
-                </Button>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Gemini Card */}
-        <Card className="overflow-hidden border-t-4 border-t-indigo-600 bg-gradient-to-b from-indigo-50/10 to-transparent dark:from-indigo-950/5 hover:shadow-md transition-shadow">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="size-9 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center font-bold text-indigo-800 dark:text-indigo-300">
-                  𝓖
-                </div>
-                <div>
-                  <CardTitle className="text-base font-bold">Gemini</CardTitle>
-                  <CardDescription className="text-xs">Google AI Studio</CardDescription>
-                </div>
-              </div>
-              <span className={cn(
-                "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-semibold border transition-all",
-                config.providers.gemini.connected
-                  ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300"
-                  : "bg-muted border-border text-muted-foreground"
-              )}>
-                {config.providers.gemini.connected ? "Connected" : "Not Linked"}
-              </span>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4 pt-0">
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Ultra-fast generation speeds, enormous context windows, and perfect for real-time draft composition tasks.
-            </p>
-            <div className="text-[11px] font-mono bg-muted/60 p-2 rounded border border-border/40 text-muted-foreground space-y-1">
-              <div>Model: {config.providers.gemini.model}</div>
-              <div>Key: {config.providers.gemini.connected ? `${config.providers.gemini.apiKey.slice(0, 10)}...` : "None"}</div>
-            </div>
-            <div className="flex gap-2 pt-1">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => openOauthModal("gemini")}
-                className="w-full text-xs font-semibold"
-              >
-                {config.providers.gemini.connected ? "Configure Settings" : "Login to Gemini"}
-              </Button>
-              {config.providers.gemini.connected && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleDisconnect("gemini")}
-                  className="text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-                >
-                  Unlink
-                </Button>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Left Side: Agent Routing & Custom Server */}
-        <div className="space-y-8">
-          {/* Agent Mapping Selector */}
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Sliders className="size-5 text-indigo-500" />
-                Backend Agent Mapping
-              </CardTitle>
-              <CardDescription>
-                Assign specific background processing agents to your connected AI providers.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              {/* Agent 1 */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b pb-4">
-                <div>
-                  <Label className="text-sm font-semibold block">Translation Agent</Label>
-                  <span className="text-xs text-muted-foreground">Translates forms, pages, and emails in real-time.</span>
-                </div>
-                <select
-                  value={config.agents.translation}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    agents: { ...config.agents, translation: e.target.value }
-                  })}
-                  className="rounded-lg border border-border/80 bg-background px-3 py-1.5 text-xs font-medium text-foreground w-full sm:w-48 focus:border-indigo-500 focus:outline-none"
-                >
-                  <option value="claude">Claude (Anthropic)</option>
-                  <option value="openai">OpenAI (GPT-4o)</option>
-                  <option value="gemini">Gemini (Google)</option>
-                  <option value="custom">Custom AI Server</option>
-                </select>
-              </div>
-
-              {/* Agent 2 */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b pb-4">
-                <div>
-                  <Label className="text-sm font-semibold block">SEO & Meta Builder</Label>
-                  <span className="text-xs text-muted-foreground">Autocomposes title tags and descriptions for site settings.</span>
-                </div>
-                <select
-                  value={config.agents.seo}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    agents: { ...config.agents, seo: e.target.value }
-                  })}
-                  className="rounded-lg border border-border/80 bg-background px-3 py-1.5 text-xs font-medium text-foreground w-full sm:w-48 focus:border-indigo-500 focus:outline-none"
-                >
-                  <option value="claude">Claude (Anthropic)</option>
-                  <option value="openai">OpenAI (GPT-4o)</option>
-                  <option value="gemini">Gemini (Google)</option>
-                  <option value="custom">Custom AI Server</option>
-                </select>
-              </div>
-
-              {/* Agent 3 */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div>
-                  <Label className="text-sm font-semibold block">Content Generation Agent</Label>
-                  <span className="text-xs text-muted-foreground">Assists bloggers to draft posts, summaries and content blocks.</span>
-                </div>
-                <select
-                  value={config.agents.contentGeneration}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    agents: { ...config.agents, contentGeneration: e.target.value }
-                  })}
-                  className="rounded-lg border border-border/80 bg-background px-3 py-1.5 text-xs font-medium text-foreground w-full sm:w-48 focus:border-indigo-500 focus:outline-none"
-                >
-                  <option value="claude">Claude (Anthropic)</option>
-                  <option value="openai">OpenAI (GPT-4o)</option>
-                  <option value="gemini">Gemini (Google)</option>
-                  <option value="custom">Custom AI Server</option>
-                </select>
+                {config.providers.claude.connected && (
+                  <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10" onClick={() => handleDisconnect("claude")}>
+                    Disconnect
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
 
-          {/* Custom AI Server Settings */}
-          <Card className="shadow-sm">
+          {/* OpenAI Card */}
+          <Card>
+            <CardContent className="pt-6 space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex gap-3">
+                  <div className="size-10 shrink-0 rounded-lg flex items-center justify-center bg-[#E6F4EA] border border-[#10A37F]/20">
+                    <svg viewBox="0 0 24 24" fill="currentColor" className="size-6 text-[#10A37F]">
+                      <path d="M21.35 11.1C21.9 9.8 21.75 8.2 20.85 7.35C20.15 6.7 19.1 6.45 18.25 6.75C18.1 5.4 17.25 4.25 15.95 3.75C14.85 3.3 13.55 3.55 12.7 4.35C12.1 3.1 10.9 2.15 9.45 2.05C8.05 1.95 6.75 2.7 6.1 3.9C4.85 3.75 3.65 4.45 3.15 5.65C2.7 6.75 2.95 8.05 3.75 8.9C2.5 9.5 1.55 10.7 1.45 12.15C1.35 13.55 2.1 14.85 3.3 15.5C3.15 16.75 3.85 17.95 5.05 18.45C6.15 18.9 7.45 18.65 8.3 17.85C8.9 19.1 10.1 20.05 11.55 20.15C12.95 20.25 14.25 19.5 14.9 18.3C16.15 18.45 17.35 17.75 17.85 16.55C18.3 15.45 18.05 14.15 17.25 13.3C18.5 12.7 19.45 11.5 19.55 10.05C19.65 8.65 18.9 7.35 17.7 6.7C17.85 5.45 17.15 4.25 15.95 3.75C15.8 5.1 14.95 6.25 13.65 6.75C12.55 7.2 11.25 6.95 10.4 6.15C11 7.4 11.25 8.7 12.5 8.9C13.9 9.1 15.2 8.35 15.85 7.15C17.1 7.3 18.3 6.6 18.8 5.4C19.25 6.5 19 7.8 18.2 8.65C19.45 9.25 20.4 10.45 20.5 11.9C20.6 13.3 19.85 14.6 18.65 15.25C18.8 16.5 18.1 17.7 16.9 18.2C15.8 18.65 14.5 18.4 13.65 17.6C13.05 18.85 11.85 19.8 10.4 19.9C9 20 7.7 19.25 7.05 18.05C5.8 18.2 4.6 17.5 4.1 16.3C3.65 15.2 3.9 13.9 4.7 13.05C3.45 12.45 2.5 11.25 2.4 9.8C2.3 8.4 3.05 7.1 4.25 6.45C4.1 5.2 4.8 4 6 3.5C7.1 3.05 8.4 3.3 9.25 4.1C9.85 2.85 11.05 1.9 12.5 1.8C13.9 1.7 15.2 2.45 15.85 3.65C17.1 3.5 18.3 4.2 18.8 5.4C19.25 4.3 19.5 3 20.3 2.15C21.5 2.05 22.8 2.8 23.46 4C22.21 4.15 21.01 4.85 20.51 6.05C20.96 4.95 22.26 4.2 23.46 4M10.06 14.4l2.6 1.5v3l-2.6 1.5L7.46 18.9v-3l2.6-1.5z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold">OpenAI GPT</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                      Industry standard JSON formatting and logical structure builder.
+                    </p>
+                  </div>
+                </div>
+                <span className={cn(
+                  "inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold border",
+                  config.providers.openai.connected
+                    ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300"
+                    : "bg-muted border-border text-muted-foreground"
+                )}>
+                  {config.providers.openai.connected ? "Connected" : "Disconnected"}
+                </span>
+              </div>
+              <div className="text-[11px] font-mono bg-muted/50 p-2.5 rounded border border-border/40 text-muted-foreground flex justify-between items-center gap-4">
+                <span className="truncate">Model: {config.providers.openai.model}</span>
+                <span>Key: {config.providers.openai.connected ? `${config.providers.openai.apiKey.slice(0, 12)}...` : "Not set"}</span>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => startOauthFlow("openai")}>
+                  {config.providers.openai.connected ? "Reconfigure" : "Link OpenAI Account"}
+                </Button>
+                {config.providers.openai.connected && (
+                  <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10" onClick={() => handleDisconnect("openai")}>
+                    Disconnect
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Gemini Card */}
+          <Card>
+            <CardContent className="pt-6 space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex gap-3">
+                  <div className="size-10 shrink-0 rounded-lg flex items-center justify-center bg-[#EEF2FF] border border-[#818CF8]/25">
+                    <svg viewBox="0 0 24 24" className="size-6 text-indigo-500" fill="currentColor">
+                      <path d="M12 2c0 4-1 8-5 9 4 1 5 5 5 9 0-4 1-8 5-9-4-1-5-5-5-9z" />
+                      <path d="M19 13c0 2-.5 4-2.5 4.5 2 .5 2.5 2 2.5 4.5 0-2 .5-4 2.5-4.5-2-.5-2.5-2-2.5-4.5z" opacity="0.8" fill="#818CF8" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold">Google Gemini</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                      Enormous contexts and rapid speed responses. Ideal for draft composition.
+                    </p>
+                  </div>
+                </div>
+                <span className={cn(
+                  "inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold border",
+                  config.providers.gemini.connected
+                    ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300"
+                    : "bg-muted border-border text-muted-foreground"
+                )}>
+                  {config.providers.gemini.connected ? "Connected" : "Disconnected"}
+                </span>
+              </div>
+              <div className="text-[11px] font-mono bg-muted/50 p-2.5 rounded border border-border/40 text-muted-foreground flex justify-between items-center gap-4">
+                <span className="truncate">Model: {config.providers.gemini.model}</span>
+                <span>Key: {config.providers.gemini.connected ? `${config.providers.gemini.apiKey.slice(0, 12)}...` : "Not set"}</span>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => startOauthFlow("gemini")}>
+                  {config.providers.gemini.connected ? "Reconfigure" : "Link Gemini Account"}
+                </Button>
+                {config.providers.gemini.connected && (
+                  <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10" onClick={() => handleDisconnect("gemini")}>
+                    Disconnect
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Custom AI Servers Tab ── */}
+        <TabsContent value="custom" className="mt-4 space-y-4">
+          <div className="flex justify-between items-center border-b pb-3">
+            <div>
+              <h3 className="text-sm font-semibold">Local & Custom Servers</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Plug in local or private gateways (Ollama, LM Studio, vLLM, custom gateways).</p>
+            </div>
+            <Button size="sm" variant="outline" onClick={addCustomServer} className="gap-1.5">
+              <Plus className="size-3.5" /> Add Server
+            </Button>
+          </div>
+
+          {(!config.customServers || config.customServers.length === 0) ? (
+            <div className="rounded-lg border border-dashed p-8 text-center space-y-2">
+              <Terminal className="size-6 text-muted-foreground/60 mx-auto" />
+              <p className="text-xs font-medium text-muted-foreground">No custom servers configured yet</p>
+              <p className="text-[10px] text-muted-foreground/80 max-w-xs mx-auto">
+                Add one to connect local models running on Ollama, LM Studio, or vLLM endpoints.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {config.customServers.map((server) => {
+                const testState = serverTestResult[server.id];
+                const isTestingThis = testingServerId === server.id;
+
+                return (
+                  <Card key={server.id}>
+                    <CardContent className="pt-5 space-y-3.5">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex-1">
+                          <Input
+                            className="h-8 font-semibold text-sm bg-transparent border-transparent hover:border-border focus:border-indigo-500/50 px-2 py-0 w-64 max-w-full -ml-2"
+                            value={server.name}
+                            onChange={(e) => updateCustomServer(server.id, { name: e.target.value })}
+                            onBlur={() => save()}
+                            placeholder="Server Name"
+                          />
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:bg-destructive/10 px-2 py-1 h-auto"
+                          onClick={() => deleteCustomServer(server.id)}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+
+                      <div className="space-y-3 pt-1 border-t">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground font-medium">Endpoint URL</Label>
+                          <Input
+                            className="h-8 text-xs font-mono"
+                            placeholder="e.g. http://localhost:11434/v1/chat/completions"
+                            value={server.url}
+                            onChange={(e) => updateCustomServer(server.id, { url: e.target.value })}
+                            onBlur={() => save()}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground font-medium">Model Identifier</Label>
+                            <Input
+                              className="h-8 text-xs font-mono"
+                              placeholder="e.g. llama3"
+                              value={server.model}
+                              onChange={(e) => updateCustomServer(server.id, { model: e.target.value })}
+                              onBlur={() => save()}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground font-medium">Authorization Token (Optional)</Label>
+                            <Input
+                              className="h-8 text-xs font-mono"
+                              type="password"
+                              placeholder="Bearer API Key"
+                              value={server.apiKey}
+                              onChange={(e) => updateCustomServer(server.id, { apiKey: e.target.value })}
+                              onBlur={() => save()}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 flex items-center justify-between gap-4">
+                        <div className="text-[11px] min-w-0 flex-1 truncate">
+                          {isTestingThis ? (
+                            <span className="text-muted-foreground animate-pulse flex items-center gap-1.5">
+                              <RefreshCw className="size-3 animate-spin text-indigo-500" /> Connecting to server...
+                            </span>
+                          ) : testState ? (
+                            testState.success ? (
+                              <span className="text-green-600 dark:text-green-400 font-medium flex items-center gap-1">
+                                <Check className="size-3.5 shrink-0" /> {testState.text}
+                              </span>
+                            ) : (
+                              <span className="text-destructive font-medium flex items-center gap-1 truncate" title={testState.error}>
+                                <X className="size-3.5 shrink-0" /> {testState.error}
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-muted-foreground italic">Click Test to check connection parameters.</span>
+                          )}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={isTestingThis}
+                          onClick={() => testCustomServer(server)}
+                          className="h-7 text-xs px-3 font-semibold shrink-0"
+                        >
+                          Test Server
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ── Agent Mapping Tab ── */}
+        <TabsContent value="routing" className="mt-4">
+          <Card>
             <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Terminal className="size-5 text-amber-500" />
-                Custom AI Server
+              <CardTitle className="text-base">Agent Assignments</CardTitle>
+              <CardDescription>Assign specific task agents to any connected AI service or custom server.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1.5">
+                <Label className="text-sm font-semibold">Translation Agent</Label>
+                <select
+                  value={config.agents.translation}
+                  onChange={(e) => {
+                    const next = {
+                      ...config,
+                      agents: { ...config.agents, translation: e.target.value }
+                    };
+                    setConfig(next);
+                    save(next);
+                  }}
+                  className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <optgroup label="Built-in Providers">
+                    <option value="claude">Anthropic Claude</option>
+                    <option value="openai">OpenAI GPT</option>
+                    <option value="gemini">Google Gemini</option>
+                  </optgroup>
+                  {config.customServers && config.customServers.length > 0 && (
+                    <optgroup label="Custom Local Servers">
+                      {config.customServers.map((s) => (
+                        <option key={s.id} value={`custom__${s.id}`}>{s.name} ({s.model})</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+                <p className="text-xs text-muted-foreground">Used for forms localization translations.</p>
+              </div>
+
+              <div className="space-y-1.5 border-t pt-4">
+                <Label className="text-sm font-semibold">SEO & Meta Description Builder</Label>
+                <select
+                  value={config.agents.seo}
+                  onChange={(e) => {
+                    const next = {
+                      ...config,
+                      agents: { ...config.agents, seo: e.target.value }
+                    };
+                    setConfig(next);
+                    save(next);
+                  }}
+                  className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <optgroup label="Built-in Providers">
+                    <option value="claude">Anthropic Claude</option>
+                    <option value="openai">OpenAI GPT</option>
+                    <option value="gemini">Google Gemini</option>
+                  </optgroup>
+                  {config.customServers && config.customServers.length > 0 && (
+                    <optgroup label="Custom Local Servers">
+                      {config.customServers.map((s) => (
+                        <option key={s.id} value={`custom__${s.id}`}>{s.name} ({s.model})</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+                <p className="text-xs text-muted-foreground">Generates metadata suggestions in site layout settings.</p>
+              </div>
+
+              <div className="space-y-1.5 border-t pt-4">
+                <Label className="text-sm font-semibold">Content Composition Co-Writer</Label>
+                <select
+                  value={config.agents.contentGeneration}
+                  onChange={(e) => {
+                    const next = {
+                      ...config,
+                      agents: { ...config.agents, contentGeneration: e.target.value }
+                    };
+                    setConfig(next);
+                    save(next);
+                  }}
+                  className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <optgroup label="Built-in Providers">
+                    <option value="claude">Anthropic Claude</option>
+                    <option value="openai">OpenAI GPT</option>
+                    <option value="gemini">Google Gemini</option>
+                  </optgroup>
+                  {config.customServers && config.customServers.length > 0 && (
+                    <optgroup label="Custom Local Servers">
+                      {config.customServers.map((s) => (
+                        <option key={s.id} value={`custom__${s.id}`}>{s.name} ({s.model})</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+                <p className="text-xs text-muted-foreground">Assists bloggers in autowriting post outlines and drafts.</p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Connection Tester Tab ── */}
+        <TabsContent value="tester" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Radio className="size-4 text-green-500 animate-pulse" />
+                Live Connection Testing Console
               </CardTitle>
               <CardDescription>
-                Plug in an OpenAI-compatible local AI gateway (Ollama, LM Studio, vLLM, or custom proxies).
+                Test your configuration by translating text using the currently selected Translation Agent.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Status</span>
-                <span className={cn(
-                  "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-semibold border transition-all",
-                  config.providers.custom.connected
-                    ? "bg-green-50 border-green-200 text-green-700 dark:bg-green-950/30 dark:border-green-800 dark:text-green-300"
-                    : "bg-muted border-border text-muted-foreground"
-                )}>
-                  {config.providers.custom.connected ? "Active" : "Inactive"}
+              <div className="flex justify-between items-center text-xs bg-muted/40 p-2 rounded border border-border/80">
+                <span className="font-medium text-muted-foreground">Mapped Translation Provider:</span>
+                <span className="font-semibold text-foreground uppercase tracking-wider text-[10px] bg-background px-2 py-0.5 rounded border border-border">
+                  {config.agents.translation.startsWith("custom__")
+                    ? config.customServers?.find(s => s.id === config.agents.translation.split("__")[1])?.name || "Custom server"
+                    : config.agents.translation}
                 </span>
               </div>
+
               <div className="space-y-1.5">
-                <Label className="text-xs">Endpoint Base URL</Label>
-                <Input
-                  className="h-8 text-xs font-mono"
-                  placeholder="e.g. http://localhost:11434/v1/chat/completions"
-                  value={config.providers.custom.url || ""}
-                  onChange={(e) => setConfig({
-                    ...config,
-                    providers: {
-                      ...config.providers,
-                      custom: { ...config.providers.custom, url: e.target.value }
-                    }
-                  })}
+                <Label className="text-xs">English Input Prompt</Label>
+                <textarea
+                  className="w-full h-20 rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+                  value={testerText}
+                  onChange={(e) => setTesterText(e.target.value)}
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Model Identifier</Label>
-                  <Input
-                    className="h-8 text-xs font-mono"
-                    placeholder="e.g. llama3.1"
-                    value={config.providers.custom.model}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      providers: {
-                        ...config.providers,
-                        custom: { ...config.providers.custom, model: e.target.value }
-                      }
-                    })}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Server Token / API Key</Label>
-                  <Input
-                    className="h-8 text-xs font-mono"
-                    type="password"
-                    placeholder="Optional credentials"
-                    value={config.providers.custom.apiKey}
-                    onChange={(e) => setConfig({
-                      ...config,
-                      providers: {
-                        ...config.providers,
-                        custom: { ...config.providers.custom, apiKey: e.target.value }
-                      }
-                    })}
-                  />
-                </div>
-              </div>
+              <Button
+                onClick={runConnectionTest}
+                disabled={testing}
+                className="w-full"
+                size="sm"
+              >
+                {testing ? (
+                  <>
+                    <RefreshCw className="size-3.5 mr-1.5 animate-spin" /> Running translation...
+                  </>
+                ) : (
+                  <>
+                    <Play className="size-3.5 mr-1.5" /> Translate to Spanish (EN → ES)
+                  </>
+                )}
+              </Button>
 
-              <div className="pt-2 flex items-center justify-between gap-4">
-                <p className="text-[10px] text-muted-foreground">
-                  Make sure custom servers allow CORS requests if connecting client-side, otherwise request will route via API gateway.
-                </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const nextConnected = !config.providers.custom.connected;
-                    const updated = {
-                      ...config,
-                      providers: {
-                        ...config.providers,
-                        custom: { ...config.providers.custom, connected: nextConnected }
-                      }
-                    };
-                    setConfig(updated);
-                    handleSave(updated);
-                  }}
-                  className="text-xs font-semibold shrink-0"
-                >
-                  {config.providers.custom.connected ? "Deactivate" : "Activate"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Right Side: Live Tester & Instructions */}
-        <div className="space-y-8">
-          {/* Connection Tester */}
-          <Card className="h-full flex flex-col shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Radio className="size-5 text-green-500 animate-pulse" />
-                Live Connection Tester
-              </CardTitle>
-              <CardDescription>
-                Verify routing capabilities by translating a test prompt using the active Translation Agent.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 flex-1 flex flex-col justify-between">
-              <div className="space-y-3">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
-                    <Cpu className="size-3.5" />
-                    Target Provider:
-                  </span>
-                  <span className="bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-semibold px-2 py-0.5 rounded border border-indigo-100 dark:border-indigo-900/40 capitalize">
-                    {config.agents.translation}
-                  </span>
-                </div>
-
-                <div className="space-y-1">
-                  <Label className="text-xs">Source Text (English)</Label>
-                  <textarea
-                    className="w-full h-20 bg-background border border-border/80 rounded-lg p-2.5 text-xs focus:border-indigo-500 focus:outline-none resize-none font-medium"
-                    value={testerText}
-                    onChange={(e) => setTesterText(e.target.value)}
-                  />
-                </div>
-
-                <Button
-                  onClick={runConnectionTest}
-                  disabled={testing || !config.providers[config.agents.translation as keyof AIConfig["providers"]]?.connected}
-                  className="w-full h-9 text-xs"
-                >
-                  {testing ? (
-                    <>
-                      <RefreshCw className="size-3.5 mr-1.5 animate-spin" />
-                      Contacting Agent...
-                    </>
-                  ) : (
-                    <>
-                      <Play className="size-3.5 mr-1.5" />
-                      Test AI Translation (EN → ES)
-                    </>
-                  )}
-                </Button>
-              </div>
-
-              {/* Output Results */}
-              <div className="flex-1 min-h-[120px] flex flex-col mt-4">
-                <Label className="text-xs mb-1.5 block">Response Output</Label>
-                <div className="flex-1 bg-muted/70 rounded-lg border border-border/40 p-3 relative font-mono text-[11px] leading-relaxed select-text overflow-auto max-h-48">
-                  {testing && (
-                    <div className="absolute inset-0 bg-background/50 backdrop-blur-[1px] flex items-center justify-center">
-                      <span className="text-[10px] text-muted-foreground animate-pulse">Running test...</span>
-                    </div>
-                  )}
+              <div className="space-y-1">
+                <Label className="text-xs block">Console Log Output</Label>
+                <div className="bg-muted/70 rounded-md border border-border/80 p-3 font-mono text-xs leading-relaxed max-h-48 overflow-y-auto select-text min-h-[80px]">
                   {testResult ? (
                     testResult.success ? (
                       <div className="text-foreground">
-                        <span className="text-green-600 dark:text-green-400 font-bold block mb-1">✓ Success</span>
+                        <span className="text-green-600 dark:text-green-400 font-bold block mb-1">✓ Connection success</span>
                         {testResult.text}
                       </div>
                     ) : (
                       <div className="text-destructive">
-                        <span className="text-destructive font-bold block mb-1">✗ Connection Error</span>
+                        <span className="text-destructive font-bold block mb-1">✗ Connection failed</span>
                         {testResult.error}
                       </div>
                     )
                   ) : (
-                    <span className="text-muted-foreground italic">Click "Test AI Translation" to verify connection. Make sure the target provider is connected first.</span>
+                    <span className="text-muted-foreground italic">Console idle. Send a translation trigger.</span>
                   )}
                 </div>
               </div>
             </CardContent>
           </Card>
-        </div>
-      </div>
-
-      {/* Simulated OAuth Modal Overlay */}
-      {activeOauth && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
-          <div className={cn(
-            "w-full max-w-md bg-background border rounded-2xl shadow-2xl overflow-hidden animate-scale-up",
-            activeOauth === "claude" && "border-amber-500/20",
-            activeOauth === "openai" && "border-emerald-500/20",
-            activeOauth === "gemini" && "border-indigo-500/20"
-          )}>
-            {/* Modal Brand Header Banner */}
-            <div className={cn(
-              "px-6 py-6 text-white relative overflow-hidden",
-              activeOauth === "claude" && "bg-gradient-to-r from-amber-800 to-amber-950",
-              activeOauth === "openai" && "bg-gradient-to-r from-emerald-700 to-emerald-900",
-              activeOauth === "gemini" && "bg-gradient-to-r from-indigo-700 via-indigo-900 to-slate-900"
-            )}>
-              {/* Backdrops or glow */}
-              <div className="absolute -right-12 -top-12 size-40 rounded-full bg-white/5 blur-2xl" />
-
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="size-10 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center font-black text-lg">
-                    {activeOauth === "claude" && "𝓒"}
-                    {activeOauth === "openai" && "𝓞"}
-                    {activeOauth === "gemini" && "𝓖"}
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-base">
-                      {activeOauth === "claude" && "Anthropic Authorization"}
-                      {activeOauth === "openai" && "OpenAI Developer Sync"}
-                      {activeOauth === "gemini" && "Google AI Studio Integration"}
-                    </h3>
-                    <p className="text-[10px] text-white/70">Secure simulated OAuth workflow</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setActiveOauth(null)}
-                  className="rounded-full bg-white/15 hover:bg-white/20 p-1.5 transition-colors focus:outline-none"
-                >
-                  <X className="size-4 text-white" />
-                </button>
-              </div>
-            </div>
-
-            {/* Modal Body */}
-            <div className="p-6 space-y-6">
-              {oauthStep === "auth" && (
-                <>
-                  <div className="space-y-4">
-                    <div className="rounded-xl border border-border/80 bg-muted/40 p-4 space-y-3">
-                      <p className="text-xs text-muted-foreground font-semibold flex items-center gap-2">
-                        <Fingerprint className="size-4 text-indigo-500" />
-                        Permissions Requested:
-                      </p>
-                      <ul className="text-[11px] text-foreground space-y-2 leading-relaxed">
-                        <li className="flex items-start gap-2">
-                          <Check className="size-3.5 text-green-500 shrink-0 mt-0.5" />
-                          <span>Retrieve list of authorized model weights</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <Check className="size-3.5 text-green-500 shrink-0 mt-0.5" />
-                          <span>Publish raw prompt payloads for agent processing</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <Check className="size-3.5 text-green-500 shrink-0 mt-0.5" />
-                          <span>Securely store returned response strings on OpenWeb</span>
-                        </li>
-                      </ul>
-                    </div>
-
-                    {/* API Key overrides */}
-                    <div className="space-y-3 pt-2">
-                      <div className="space-y-1">
-                        <Label className="text-xs font-semibold flex items-center gap-1.5">
-                          <Key className="size-3.5 text-muted-foreground" />
-                          API Credentials Override (Optional)
-                        </Label>
-                        <Input
-                          className="h-8 text-xs font-mono"
-                          type="password"
-                          placeholder="sk-..."
-                          value={oauthKey}
-                          onChange={(e) => setOauthKey(e.target.value)}
-                        />
-                        <span className="text-[10px] text-muted-foreground block">
-                          If omitted, we will automatically generate a mock developer credentials token to simulate a successful authorization state.
-                        </span>
-                      </div>
-
-                      <div className="space-y-1">
-                        <Label className="text-xs font-semibold flex items-center gap-1.5">
-                          <Settings className="size-3.5 text-muted-foreground" />
-                          Default Model Override
-                        </Label>
-                        <Input
-                          className="h-8 text-xs font-mono"
-                          placeholder="Model ID"
-                          value={oauthModel}
-                          onChange={(e) => setOauthModel(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-3 justify-end pt-3 border-t">
-                    <Button
-                      variant="ghost"
-                      onClick={() => setActiveOauth(null)}
-                      className="text-xs"
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={handleOauthConnect}
-                      className={cn(
-                        "text-xs shadow-md font-semibold",
-                        activeOauth === "claude" && "bg-amber-800 hover:bg-amber-900 text-white",
-                        activeOauth === "openai" && "bg-emerald-700 hover:bg-emerald-800 text-white",
-                        activeOauth === "gemini" && "bg-indigo-700 hover:bg-indigo-800 text-white"
-                      )}
-                    >
-                      Authorize & Connect
-                    </Button>
-                  </div>
-                </>
-              )}
-
-              {oauthStep === "loading" && (
-                <div className="py-8 flex flex-col items-center justify-center space-y-4">
-                  <div className="relative">
-                    <div className={cn(
-                      "size-12 rounded-full border-4 border-t-transparent animate-spin",
-                      activeOauth === "claude" && "border-amber-700",
-                      activeOauth === "openai" && "border-emerald-600",
-                      activeOauth === "gemini" && "border-indigo-600"
-                    )} />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <Cpu className="size-4 text-muted-foreground/60 animate-pulse" />
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-sm font-semibold">Exchanging credentials...</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Establishing connection with remote server</p>
-                  </div>
-                </div>
-              )}
-
-              {oauthStep === "success" && (
-                <div className="py-8 flex flex-col items-center justify-center space-y-4 animate-scale-up">
-                  <div className="size-12 rounded-full bg-green-100 dark:bg-green-950 flex items-center justify-center border border-green-300 dark:border-green-800">
-                    <Check className="size-6 text-green-600 dark:text-green-400" />
-                  </div>
-                  <div className="text-center">
-                    <p className="text-sm font-bold text-green-700 dark:text-green-400">Connection Established!</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Workspace successfully integrated into OpenWeb settings.</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

@@ -831,11 +831,11 @@ app.put("/api/site-settings", { preHandler: requireAuth(["admin", "page_develope
 });
 
 app.post("/api/ai/test", { preHandler: requireAuth(["admin", "page_developer"]) }, async (req, reply) => {
-  const body = req.body as { text?: string };
+  const body = req.body as { text?: string; configOverride?: any };
   const textToTranslate = body.text || "Hello world, welcome to OpenWeb AI Integration!";
   const strings = { test: textToTranslate };
   const { translated, warning } = await translateStringsViaAI(
-    strings, "en", "es", "Spanish", req.siteId
+    strings, "en", "es", "Spanish", req.siteId, body.configOverride
   );
   if (warning) {
     return { success: false, warning, translated };
@@ -3507,10 +3507,11 @@ async function translateStringsViaAI(
   targetLang: string,
   targetName?: string,
   siteId?: number | null,
+  configOverride?: any,
 ): Promise<{ translated: Record<string, string>; warning?: string }> {
-  // 1. Fetch site settings for aiConfig
-  let aiConfig: any = null;
-  if (siteId) {
+  // 1. Fetch site settings for aiConfig or use override
+  let aiConfig: any = configOverride;
+  if (!aiConfig && siteId) {
     const [settingsRow] = await db.select().from(siteSettings)
       .where(eq(siteSettings.siteId, siteId))
       .limit(1);
@@ -3533,11 +3534,24 @@ async function translateStringsViaAI(
   }
 
   // Get configured provider for translation
-  const providerKey = aiConfig?.agents?.translation || "claude";
-  const provider = aiConfig?.providers?.[providerKey];
+  let providerKey = aiConfig?.agents?.translation || "claude";
+  let provider = aiConfig?.providers?.[providerKey];
+  let model = provider?.model || "";
+  let apiKey = provider?.apiKey || "";
+  let customUrl = "";
 
-  const model = provider?.model || "";
-  const apiKey = provider?.apiKey || "";
+  if (providerKey.startsWith("custom__")) {
+    const customId = providerKey.split("__")[1];
+    const customServer = aiConfig?.customServers?.find((s: any) => s.id === customId);
+    if (customServer) {
+      providerKey = "custom";
+      model = customServer.model || "";
+      apiKey = customServer.apiKey || "";
+      customUrl = customServer.url || "";
+    } else {
+      providerKey = "custom";
+    }
+  }
 
   const prompt =
     `Translate the string VALUES in the JSON object below from ${sourceLang} to ${targetName || targetLang} (${targetLang}). ` +
@@ -3658,7 +3672,7 @@ async function translateStringsViaAI(
       return { translated };
 
     } else if (providerKey === "custom") {
-      const activeUrl = provider?.url || "";
+      const activeUrl = customUrl || provider?.url || "";
       if (!activeUrl) {
         return { translated: { ...strings }, warning: "Custom server URL is not configured — copied source strings so you can edit manually." };
       }

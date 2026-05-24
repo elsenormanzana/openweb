@@ -39,6 +39,7 @@ const BackupsAdmin = lazy(() => import("@/pages/BackupsAdmin").then((m) => ({ de
 const PublicBlogList = lazy(() => import("@/pages/PublicBlogList").then((m) => ({ default: m.PublicBlogList })));
 const PublicBlogPost = lazy(() => import("@/pages/PublicBlogPost").then((m) => ({ default: m.PublicBlogPost })));
 const PublicFormPage = lazy(() => import("@/pages/PublicFormPage").then((m) => ({ default: m.PublicFormPage })));
+const AiOauthLogin = lazy(() => import("@/pages/AiOauthLogin").then((m) => ({ default: m.AiOauthLogin })));
 
 function RouteLoader({ children }: { children: ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>;
@@ -86,6 +87,7 @@ export default function App() {
           {/* Public auth pages */}
           <Route path="/login" element={<RouteLoader><Login /></RouteLoader>} />
           <Route path="/setup" element={<RouteLoader><Setup /></RouteLoader>} />
+          <Route path="/ai-oauth-login" element={<RouteLoader><AiOauthLogin /></RouteLoader>} />
 
           {/* Subscriber portal */}
           <Route path="/portal" element={
