@@ -366,7 +366,10 @@ export function AiSettings() {
     try {
       const res = await fetch("/api/ai/test", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("openweb_token")}`
+        },
         body: JSON.stringify({ text: "Ping", configOverride })
       });
       const data = await res.json();
@@ -417,7 +420,10 @@ export function AiSettings() {
     try {
       const res = await fetch("/api/ai/test", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("openweb_token")}`
+        },
         body: JSON.stringify({ text: testerText, configOverride })
       });
       const data = await res.json();
