@@ -753,6 +753,7 @@ app.get("/api/site-settings", async (req) => {
     .where(eq(siteSettings.siteId, req.siteId))
     .limit(1);
   const def = defaultSiteSettings();
+  const hasSystemGoogleOauth = !!(process.env.SSO_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID);
   if (!row) {
     const [siteRow] = await db.select().from(sites).where(eq(sites.id, req.siteId)).limit(1);
     const defaults = {
@@ -762,6 +763,7 @@ app.get("/api/site-settings", async (req) => {
       seoConfig: { siteName: siteRow?.name ?? "", siteTitle: siteRow?.name ?? "" },
       blogApprovalMode: def.blogApprovalMode,
       aiConfig: JSON.parse(def.aiConfig),
+      hasSystemGoogleOauth,
     };
     return defaults;
   }
@@ -772,6 +774,7 @@ app.get("/api/site-settings", async (req) => {
     seoConfig: (() => { try { return JSON.parse(row.seoConfig ?? "{}"); } catch { return {}; } })(),
     blogApprovalMode: row.blogApprovalMode ?? false,
     aiConfig: (() => { try { return JSON.parse(row.aiConfig ?? "{}"); } catch { return JSON.parse(def.aiConfig); } })(),
+    hasSystemGoogleOauth,
   };
   return settings;
 });
@@ -786,6 +789,7 @@ app.put("/api/site-settings", { preHandler: requireAuth(["admin", "page_develope
   const footerConfigStr = body.footerConfig !== undefined ? JSON.stringify(body.footerConfig) : undefined;
   const seoConfigStr = body.seoConfig !== undefined ? JSON.stringify(body.seoConfig) : undefined;
   const aiConfigStr = body.aiConfig !== undefined ? JSON.stringify(body.aiConfig) : undefined;
+  const hasSystemGoogleOauth = !!(process.env.SSO_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID);
   if (!row) {
     const def = defaultSiteSettings();
     const [siteRow] = await db.select().from(sites).where(eq(sites.id, req.siteId)).limit(1);
@@ -807,6 +811,7 @@ app.put("/api/site-settings", { preHandler: requireAuth(["admin", "page_develope
       seoConfig: JSON.parse(created.seoConfig ?? "{}"),
       blogApprovalMode: created.blogApprovalMode ?? false,
       aiConfig: JSON.parse(created.aiConfig ?? "{}"),
+      hasSystemGoogleOauth,
     };
     return payload;
   }
@@ -826,6 +831,7 @@ app.put("/api/site-settings", { preHandler: requireAuth(["admin", "page_develope
     seoConfig: JSON.parse(updated.seoConfig ?? "{}"),
     blogApprovalMode: updated.blogApprovalMode ?? false,
     aiConfig: JSON.parse(updated.aiConfig ?? "{}"),
+    hasSystemGoogleOauth,
   };
   return payload;
 });
@@ -1013,37 +1019,68 @@ const GOOGLE_SCOPES: Record<string, string> = {
   "google-photos": "https://www.googleapis.com/auth/photoslibrary.appendonly https://www.googleapis.com/auth/photoslibrary.readonly",
 };
 
-async function getGoogleOAuthConfig(siteId: number) {
+async function getGoogleOAuthConfig(siteId: number, targetProvider?: string) {
   const [row] = await db.select().from(storageConfig)
     .where(eq(storageConfig.siteId, siteId))
     .limit(1);
-  if (!row) return null;
+  const provider = targetProvider || row?.provider || "google-drive";
+  const isGoogle = provider === "google-drive" || provider === "google-photos";
+  if (!isGoogle) return null;
   try {
-    const cfg = JSON.parse(row.config ?? "{}");
-    if (cfg.clientId && cfg.clientSecret) return { clientId: cfg.clientId, clientSecret: cfg.clientSecret, provider: row.provider, config: cfg };
+    const cfg = row ? JSON.parse(row.config ?? "{}") : {};
+    const clientId = cfg.clientId || process.env.SSO_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = cfg.clientSecret || process.env.SSO_GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
+    if (clientId && clientSecret) return { clientId, clientSecret, provider, config: cfg };
   } catch { }
   return null;
 }
 
 app.get("/api/oauth/google/start", { preHandler: requireAuth(["admin"]) }, async (req, reply) => {
-  const oauth = await getGoogleOAuthConfig(req.siteId);
-  if (!oauth) return reply.status(400).send({ error: "Set clientId and clientSecret first, then save before signing in." });
+  const { provider } = req.query as { provider?: string };
+  const oauth = await getGoogleOAuthConfig(req.siteId, provider);
+  if (!oauth) return reply.status(400).send({ error: "Set client credentials or verify system configuration first." });
   const scope = GOOGLE_SCOPES[oauth.provider] ?? GOOGLE_SCOPES["google-drive"];
-  const redirectUri = `${req.protocol}://${req.hostname}:${(req.server.addresses()[0] as { port: number })?.port ?? 3000}/api/oauth/google/callback`;
-  const params = new URLSearchParams({ client_id: oauth.clientId, redirect_uri: redirectUri, response_type: "code", scope, access_type: "offline", prompt: "consent" });
+  const redirectUri = `${publicBaseUrl(req)}/api/oauth/google/callback`;
+  const stateStr = `${req.siteId}:${oauth.provider}`;
+  const params = new URLSearchParams({
+    client_id: oauth.clientId,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope,
+    access_type: "offline",
+    prompt: "consent",
+    state: stateStr
+  });
   return reply.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
 });
 
 app.get("/api/oauth/google/callback", async (req, reply) => {
-  const { code } = req.query as { code?: string };
+  const { code, state } = req.query as { code?: string; state?: string };
   if (!code) return reply.status(400).send({ error: "Missing code" });
-  const oauth = await getGoogleOAuthConfig(req.siteId);
+  
+  let siteId = req.siteId;
+  let provider = "google-drive";
+  if (state) {
+    const parts = state.split(":");
+    if (parts.length === 2) {
+      siteId = Number(parts[0]) || siteId;
+      provider = parts[1];
+    }
+  }
+
+  const oauth = await getGoogleOAuthConfig(siteId, provider);
   if (!oauth) return reply.status(400).send({ error: "Storage config missing" });
-  const redirectUri = `${req.protocol}://${req.hostname}:${(req.server.addresses()[0] as { port: number })?.port ?? 3000}/api/oauth/google/callback`;
+  const redirectUri = `${publicBaseUrl(req)}/api/oauth/google/callback`;
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ code, client_id: oauth.clientId, client_secret: oauth.clientSecret, redirect_uri: redirectUri, grant_type: "authorization_code" }),
+    body: new URLSearchParams({
+      code,
+      client_id: oauth.clientId,
+      client_secret: oauth.clientSecret,
+      redirect_uri: redirectUri,
+      grant_type: "authorization_code"
+    }),
   });
   if (!tokenRes.ok) {
     const err = await tokenRes.text();
@@ -1057,30 +1094,42 @@ app.get("/api/oauth/google/callback", async (req, reply) => {
     tokenExpiry: tokens.expires_in ? String(Date.now() + tokens.expires_in * 1000) : "",
   };
   const [row] = await db.select().from(storageConfig)
-    .where(eq(storageConfig.siteId, req.siteId))
+    .where(eq(storageConfig.siteId, siteId))
     .limit(1);
   if (row) {
-    await db.update(storageConfig).set({ config: JSON.stringify(newConfig), updatedAt: new Date() }).where(eq(storageConfig.id, row.id));
+    await db.update(storageConfig)
+      .set({ provider: oauth.provider, config: JSON.stringify(newConfig), updatedAt: new Date() })
+      .where(eq(storageConfig.id, row.id));
+  } else {
+    await db.insert(storageConfig).values({
+      siteId: siteId,
+      provider: oauth.provider,
+      config: JSON.stringify(newConfig),
+      updatedAt: new Date(),
+    });
   }
   return reply.type("text/html").send(`<html><body><script>window.opener?.postMessage("google-oauth-done","*");window.close();</script><p>Signed in! You can close this window.</p></body></html>`);
 });
 
 app.get("/api/oauth/google/status", { preHandler: requireAuth(["admin"]) }, async (req) => {
-  const oauth = await getGoogleOAuthConfig(req.siteId);
-  if (!oauth) return { connected: false };
-  return { connected: !!oauth.config.accessToken, hasRefreshToken: !!oauth.config.refreshToken };
+  const { provider } = req.query as { provider?: string };
+  const oauth = await getGoogleOAuthConfig(req.siteId, provider);
+  const hasSystemCredentials = !!(process.env.SSO_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID);
+  if (!oauth) return { connected: false, hasSystemCredentials };
+  return { connected: !!oauth.config.accessToken, hasRefreshToken: !!oauth.config.refreshToken, hasSystemCredentials };
 });
+
 
 async function getGeminiOAuthConfig(siteId: number) {
   const [row] = await db.select().from(siteSettings)
     .where(eq(siteSettings.siteId, siteId))
     .limit(1);
-  if (!row || !row.aiConfig) return null;
+  if (!row) return null;
   try {
-    const cfg = JSON.parse(row.aiConfig);
+    const cfg = row.aiConfig ? JSON.parse(row.aiConfig) : JSON.parse(defaultSiteSettings().aiConfig);
     const gemini = cfg?.providers?.gemini;
-    const clientId = gemini?.clientId || process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = gemini?.clientSecret || process.env.GOOGLE_CLIENT_SECRET;
+    const clientId = gemini?.clientId || process.env.SSO_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = gemini?.clientSecret || process.env.SSO_GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
     if (clientId && clientSecret) {
       return { clientId, clientSecret, aiConfig: cfg, settingsId: row.id };
     }
@@ -1092,7 +1141,7 @@ app.get("/api/ai/oauth/google/start", { preHandler: requireAuth(["admin", "page_
   const oauth = await getGeminiOAuthConfig(req.siteId);
   if (!oauth) return reply.status(400).send({ error: "Configure Google Client ID and Client Secret in Gemini settings first, then save before linking." });
   const scope = "https://www.googleapis.com/auth/generative-language";
-  const redirectUri = `${req.protocol}://${req.hostname}:${(req.server.addresses()[0] as { port: number })?.port ?? 3000}/api/ai/oauth/google/callback`;
+  const redirectUri = `${publicBaseUrl(req)}/api/ai/oauth/google/callback`;
   const params = new URLSearchParams({
     client_id: oauth.clientId,
     redirect_uri: redirectUri,
@@ -1111,7 +1160,7 @@ app.get("/api/ai/oauth/google/callback", async (req, reply) => {
   const siteId = Number(state) || req.siteId;
   const oauth = await getGeminiOAuthConfig(siteId);
   if (!oauth) return reply.status(400).send({ error: "Gemini OAuth credentials not found in settings" });
-  const redirectUri = `${req.protocol}://${req.hostname}:${(req.server.addresses()[0] as { port: number })?.port ?? 3000}/api/ai/oauth/google/callback`;
+  const redirectUri = `${publicBaseUrl(req)}/api/ai/oauth/google/callback`;
   
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -3724,8 +3773,8 @@ async function translateStringsViaAI(
 
       if (hasOauth) {
         if (Date.now() + 60000 >= tokenExpiry && refreshToken) {
-          const clientId = provider?.clientId || process.env.GOOGLE_CLIENT_ID;
-          const clientSecret = provider?.clientSecret || process.env.GOOGLE_CLIENT_SECRET;
+          const clientId = provider?.clientId || process.env.SSO_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+          const clientSecret = provider?.clientSecret || process.env.SSO_GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
           if (clientId && clientSecret) {
             try {
               const refreshRes = await fetch("https://oauth2.googleapis.com/token", {

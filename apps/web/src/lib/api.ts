@@ -417,6 +417,7 @@ export type SiteSettings = {
   seoConfig: SeoConfig;
   blogApprovalMode?: boolean;
   aiConfig?: any;
+  hasSystemGoogleOauth?: boolean;
 };
 
 export type StorageConfig = {

@@ -14,6 +14,10 @@ export const verifyPassword = (plain: string, hashed: string) => compare(plain, 
 export function requireAuth(roles: JwtPayload["role"][] = [], opts?: { globalOnly?: boolean }) {
   return async (req: FastifyRequest, reply: FastifyReply) => {
     try {
+      const token = (req.query as any)?.token;
+      if (token) {
+        req.headers.authorization = `Bearer ${token}`;
+      }
       await req.jwtVerify();
     } catch {
       return reply.status(401).send({ error: "Unauthorized" });

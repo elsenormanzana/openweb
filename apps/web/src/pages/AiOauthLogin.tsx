@@ -3,15 +3,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { RefreshCw, Check, Key, Lock } from "lucide-react";
+import { RefreshCw, Check, Lock } from "lucide-react";
 
 export function AiOauthLogin() {
   const [provider, setProvider] = useState<string>("claude");
   const [step, setStep] = useState<"login" | "loading" | "success">("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Retrieve provider from query params
   useEffect(() => {
@@ -21,14 +20,26 @@ export function AiOauthLogin() {
   }, []);
 
   const handleConnect = () => {
+    setErrorMsg(null);
+
+    if (provider === "gemini") {
+      // If doing Google OAuth for Gemini, redirect the popup window to the backend start endpoint
+      const token = localStorage.getItem("openweb_token");
+      window.location.href = `/api/ai/oauth/google/start?token=${token ?? ""}`;
+      return;
+    }
+
+    if (!apiKey.trim()) {
+      setErrorMsg("API Key is required to connect to the actual provider.");
+      return;
+    }
+
     setStep("loading");
 
-    // Generate simulated key if not provided
-    const keyToSubmit = apiKey.trim() || `mock-${provider}-key-${Math.random().toString(36).substring(2, 10)}`;
+    const keyToSubmit = apiKey.trim();
     const defaultModels: Record<string, string> = {
       claude: "claude-haiku-4-5-20251001",
-      openai: "gpt-4o-mini",
-      gemini: "gemini-2.5-flash"
+      openai: "gpt-4o-mini"
     };
     const modelToSubmit = model.trim() || defaultModels[provider] || "default";
 
@@ -80,127 +91,89 @@ export function AiOauthLogin() {
             {provider === "openai" && "Link OpenAI Platform"}
             {provider === "gemini" && "Link Google AI Studio"}
           </h1>
-          <p className="text-xs text-white/70 mt-0.5">Secure SSO integration for OpenWeb</p>
+          <p className="text-xs text-white/70 mt-0.5">Secure integration for OpenWeb</p>
         </div>
 
         {/* Content Body */}
         <div className="p-6 space-y-6">
           {step === "login" && (
             <div className="space-y-4">
+              {errorMsg && (
+                <div className="text-xs text-destructive bg-destructive/10 p-2.5 rounded border border-destructive/20 font-medium">
+                  {errorMsg}
+                </div>
+              )}
+
               {provider === "gemini" ? (
-                // Google styled authorization screen
-                <div className="space-y-4">
+                // Google OAuth SSO launcher screen
+                <div className="space-y-4 text-center">
                   <div className="flex justify-center my-2">
-                    <svg viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+                    <svg viewBox="0 0 24 24" width="36" height="36" xmlns="http://www.w3.org/2000/svg">
                       <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
                       <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
                       <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l3.66-2.85z" fill="#FBBC05" />
                       <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.85c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
                     </svg>
                   </div>
-                  <div className="text-center">
-                    <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Choose Google Account</h2>
-                    <p className="text-xs text-muted-foreground mt-0.5">to continue to Google AI Studio</p>
-                  </div>
-
-                  <div className="border rounded-lg overflow-hidden bg-white dark:bg-gray-900 divide-y divide-gray-100 dark:divide-gray-800 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => handleConnect()}
-                      className="w-full px-4 py-3 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800 text-left font-medium"
-                    >
-                      <div className="size-6 rounded-full bg-indigo-500 text-white flex items-center justify-center font-bold text-[10px]">
-                        JD
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="truncate text-gray-900 dark:text-gray-100">John Developer</p>
-                        <p className="text-[10px] text-muted-foreground truncate">john.developer@gmail.com</p>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleConnect()}
-                      className="w-full px-4 py-3 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800 text-left font-medium"
-                    >
-                      <div className="size-6 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-[10px]">
-                        OW
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="truncate text-gray-900 dark:text-gray-100">OpenWeb Workspace Account</p>
-                        <p className="text-[10px] text-muted-foreground truncate">admin@openweb.internal</p>
-                      </div>
-                    </button>
+                  <div className="space-y-1">
+                    <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Sign in with Google</h2>
+                    <p className="text-xs text-muted-foreground leading-normal max-w-xs mx-auto">
+                      Authorize OpenWeb to access your Google Generative Language API scopes securely.
+                    </p>
                   </div>
                 </div>
               ) : (
-                // Sign in with Email / Password or API key
+                // Claude / OpenAI secure copy-paste key flow
                 <div className="space-y-4">
-                  <div className="space-y-3.5">
-                    <div className="space-y-1">
-                      <Label className="text-xs font-semibold">SSO Email Address</Label>
-                      <Input
-                        type="email"
-                        placeholder="developer@company.com"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        className="h-9 text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs font-semibold">SSO Account Password</Label>
-                      <Input
-                        type="password"
-                        placeholder="••••••••"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="h-9 text-xs"
-                      />
-                    </div>
+                  <div className="rounded-lg border bg-muted/40 p-3.5 space-y-2.5">
+                    <h3 className="text-xs font-semibold text-foreground">Connection Instructions:</h3>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      {provider === "claude" 
+                        ? "1. Click the button below to log in to your Anthropic Console.\n2. Go to API Keys, generate a key, and copy it."
+                        : "1. Click the button below to log in to your OpenAI Developer Platform.\n2. Create a new secret API key and copy it."}
+                    </p>
+                    <a 
+                      href={provider === "claude" ? "https://console.anthropic.com/settings/keys" : "https://platform.openai.com/api-keys"}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex w-full justify-center items-center h-8 rounded border border-input bg-background hover:bg-muted text-xs font-semibold"
+                    >
+                      {provider === "claude" ? "Log In to Anthropic Console" : "Log In to OpenAI Platform"}
+                    </a>
                   </div>
 
-                  <div className="relative flex py-1 items-center">
-                    <div className="flex-grow border-t border-gray-200 dark:border-gray-800"></div>
-                    <span className="flex-shrink mx-3 text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">or enter API key</span>
-                    <div className="flex-grow border-t border-gray-200 dark:border-gray-800"></div>
+                  <div className="space-y-3.5 pt-1">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold">
+                        Enter API Key
+                      </Label>
+                      <Input
+                        type="password"
+                        placeholder={provider === "openai" ? "sk-proj-..." : "sk-ant-..."}
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        className="h-9 text-xs font-mono"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold">Custom Model ID (Optional)</Label>
+                      <Input
+                        placeholder={provider === "openai" ? "gpt-4o-mini" : "claude-haiku-4-5-20251001"}
+                        value={model}
+                        onChange={(e) => setModel(e.target.value)}
+                        className="h-9 text-xs font-mono"
+                      />
+                    </div>
                   </div>
                 </div>
               )}
-
-              {/* Developer credentials override */}
-              <div className="space-y-3.5 pt-1">
-                <div className="space-y-1">
-                  <Label className="text-xs font-semibold flex items-center gap-1.5">
-                    <Key className="size-3.5 text-muted-foreground" />
-                    Developer API Key / Token
-                  </Label>
-                  <Input
-                    type="password"
-                    placeholder={provider === "openai" ? "sk-proj-..." : "sk-..."}
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    className="h-9 text-xs font-mono"
-                  />
-                  <span className="text-[10px] text-muted-foreground block leading-relaxed">
-                    Leave blank to run simulated connection using a mock credentials token.
-                  </span>
-                </div>
-
-                <div className="space-y-1">
-                  <Label className="text-xs font-semibold">Custom Model ID (Optional)</Label>
-                  <Input
-                    placeholder={provider === "openai" ? "gpt-4o-mini" : provider === "gemini" ? "gemini-2.5-flash" : "claude-haiku-4-5-20251001"}
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    className="h-9 text-xs font-mono"
-                  />
-                </div>
-              </div>
 
               {/* Permissions scope alert */}
               <div className="rounded-lg border bg-yellow-50/50 dark:bg-yellow-950/10 border-yellow-200/50 dark:border-yellow-800/20 p-3 flex gap-2">
                 <Lock className="size-4 text-yellow-600 dark:text-yellow-400 shrink-0 mt-0.5" />
                 <p className="text-[10px] text-yellow-800 dark:text-yellow-300 leading-normal">
-                  OpenWeb will be authorized to access your workspace. Keys and tokens are stored securely in your database.
+                  OpenWeb will be authorized to access your workspace. Credentials and tokens are stored securely in your database.
                 </p>
               </div>
 
@@ -213,7 +186,7 @@ export function AiOauthLogin() {
                   provider === "gemini" && "bg-indigo-700 hover:bg-indigo-800"
                 )}
               >
-                Sign In & Grant Access
+                {provider === "gemini" ? "Sign In & Grant Access" : "Link Account & Authorize"}
               </Button>
             </div>
           )}
@@ -227,8 +200,8 @@ export function AiOauthLogin() {
                 provider === "gemini" && "text-indigo-600"
               )} />
               <div className="text-center">
-                <p className="text-sm font-semibold">Exchanging SSO Tokens...</p>
-                <p className="text-xs text-muted-foreground mt-1">Completing OAuth handshake with {provider} endpoints</p>
+                <p className="text-sm font-semibold">Exchanging API Tokens...</p>
+                <p className="text-xs text-muted-foreground mt-1">Completing connection handshake with {provider} endpoints</p>
               </div>
             </div>
           )}

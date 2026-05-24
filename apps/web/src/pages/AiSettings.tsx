@@ -17,9 +17,7 @@ import {
   Plus,
   Trash2,
   Globe,
-  Database,
-  Key,
-  Unlock
+  Database
 } from "lucide-react";
 
 type AIProvider = {
@@ -75,6 +73,7 @@ export function AiSettings() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [hasSystemGoogleOauth, setHasSystemGoogleOauth] = useState(false);
 
   // Connection tester state
   const [testerText, setTesterText] = useState("Hello world! Empowering web applications with premium agentic workflows.");
@@ -89,13 +88,32 @@ export function AiSettings() {
     loadSettings();
   }, []);
 
-  // Listen for Google Gemini OAuth completed callback
+  // Listen for Google Gemini OAuth and Claude/OpenAI completed callbacks
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       if (e.data === "google-gemini-oauth-done") {
         loadSettings();
         setSaved(true);
         setTimeout(() => setSaved(false), 2500);
+      } else if (e.data && e.data.type === "ai-oauth-done") {
+        const { provider, key, model } = e.data;
+        if (provider === "claude" || provider === "openai") {
+          setConfig((prev) => {
+            const next = {
+              ...prev,
+              providers: {
+                ...prev.providers,
+                [provider]: {
+                  connected: true,
+                  apiKey: key,
+                  model: model
+                }
+              }
+            };
+            save(next);
+            return next;
+          });
+        }
       }
     };
     window.addEventListener("message", handler);
@@ -105,6 +123,9 @@ export function AiSettings() {
   const loadSettings = () => {
     api.siteSettings.get()
       .then((s) => {
+        if (s.hasSystemGoogleOauth) {
+          setHasSystemGoogleOauth(true);
+        }
         if (s.aiConfig) {
           setConfig((prev) => ({
             ...prev,
@@ -166,7 +187,8 @@ export function AiSettings() {
   // Google Gemini OAuth Flow Trigger
   const startGeminiOauth = () => {
     const gemini = config.providers.gemini;
-    if (!gemini.clientId || !gemini.clientSecret) {
+    const hasCredentials = (gemini.clientId && gemini.clientSecret) || hasSystemGoogleOauth;
+    if (!hasCredentials) {
       setError("Please save Google Client ID and Client Secret in Gemini credentials before linking.");
       return;
     }
@@ -174,11 +196,43 @@ export function AiSettings() {
     const height = 650;
     const left = window.screen.width / 2 - width / 2;
     const top = window.screen.height / 2 - height / 2;
+    const token = localStorage.getItem("openweb_token");
     window.open(
-      "/api/ai/oauth/google/start",
+      `/api/ai/oauth/google/start?token=${token ?? ""}`,
       "google-gemini-oauth",
       `width=${width},height=${height},left=${left},top=${top},popup=yes,resizable=yes`
     );
+  };
+
+  const startOauthFlow = (provider: "claude" | "openai") => {
+    const width = 500;
+    const height = 650;
+    const left = window.screen.width / 2 - width / 2;
+    const top = window.screen.height / 2 - height / 2;
+    window.open(
+      `/ai-oauth-login?provider=${provider}`,
+      "ai-oauth",
+      `width=${width},height=${height},left=${left},top=${top},popup=yes,resizable=yes`
+    );
+  };
+
+  const disconnectProvider = (provider: keyof AIConfig["providers"]) => {
+    setConfig((prev) => {
+      const updated = {
+        ...prev.providers[provider],
+        connected: false,
+        apiKey: ""
+      };
+      const next = {
+        ...prev,
+        providers: {
+          ...prev.providers,
+          [provider]: updated
+        }
+      };
+      save(next);
+      return next;
+    });
   };
 
   const disconnectOauth = (provider: keyof AIConfig["providers"]) => {
@@ -410,6 +464,37 @@ export function AiSettings() {
                   onBlur={() => save()}
                 />
               </div>
+
+              <div className="pt-2 flex items-center justify-between border-t border-border/40">
+                <div className="text-[10px] text-muted-foreground">
+                  {config.providers.claude.connected ? (
+                    <span className="text-green-600 dark:text-green-400 font-semibold flex items-center gap-1">
+                      <Check className="size-3.5" /> Account Linked
+                    </span>
+                  ) : (
+                    <span className="italic">Link Anthropic account to authenticate.</span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => startOauthFlow("claude")}
+                  >
+                    Link Anthropic Account
+                  </Button>
+                  {config.providers.claude.connected && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:bg-destructive/10"
+                      onClick={() => disconnectProvider("claude")}
+                    >
+                      Disconnect
+                    </Button>
+                  )}
+                </div>
+              </div>
             </CardContent>
           </Card>
 
@@ -457,6 +542,37 @@ export function AiSettings() {
                   onChange={(e) => updateProviderField("openai", "model", e.target.value)}
                   onBlur={() => save()}
                 />
+              </div>
+
+              <div className="pt-2 flex items-center justify-between border-t border-border/40">
+                <div className="text-[10px] text-muted-foreground">
+                  {config.providers.openai.connected ? (
+                    <span className="text-green-600 dark:text-green-400 font-semibold flex items-center gap-1">
+                      <Check className="size-3.5" /> Account Linked
+                    </span>
+                  ) : (
+                    <span className="italic">Link OpenAI account to authenticate.</span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => startOauthFlow("openai")}
+                  >
+                    Link OpenAI Account
+                  </Button>
+                  {config.providers.openai.connected && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:bg-destructive/10"
+                      onClick={() => disconnectProvider("openai")}
+                    >
+                      Disconnect
+                    </Button>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -578,7 +694,7 @@ export function AiSettings() {
                       <Button
                         variant="outline"
                         size="sm"
-                        disabled={!config.providers.gemini.clientId || !config.providers.gemini.clientSecret}
+                        disabled={!((config.providers.gemini.clientId && config.providers.gemini.clientSecret) || hasSystemGoogleOauth)}
                         onClick={startGeminiOauth}
                       >
                         Link Google Account

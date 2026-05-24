@@ -30,11 +30,17 @@ export function StorageSettings() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const [oauthStatus, setOauthStatus] = useState<{ connected: boolean; hasRefreshToken: boolean } | null>(null);
+  const [oauthStatus, setOauthStatus] = useState<{ connected: boolean; hasRefreshToken: boolean; hasSystemCredentials?: boolean } | null>(null);
 
   const loadOAuthStatus = useCallback(() => {
     if (provider === "google-drive" || provider === "google-photos") {
-      fetch("/api/oauth/google/status").then((r) => r.json()).then(setOauthStatus).catch(() => setOauthStatus(null));
+      const token = localStorage.getItem("openweb_token");
+      fetch("/api/oauth/google/status", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      })
+        .then((r) => r.json())
+        .then(setOauthStatus)
+        .catch(() => setOauthStatus(null));
     } else {
       setOauthStatus(null);
     }
@@ -69,14 +75,16 @@ export function StorageSettings() {
   };
 
   const startOAuth = () => {
-    if (!config.clientId || !config.clientSecret) {
+    const hasCredentials = (config.clientId && config.clientSecret) || oauthStatus?.hasSystemCredentials;
+    if (!hasCredentials) {
       setError("Enter your Client ID and Client Secret, then click Save before signing in.");
       return;
     }
-    window.open("/api/oauth/google/start", "google-oauth", "width=500,height=600,popup=yes");
+    const token = localStorage.getItem("openweb_token");
+    window.open(`/api/oauth/google/start?token=${token ?? ""}&provider=${provider}`, "google-oauth", "width=500,height=600,popup=yes");
   };
 
-  const current = PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];
+  const current = PROVIDERS.find((p) => p.id === provider) || PROVIDERS[0];
   const isGoogle = provider === "google-drive" || provider === "google-photos";
 
   if (loading) return <p className="text-muted-foreground">Loading…</p>;
@@ -144,7 +152,7 @@ export function StorageSettings() {
           </Button>
 
           {isGoogle && (
-            <Button variant="outline" onClick={startOAuth} disabled={!config.clientId || !config.clientSecret}>
+            <Button variant="outline" onClick={startOAuth} disabled={!((config.clientId && config.clientSecret) || oauthStatus?.hasSystemCredentials)}>
               <LogIn className="size-4 mr-1.5" />
               Sign in with Google
             </Button>
@@ -159,7 +167,7 @@ export function StorageSettings() {
                 {oauthStatus.hasRefreshToken && <span className="text-[10px] text-muted-foreground ml-auto">refresh token stored</span>}
               </span>
             ) : (
-              <span className="text-muted-foreground">Not connected — save your credentials then click "Sign in with Google"</span>
+              <span className="text-muted-foreground">Not connected — click "Save storage settings" first, then click "Sign in with Google"</span>
             )}
           </div>
         )}
