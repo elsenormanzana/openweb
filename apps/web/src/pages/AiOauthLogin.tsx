@@ -38,7 +38,7 @@ export function AiOauthLogin() {
 
     const keyToSubmit = apiKey.trim();
     const defaultModels: Record<string, string> = {
-      claude: "claude-haiku-4-5-20251001",
+      claude: "claude-3-5-haiku-20241022",
       openai: "gpt-4o-mini"
     };
     const modelToSubmit = model.trim() || defaultModels[provider] || "default";
@@ -159,7 +159,7 @@ export function AiOauthLogin() {
                     <div className="space-y-1">
                       <Label className="text-xs font-semibold">Custom Model ID (Optional)</Label>
                       <Input
-                        placeholder={provider === "openai" ? "gpt-4o-mini" : "claude-haiku-4-5-20251001"}
+                        placeholder={provider === "openai" ? "gpt-4o-mini" : "claude-3-5-haiku-20241022"}
                         value={model}
                         onChange={(e) => setModel(e.target.value)}
                         className="h-9 text-xs font-mono"

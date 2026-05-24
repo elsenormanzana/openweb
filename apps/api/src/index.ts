@@ -735,8 +735,8 @@ const defaultSiteSettings = () => ({
   blogApprovalMode: false,
   aiConfig: JSON.stringify({
     providers: {
-      claude: { connected: false, apiKey: "", model: "claude-haiku-4-5-20251001" },
-      gemini: { connected: false, apiKey: "", model: "gemini-2.5-flash" },
+      claude: { connected: false, apiKey: "", model: "claude-3-5-haiku-20241022" },
+      gemini: { connected: false, apiKey: "", model: "gemini-1.5-flash" },
       openai: { connected: false, apiKey: "", model: "gpt-4o-mini" },
       custom: { connected: false, url: "", apiKey: "", model: "" }
     },
@@ -847,6 +847,141 @@ app.post("/api/ai/test", { preHandler: requireAuth(["admin", "page_developer"]) 
     return { success: false, warning, translated };
   }
   return { success: true, translated };
+});
+
+app.post("/api/ai/models", { preHandler: requireAuth(["admin", "page_developer"]) }, async (req, reply) => {
+  const body = req.body as { provider?: string; apiKey?: string };
+  const providerKey = body.provider;
+  if (!providerKey || !["claude", "openai", "gemini"].includes(providerKey)) {
+    return reply.status(400).send({ error: "Invalid or missing provider" });
+  }
+
+  let apiKey = body.apiKey?.trim() || "";
+  let accessToken = "";
+  let refreshToken = "";
+  let tokenExpiry = 0;
+
+  if (!apiKey) {
+    const [row] = await db.select().from(siteSettings)
+      .where(eq(siteSettings.siteId, req.siteId))
+      .limit(1);
+    if (row && row.aiConfig) {
+      try {
+        const cfg = JSON.parse(row.aiConfig);
+        const prov = cfg?.providers?.[providerKey];
+        apiKey = prov?.apiKey || "";
+        if (providerKey === "gemini") {
+          accessToken = prov?.accessToken || "";
+          refreshToken = prov?.refreshToken || "";
+          tokenExpiry = Number(prov?.tokenExpiry || "0");
+        }
+      } catch {}
+    }
+  }
+
+  if (!apiKey && !accessToken) {
+    if (providerKey === "claude") apiKey = process.env.ANTHROPIC_API_KEY || "";
+    else if (providerKey === "openai") apiKey = process.env.OPENAI_API_KEY || "";
+    else if (providerKey === "gemini") {
+      apiKey = process.env.GEMINI_API_KEY || "";
+    }
+  }
+
+  try {
+    if (providerKey === "claude") {
+      if (!apiKey) return { models: [] };
+      const res = await fetch("https://api.anthropic.com/v1/models", {
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01"
+        }
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        return reply.status(400).send({ error: `Anthropic API error: ${errText.slice(0, 200)}` });
+      }
+      const data = await res.json() as any;
+      const list = (data.data || []).map((m: any) => ({
+        id: m.id,
+        name: m.display_name || m.id
+      }));
+      return { models: list };
+
+    } else if (providerKey === "openai") {
+      if (!apiKey) return { models: [] };
+      const res = await fetch("https://api.openai.com/v1/models", {
+        headers: {
+          "Authorization": `Bearer ${apiKey}`
+        }
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        return reply.status(400).send({ error: `OpenAI API error: ${errText.slice(0, 200)}` });
+      }
+      const data = await res.json() as any;
+      const list = (data.data || [])
+        .filter((m: any) => m.id.startsWith("gpt-") || m.id.startsWith("o1-") || m.id.startsWith("o3-"))
+        .map((m: any) => ({
+          id: m.id,
+          name: m.id
+        }));
+      list.sort((a: any, b: any) => a.id.localeCompare(b.id));
+      return { models: list };
+
+    } else if (providerKey === "gemini") {
+      if (!apiKey && refreshToken) {
+        const clientId = process.env.SSO_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+        const clientSecret = process.env.SSO_GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
+        if (clientId && clientSecret && Date.now() + 60000 >= tokenExpiry) {
+          try {
+            const refreshRes = await fetch("https://oauth2.googleapis.com/token", {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams({
+                client_id: clientId,
+                client_secret: clientSecret,
+                refresh_token: refreshToken,
+                grant_type: "refresh_token"
+              }),
+            });
+            if (refreshRes.ok) {
+              const refreshed = await refreshRes.json() as { access_token: string };
+              accessToken = refreshed.access_token;
+            }
+          } catch {}
+        }
+      }
+
+      if (!apiKey && !accessToken) return { models: [] };
+
+      let url = "https://generativelanguage.googleapis.com/v1beta/models";
+      const headers: Record<string, string> = {};
+      if (accessToken) {
+        headers["Authorization"] = `Bearer ${accessToken}`;
+      } else {
+        url += `?key=${apiKey}`;
+      }
+
+      const res = await fetch(url, { headers });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        return reply.status(400).send({ error: `Gemini API error: ${errText.slice(0, 200)}` });
+      }
+      const data = await res.json() as any;
+      const list = (data.models || [])
+        .filter((m: any) => m.supportedGenerationMethods?.includes("generateContent"))
+        .map((m: any) => {
+          const cleanId = m.name.replace(/^models\//, "");
+          return {
+            id: cleanId,
+            name: m.displayName || cleanId
+          };
+        });
+      return { models: list };
+    }
+  } catch (err: any) {
+    return reply.status(500).send({ error: err.message || "Failed to fetch models" });
+  }
 });
 
 // ── Sitemap & Robots ───────────────────────────────────────────────────────────
@@ -3696,7 +3831,7 @@ async function translateStringsViaAI(
       if (!activeApiKey) {
         return { translated: { ...strings }, warning: "Claude API key is not configured — copied source strings so you can edit manually." };
       }
-      const activeModel = model || "claude-haiku-4-5-20251001";
+      const activeModel = model || "claude-3-5-haiku-20241022";
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
@@ -3822,7 +3957,7 @@ async function translateStringsViaAI(
       if (!activeApiKey && !accessToken) {
         return { translated: { ...strings }, warning: "Gemini API credentials are not configured — copied source strings so you can edit manually." };
       }
-      const activeModel = model || "gemini-2.5-flash";
+      const activeModel = model || "gemini-1.5-flash";
       const headers: Record<string, string> = {
         "content-type": "application/json",
       };

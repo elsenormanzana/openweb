@@ -57,8 +57,8 @@ type AIConfig = {
 export function AiSettings() {
   const [config, setConfig] = useState<AIConfig>({
     providers: {
-      claude: { connected: false, apiKey: "", model: "claude-haiku-4-5-20251001" },
-      gemini: { connected: false, apiKey: "", model: "gemini-2.5-flash", authMode: "apikey" },
+      claude: { connected: false, apiKey: "", model: "claude-3-5-haiku-20241022" },
+      gemini: { connected: false, apiKey: "", model: "gemini-1.5-flash", authMode: "apikey" },
       openai: { connected: false, apiKey: "", model: "gpt-4o-mini" }
     },
     customServers: [],
@@ -79,10 +79,63 @@ export function AiSettings() {
   const [testerText, setTesterText] = useState("Hello world! Empowering web applications with premium agentic workflows.");
   const [testResult, setTestResult] = useState<{ success: boolean; text?: string; error?: string } | null>(null);
   const [testing, setTesting] = useState(false);
-
   // Custom server testing states
   const [testingServerId, setTestingServerId] = useState<string | null>(null);
   const [serverTestResult, setServerTestResult] = useState<Record<string, { success: boolean; text?: string; error?: string }>>({});
+
+  // Dynamic models retrieval state
+  const [models, setModels] = useState<Record<string, { id: string; name: string }[]>>({
+    claude: [],
+    openai: [],
+    gemini: []
+  });
+  const [loadingModels, setLoadingModels] = useState<Record<string, boolean>>({
+    claude: false,
+    openai: false,
+    gemini: false
+  });
+  const [customModelMode, setCustomModelMode] = useState<Record<string, boolean>>({
+    claude: false,
+    openai: false,
+    gemini: false
+  });
+
+  const fetchModelsForProvider = (provider: "claude" | "openai" | "gemini") => {
+    setLoadingModels((prev) => ({ ...prev, [provider]: true }));
+    fetch("/api/ai/models", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${localStorage.getItem("openweb_token")}`
+      },
+      body: JSON.stringify({ provider })
+    })
+      .then((r) => {
+        if (!r.ok) throw new Error("Failed to fetch models");
+        return r.json();
+      })
+      .then((data) => {
+        if (data.models && data.models.length > 0) {
+          setModels((prev) => ({ ...prev, [provider]: data.models }));
+          setConfig((currentConfig) => {
+            const currentModel = currentConfig.providers[provider].model;
+            const found = data.models.some((m: any) => m.id === currentModel);
+            if (!found && currentModel) {
+              setCustomModelMode((prevMode) => ({ ...prevMode, [provider]: true }));
+            } else {
+              setCustomModelMode((prevMode) => ({ ...prevMode, [provider]: false }));
+            }
+            return currentConfig;
+          });
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load models for provider", provider, err);
+      })
+      .finally(() => {
+        setLoadingModels((prev) => ({ ...prev, [provider]: false }));
+      });
+  };
 
   useEffect(() => {
     loadSettings();
@@ -95,6 +148,7 @@ export function AiSettings() {
         loadSettings();
         setSaved(true);
         setTimeout(() => setSaved(false), 2500);
+        fetchModelsForProvider("gemini");
       } else if (e.data && e.data.type === "ai-oauth-done") {
         const { provider, key, model } = e.data;
         if (provider === "claude" || provider === "openai") {
@@ -113,6 +167,7 @@ export function AiSettings() {
             save(next);
             return next;
           });
+          fetchModelsForProvider(provider);
         }
       }
     };
@@ -141,6 +196,9 @@ export function AiSettings() {
               }
             }
           }));
+          if (s.aiConfig.providers?.claude?.connected) fetchModelsForProvider("claude");
+          if (s.aiConfig.providers?.openai?.connected) fetchModelsForProvider("openai");
+          if (s.aiConfig.providers?.gemini?.connected) fetchModelsForProvider("gemini");
         }
       })
       .catch((e) => setError(e.message))
@@ -451,18 +509,94 @@ export function AiSettings() {
                   placeholder="sk-ant-..."
                   value={config.providers.claude.apiKey || ""}
                   onChange={(e) => updateProviderField("claude", "apiKey", e.target.value)}
-                  onBlur={() => save()}
+                  onBlur={() => {
+                    save();
+                    if (config.providers.claude.apiKey) {
+                      fetchModelsForProvider("claude");
+                    }
+                  }}
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Model Identifier</Label>
-                <Input
-                  className="h-8 text-xs font-mono"
-                  placeholder="e.g. claude-haiku-4-5-20251001"
-                  value={config.providers.claude.model}
-                  onChange={(e) => updateProviderField("claude", "model", e.target.value)}
-                  onBlur={() => save()}
-                />
+                <div className="flex justify-between items-center">
+                  <Label className="text-xs">Model Identifier</Label>
+                  {models.claude && models.claude.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextCustomMode = !customModelMode.claude;
+                        setCustomModelMode(prev => ({ ...prev, claude: nextCustomMode }));
+                        if (!nextCustomMode) {
+                          const currentModel = config.providers.claude.model;
+                          const found = models.claude.some(m => m.id === currentModel);
+                          if (!found && models.claude.length > 0) {
+                            const fallbackModel = models.claude[0].id;
+                            const updated = {
+                              ...config,
+                              providers: {
+                                ...config.providers,
+                                claude: {
+                                  ...config.providers.claude,
+                                  model: fallbackModel
+                                }
+                              }
+                            };
+                            setConfig(updated);
+                            save(updated);
+                          }
+                        }
+                      }}
+                      className="text-[10px] text-indigo-500 hover:text-indigo-600 font-medium"
+                    >
+                      {customModelMode.claude ? "Select from list" : "Enter custom model"}
+                    </button>
+                  )}
+                </div>
+                {loadingModels.claude ? (
+                  <div className="h-8 flex items-center px-3 border rounded text-xs text-muted-foreground bg-muted/20">
+                    <RefreshCw className="size-3 mr-1.5 animate-spin text-indigo-500" /> Loading models...
+                  </div>
+                ) : (customModelMode.claude || !models.claude || models.claude.length === 0) ? (
+                  <Input
+                    className="h-8 text-xs font-mono"
+                    placeholder="e.g. claude-3-5-haiku-20241022"
+                    value={config.providers.claude.model}
+                    onChange={(e) => updateProviderField("claude", "model", e.target.value)}
+                    onBlur={() => save()}
+                  />
+                ) : (
+                  <select
+                    value={config.providers.claude.model}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === "__custom__") {
+                        setCustomModelMode(prev => ({ ...prev, claude: true }));
+                      } else {
+                        const updated = {
+                          ...config,
+                          providers: {
+                            ...config.providers,
+                            claude: {
+                              ...config.providers.claude,
+                              model: val
+                            }
+                          }
+                        };
+                        setConfig(updated);
+                        save(updated);
+                      }
+                    }}
+                    className="w-full h-8 rounded-md border border-input bg-transparent px-3 text-xs font-mono focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    <option value="" disabled>-- Select a Model --</option>
+                    {models.claude.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name === m.id ? m.id : `${m.name} (${m.id})`}
+                      </option>
+                    ))}
+                    <option value="__custom__">Custom Model ID...</option>
+                  </select>
+                )}
               </div>
 
               <div className="pt-2 flex items-center justify-between border-t border-border/40">
@@ -530,18 +664,94 @@ export function AiSettings() {
                   placeholder="sk-proj-..."
                   value={config.providers.openai.apiKey || ""}
                   onChange={(e) => updateProviderField("openai", "apiKey", e.target.value)}
-                  onBlur={() => save()}
+                  onBlur={() => {
+                    save();
+                    if (config.providers.openai.apiKey) {
+                      fetchModelsForProvider("openai");
+                    }
+                  }}
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Model Identifier</Label>
-                <Input
-                  className="h-8 text-xs font-mono"
-                  placeholder="e.g. gpt-4o-mini"
-                  value={config.providers.openai.model}
-                  onChange={(e) => updateProviderField("openai", "model", e.target.value)}
-                  onBlur={() => save()}
-                />
+                <div className="flex justify-between items-center">
+                  <Label className="text-xs">Model Identifier</Label>
+                  {models.openai && models.openai.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextCustomMode = !customModelMode.openai;
+                        setCustomModelMode(prev => ({ ...prev, openai: nextCustomMode }));
+                        if (!nextCustomMode) {
+                          const currentModel = config.providers.openai.model;
+                          const found = models.openai.some(m => m.id === currentModel);
+                          if (!found && models.openai.length > 0) {
+                            const fallbackModel = models.openai[0].id;
+                            const updated = {
+                              ...config,
+                              providers: {
+                                ...config.providers,
+                                openai: {
+                                  ...config.providers.openai,
+                                  model: fallbackModel
+                                }
+                              }
+                            };
+                            setConfig(updated);
+                            save(updated);
+                          }
+                        }
+                      }}
+                      className="text-[10px] text-indigo-500 hover:text-indigo-600 font-medium"
+                    >
+                      {customModelMode.openai ? "Select from list" : "Enter custom model"}
+                    </button>
+                  )}
+                </div>
+                {loadingModels.openai ? (
+                  <div className="h-8 flex items-center px-3 border rounded text-xs text-muted-foreground bg-muted/20">
+                    <RefreshCw className="size-3 mr-1.5 animate-spin text-indigo-500" /> Loading models...
+                  </div>
+                ) : (customModelMode.openai || !models.openai || models.openai.length === 0) ? (
+                  <Input
+                    className="h-8 text-xs font-mono"
+                    placeholder="e.g. gpt-4o-mini"
+                    value={config.providers.openai.model}
+                    onChange={(e) => updateProviderField("openai", "model", e.target.value)}
+                    onBlur={() => save()}
+                  />
+                ) : (
+                  <select
+                    value={config.providers.openai.model}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === "__custom__") {
+                        setCustomModelMode(prev => ({ ...prev, openai: true }));
+                      } else {
+                        const updated = {
+                          ...config,
+                          providers: {
+                            ...config.providers,
+                            openai: {
+                              ...config.providers.openai,
+                              model: val
+                            }
+                          }
+                        };
+                        setConfig(updated);
+                        save(updated);
+                      }
+                    }}
+                    className="w-full h-8 rounded-md border border-input bg-transparent px-3 text-xs font-mono focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    <option value="" disabled>-- Select a Model --</option>
+                    {models.openai.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name === m.id ? m.id : `${m.name} (${m.id})`}
+                      </option>
+                    ))}
+                    <option value="__custom__">Custom Model ID...</option>
+                  </select>
+                )}
               </div>
 
               <div className="pt-2 flex items-center justify-between border-t border-border/40">
@@ -643,7 +853,12 @@ export function AiSettings() {
                       placeholder="AIzaSy..."
                       value={config.providers.gemini.apiKey || ""}
                       onChange={(e) => updateProviderField("gemini", "apiKey", e.target.value)}
-                      onBlur={() => save()}
+                      onBlur={() => {
+                        save();
+                        if (config.providers.gemini.apiKey) {
+                          fetchModelsForProvider("gemini");
+                        }
+                      }}
                     />
                   </div>
                 </div>
@@ -715,14 +930,85 @@ export function AiSettings() {
               )}
 
               <div className="space-y-1 border-t pt-3">
-                <Label className="text-xs">Model Identifier</Label>
-                <Input
-                  className="h-8 text-xs font-mono"
-                  placeholder="e.g. gemini-2.5-flash"
-                  value={config.providers.gemini.model}
-                  onChange={(e) => updateProviderField("gemini", "model", e.target.value)}
-                  onBlur={() => save()}
-                />
+                <div className="flex justify-between items-center">
+                  <Label className="text-xs">Model Identifier</Label>
+                  {models.gemini && models.gemini.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextCustomMode = !customModelMode.gemini;
+                        setCustomModelMode(prev => ({ ...prev, gemini: nextCustomMode }));
+                        if (!nextCustomMode) {
+                          const currentModel = config.providers.gemini.model;
+                          const found = models.gemini.some(m => m.id === currentModel);
+                          if (!found && models.gemini.length > 0) {
+                            const fallbackModel = models.gemini[0].id;
+                            const updated = {
+                              ...config,
+                              providers: {
+                                ...config.providers,
+                                gemini: {
+                                  ...config.providers.gemini,
+                                  model: fallbackModel
+                                }
+                              }
+                            };
+                            setConfig(updated); 
+                            save(updated);
+                          }
+                        }
+                      }}
+                      className="text-[10px] text-indigo-500 hover:text-indigo-600 font-medium"
+                    >
+                      {customModelMode.gemini ? "Select from list" : "Enter custom model"}
+                    </button>
+                  )}
+                </div>
+                {loadingModels.gemini ? (
+                  <div className="h-8 flex items-center px-3 border rounded text-xs text-muted-foreground bg-muted/20">
+                    <RefreshCw className="size-3 mr-1.5 animate-spin text-indigo-500" /> Loading models...
+                  </div>
+                ) : (customModelMode.gemini || !models.gemini || models.gemini.length === 0) ? (
+                  <Input
+                    className="h-8 text-xs font-mono"
+                    placeholder="e.g. gemini-1.5-flash"
+                    value={config.providers.gemini.model}
+                    onChange={(e) => updateProviderField("gemini", "model", e.target.value)}
+                    onBlur={() => save()}
+                  />
+                ) : (
+                  <select
+                    value={config.providers.gemini.model}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === "__custom__") {
+                        setCustomModelMode(prev => ({ ...prev, gemini: true }));
+                      } else {
+                        const updated = {
+                          ...config,
+                          providers: {
+                            ...config.providers,
+                            gemini: {
+                              ...config.providers.gemini,
+                              model: val
+                            }
+                          }
+                        };
+                        setConfig(updated);
+                        save(updated);
+                      }
+                    }}
+                    className="w-full h-8 rounded-md border border-input bg-transparent px-3 text-xs font-mono focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    <option value="" disabled>-- Select a Model --</option>
+                    {models.gemini.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name === m.id ? m.id : `${m.name} (${m.id})`}
+                      </option>
+                    ))}
+                    <option value="__custom__">Custom Model ID...</option>
+                  </select>
+                )}
               </div>
             </CardContent>
           </Card>
