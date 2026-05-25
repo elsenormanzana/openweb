@@ -298,16 +298,17 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
 
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
-  const [isTimeOpen, setIsTimeOpen] = useState(false);
+  const [isTimeOpen, setIsTimeOpen] = useState(false);  const [isHovered, setIsHovered] = useState(false);
+
+  const handleMouseLeave = () => {
+    setIsHovered(false);
+    setIsAutoPlaying(true);
+  };
 
   const stopAutoPlay = () => {
-    if (!isAutoPlaying) return;
     setIsAutoPlaying(false);
     setCursorPos(prev => ({ ...prev, opacity: 0 }));
     if (interactionTimeoutRef.current) clearTimeout(interactionTimeoutRef.current);
-    interactionTimeoutRef.current = setTimeout(() => {
-      setIsAutoPlaying(true);
-    }, 8000); // Resume autoplay after 8 seconds of idle
   };
 
   useEffect(() => {
@@ -324,7 +325,7 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
   }, [selectedType]);
 
   useEffect(() => {
-    if (!isAutoPlaying || !open) {
+    if (!isAutoPlaying || isHovered || !open) {
       setCursorPos(prev => ({ ...prev, opacity: 0 }));
       return;
     }
@@ -332,11 +333,12 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
     setPreviewValue(getDefaultPreviewValue(selectedType));
 
     let active = true;
+    const shouldAbort = () => !active || !isAutoPlaying || isHovered;
 
     const runSequence = async () => {
       // Wait for DOM elements to mount
       await new Promise(resolve => setTimeout(resolve, 800));
-      if (!active || !isAutoPlaying) return;
+      if (shouldAbort()) return;
 
       const container = (desktopContainerRef.current?.offsetWidth ?? 0) > 0 
         ? desktopContainerRef.current 
@@ -363,7 +365,7 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
 
       const typeIntoInput = async (text: string) => {
         for (let i = 1; i <= text.length; i++) {
-          if (!active || !isAutoPlaying) return;
+          if (shouldAbort()) return;
           const slice = text.slice(0, i);
           setPreviewValue(slice);
           await new Promise(resolve => setTimeout(resolve, 80));
@@ -373,7 +375,7 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
       // Set initial position
       setCursorPos({ x: 120, y: 80, opacity: 0 });
       await new Promise(resolve => setTimeout(resolve, 400));
-      if (!active || !isAutoPlaying) return;
+      if (shouldAbort()) return;
 
       switch (selectedType) {
         case "text":
@@ -383,11 +385,11 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
           if (input) {
             moveToElement(input);
             await new Promise(resolve => setTimeout(resolve, 800));
-            if (!active || !isAutoPlaying) return;
+            if (shouldAbort()) return;
             
             clickElement(input);
             await new Promise(resolve => setTimeout(resolve, 400));
-            if (!active || !isAutoPlaying) return;
+            if (shouldAbort()) return;
 
             const text = selectedType === "text" ? "Jane Doe" : selectedType === "email" ? "jane@example.com" : "25";
             await typeIntoInput(text);
@@ -399,11 +401,11 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
           if (textarea) {
             moveToElement(textarea);
             await new Promise(resolve => setTimeout(resolve, 800));
-            if (!active || !isAutoPlaying) return;
+            if (shouldAbort()) return;
 
             clickElement(textarea);
             await new Promise(resolve => setTimeout(resolve, 400));
-            if (!active || !isAutoPlaying) return;
+            if (shouldAbort()) return;
 
             await typeIntoInput("Great builder layout! Very clean.");
           }
@@ -414,7 +416,7 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
           if (input) {
             moveToElement(input);
             await new Promise(resolve => setTimeout(resolve, 800));
-            if (!active || !isAutoPlaying) return;
+            if (shouldAbort()) return;
 
             clickElement(input);
             setPreviewValue(true);
@@ -429,18 +431,18 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
             if (selectEl) {
               moveToElement(selectEl);
               await new Promise(resolve => setTimeout(resolve, 800));
-              if (!active || !isAutoPlaying) return;
+              if (shouldAbort()) return;
 
               clickElement(selectEl);
               setIsDropdownOpen(true);
               await new Promise(resolve => setTimeout(resolve, 600));
-              if (!active || !isAutoPlaying) return;
+              if (shouldAbort()) return;
 
               const optBtn = container.querySelector('.mock-option-puerto-rico') as HTMLElement;
               if (optBtn) {
                 moveToElement(optBtn);
                 await new Promise(resolve => setTimeout(resolve, 800));
-                if (!active || !isAutoPlaying) return;
+                if (shouldAbort()) return;
 
                 clickElement(optBtn);
                 setPreviewValue("Puerto Rico");
@@ -453,17 +455,17 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
               const r2 = radios[1] as HTMLElement;
               moveToElement(r2);
               await new Promise(resolve => setTimeout(resolve, 800));
-              if (!active || !isAutoPlaying) return;
+              if (shouldAbort()) return;
 
               clickElement(r2);
               setPreviewValue("Phone call");
               await new Promise(resolve => setTimeout(resolve, 1200));
-              if (!active || !isAutoPlaying) return;
+              if (shouldAbort()) return;
 
               const r1 = radios[0] as HTMLElement;
               moveToElement(r1);
               await new Promise(resolve => setTimeout(resolve, 800));
-              if (!active || !isAutoPlaying) return;
+              if (shouldAbort()) return;
 
               clickElement(r1);
               setPreviewValue("Email");
@@ -479,16 +481,16 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
 
             moveToElement(c1);
             await new Promise(resolve => setTimeout(resolve, 800));
-            if (!active || !isAutoPlaying) return;
+            if (shouldAbort()) return;
             clickElement(c1);
             setPreviewValue(["Technology"]);
 
             await new Promise(resolve => setTimeout(resolve, 1200));
-            if (!active || !isAutoPlaying) return;
+            if (shouldAbort()) return;
 
             moveToElement(c3);
             await new Promise(resolve => setTimeout(resolve, 800));
-            if (!active || !isAutoPlaying) return;
+            if (shouldAbort()) return;
             clickElement(c3);
             setPreviewValue(["Technology", "Sports"]);
           }
@@ -502,16 +504,16 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
 
             moveToElement(r4);
             await new Promise(resolve => setTimeout(resolve, 800));
-            if (!active || !isAutoPlaying) return;
+            if (shouldAbort()) return;
             clickElement(r4);
             setPreviewValue("4");
 
             await new Promise(resolve => setTimeout(resolve, 1200));
-            if (!active || !isAutoPlaying) return;
+            if (shouldAbort()) return;
 
             moveToElement(r5);
             await new Promise(resolve => setTimeout(resolve, 800));
-            if (!active || !isAutoPlaying) return;
+            if (shouldAbort()) return;
             clickElement(r5);
             setPreviewValue("5");
           }
@@ -524,7 +526,7 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
               const star = stars[i] as HTMLElement;
               moveToElement(star);
               await new Promise(resolve => setTimeout(resolve, 250));
-              if (!active || !isAutoPlaying) return;
+              if (shouldAbort()) return;
             }
             const star5 = stars[4] as HTMLElement;
             clickElement(star5);
@@ -537,18 +539,18 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
           if (input) {
             moveToElement(input);
             await new Promise(resolve => setTimeout(resolve, 800));
-            if (!active || !isAutoPlaying) return;
+            if (shouldAbort()) return;
 
             clickElement(input);
             setIsCalendarOpen(true);
             await new Promise(resolve => setTimeout(resolve, 600));
-            if (!active || !isAutoPlaying) return;
+            if (shouldAbort()) return;
 
             const dateBtn = container.querySelector('.mock-date-25') as HTMLElement;
             if (dateBtn) {
               moveToElement(dateBtn);
               await new Promise(resolve => setTimeout(resolve, 800));
-              if (!active || !isAutoPlaying) return;
+              if (shouldAbort()) return;
 
               clickElement(dateBtn);
               setPreviewValue("2026-05-25");
@@ -562,18 +564,18 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
           if (input) {
             moveToElement(input);
             await new Promise(resolve => setTimeout(resolve, 800));
-            if (!active || !isAutoPlaying) return;
+            if (shouldAbort()) return;
 
             clickElement(input);
             setIsTimeOpen(true);
             await new Promise(resolve => setTimeout(resolve, 600));
-            if (!active || !isAutoPlaying) return;
+            if (shouldAbort()) return;
 
             const timeBtn = container.querySelector('.mock-time-12') as HTMLElement;
             if (timeBtn) {
               moveToElement(timeBtn);
               await new Promise(resolve => setTimeout(resolve, 800));
-              if (!active || !isAutoPlaying) return;
+              if (shouldAbort()) return;
 
               clickElement(timeBtn);
               setPreviewValue("12:00 PM");
@@ -587,11 +589,11 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
           if (button) {
             moveToElement(button);
             await new Promise(resolve => setTimeout(resolve, 800));
-            if (!active || !isAutoPlaying) return;
+            if (shouldAbort()) return;
 
             clickElement(button);
             await new Promise(resolve => setTimeout(resolve, 600));
-            if (!active || !isAutoPlaying) return;
+            if (shouldAbort()) return;
 
             setPreviewValue([{ name: "resume.pdf", url: "#", size: 124000 }]);
           }
@@ -609,17 +611,17 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
             if (cell1) {
               moveToElement(cell1);
               await new Promise(resolve => setTimeout(resolve, 800));
-              if (!active || !isAutoPlaying) return;
+              if (shouldAbort()) return;
               clickElement(cell1);
               setPreviewValue(isGridCheckbox ? { "Speed": ["Needs Work"] } : { "Speed": "Needs Work" });
             }
 
             if (cells.length > 4 && cell2) {
               await new Promise(resolve => setTimeout(resolve, 1200));
-              if (!active || !isAutoPlaying) return;
+              if (shouldAbort()) return;
               moveToElement(cell2);
               await new Promise(resolve => setTimeout(resolve, 800));
-              if (!active || !isAutoPlaying) return;
+              if (shouldAbort()) return;
               clickElement(cell2);
               setPreviewValue(isGridCheckbox 
                 ? { "Speed": ["Needs Work"], "Usability": ["Good"] } 
@@ -629,13 +631,12 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
           }
           break;
         }
-
         default:
           break;
       }
 
       await new Promise(resolve => setTimeout(resolve, 2500));
-      if (!active || !isAutoPlaying) return;
+      if (shouldAbort()) return;
       setCursorPos(prev => ({ ...prev, opacity: 0 }));
     };
 
@@ -644,7 +645,7 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
     return () => {
       active = false;
     };
-  }, [selectedType, isAutoPlaying, open]);
+  }, [selectedType, isAutoPlaying, open, isHovered]);
 
   const groups = ["Text", "Choice", "Scale", "Advanced"] as const;
   const filteredTypes = QUESTION_TYPE_LIST.filter(t => 
@@ -805,25 +806,31 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
                   {/* Viewport */}
                   <div 
                     ref={desktopContainerRef}
+                    onMouseEnter={() => setIsHovered(true)}
+                    onMouseLeave={handleMouseLeave}
                     onMouseDown={stopAutoPlay}
                     onFocusCapture={stopAutoPlay}
                     onKeyDown={stopAutoPlay}
-                    className="p-6 bg-background dark:bg-neutral-900 min-h-[160px] flex flex-col justify-center border-t-0 relative overflow-hidden"
+                    className={`p-6 bg-background dark:bg-neutral-900 flex flex-col justify-center border-t-0 relative transition-all duration-300 ${
+                      ["dropdown", "select", "date", "time"].includes(selectedType) ? "min-h-[380px]" : "min-h-[160px]"
+                    }`}
                   >
                     {/* Imaginary Mouse Pointer */}
                     {isAutoPlaying && cursorPos.opacity > 0 && (
                       <div
-                        className="absolute pointer-events-none z-30 transition-all duration-700 ease-out flex items-center justify-center"
+                        className="absolute pointer-events-none z-30 transition-all duration-700 ease-out"
                         style={{
                           left: cursorPos.x,
                           top: cursorPos.y,
                           opacity: cursorPos.opacity,
                         }}
                       >
-                        <MousePointer2 className="size-5 text-neutral-900 fill-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)] select-none pointer-events-none" />
-                        {clickRipple && (
-                          <span className="absolute w-6 h-6 rounded-full bg-primary/40 animate-ping -left-1 -top-1" />
-                        )}
+                        <div className="relative">
+                          <MousePointer2 className="size-5 text-neutral-900 fill-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)] select-none pointer-events-none" />
+                          {clickRipple && (
+                            <span className="absolute w-6 h-6 rounded-full bg-primary/40 animate-ping -left-3 -top-3" />
+                          )}
+                        </div>
                       </div>
                     )}
 
@@ -1033,25 +1040,31 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
                     </div>
                     <div 
                       ref={mobileContainerRef}
+                      onMouseEnter={() => setIsHovered(true)}
+                      onMouseLeave={handleMouseLeave}
                       onMouseDown={stopAutoPlay}
                       onFocusCapture={stopAutoPlay}
                       onKeyDown={stopAutoPlay}
-                      className="p-4 bg-background dark:bg-neutral-900 min-h-[120px] flex flex-col justify-center relative overflow-hidden"
+                      className={`p-4 bg-background dark:bg-neutral-900 flex flex-col justify-center relative transition-all duration-300 ${
+                        ["dropdown", "select", "date", "time"].includes(selectedType) ? "min-h-[320px]" : "min-h-[120px]"
+                      }`}
                     >
                       {/* Imaginary Mouse Pointer */}
                       {isAutoPlaying && cursorPos.opacity > 0 && (
                         <div
-                          className="absolute pointer-events-none z-30 transition-all duration-700 ease-out flex items-center justify-center"
+                          className="absolute pointer-events-none z-30 transition-all duration-700 ease-out"
                           style={{
                             left: cursorPos.x,
                             top: cursorPos.y,
                             opacity: cursorPos.opacity,
                           }}
                         >
-                          <MousePointer2 className="size-5 text-neutral-900 fill-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)] select-none pointer-events-none" />
-                          {clickRipple && (
-                            <span className="absolute w-6 h-6 rounded-full bg-primary/40 animate-ping -left-1 -top-1" />
-                          )}
+                          <div className="relative">
+                            <MousePointer2 className="size-5 text-neutral-900 fill-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)] select-none pointer-events-none" />
+                            {clickRipple && (
+                              <span className="absolute w-6 h-6 rounded-full bg-primary/40 animate-ping -left-3 -top-3" />
+                            )}
+                          </div>
                         </div>
                       )}
 
