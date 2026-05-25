@@ -58,8 +58,6 @@ CC=""   # cyan
 CG=""   # green
 CY=""   # yellow
 CR=""   # red
-CM=""   # magenta / accent
-CW=""   # bright white
 
 TUI_ACTIVE=0
 TERM_W=80          # detected terminal width
@@ -93,12 +91,10 @@ init_colors() {
     C0="$(tput sgr0    2>/dev/null || printf '')"
     CD="$(tput dim     2>/dev/null || printf '')"
     CB="$(tput bold    2>/dev/null || printf '')"
-    CC="$(tput setaf 6 2>/dev/null || printf '')"   # cyan
-    CG="$(tput setaf 2 2>/dev/null || printf '')"   # green
-    CY="$(tput setaf 3 2>/dev/null || printf '')"   # yellow
-    CR="$(tput setaf 1 2>/dev/null || printf '')"   # red
-    CM="$(tput setaf 5 2>/dev/null || printf '')"   # magenta
-    CW="$(tput setaf 7 2>/dev/null || printf '')"   # white
+    CC="$(tput setaf 6 2>/dev/null || printf '')"
+    CG="$(tput setaf 2 2>/dev/null || printf '')"
+    CY="$(tput setaf 3 2>/dev/null || printf '')"
+    CR="$(tput setaf 1 2>/dev/null || printf '')"
   fi
 }
 
@@ -151,12 +147,11 @@ _measure() {
   BOX_H=$(( TERM_H - 13 ))
   [ "$BOX_H" -lt 4 ] && BOX_H=4
 
-  # Double-line box chars for premium look
   local r
-  r="$(printf '═%.0s' $(seq 1 "$BOX_W"))"
-  _BOX_TOP="╔${r}╗"
-  _BOX_MID="╠${r}╣"
-  _BOX_BOT="╚${r}╝"
+  r="$(printf '─%.0s' $(seq 1 "$BOX_W"))"
+  _BOX_TOP="╭${r}╮"
+  _BOX_MID="├${r}┤"
+  _BOX_BOT="╰${r}╯"
 }
 
 # Back-compat alias — older call sites used _update_box.
@@ -177,19 +172,19 @@ _cls() {
 # either append the formatted row to SCREEN_LINES (buffered) or write it
 # directly to /dev/tty (direct, used by splash/completion).
 
-_fmt_blank() { printf '║%*s║' "$BOX_W" ""; }
+_fmt_blank() { printf '│%*s│' "$BOX_W" ""; }
 
 _fmt_row() {
-  printf '║  %-*s  ║' "$((BOX_W - 4))" "${1:-}"
+  printf '│  %-*s  │' "$((BOX_W - 4))" "${1:-}"
 }
 
 _fmt_row_bold() {
-  printf '║  %s%-*s%s  ║' "$CB" "$((BOX_W - 4))" "${1:-}" "$C0"
+  printf '│  %s%-*s%s  │' "$CB" "$((BOX_W - 4))" "${1:-}" "$C0"
 }
 
 _fmt_row_dim() {
   # 2-space indent inside the box for visual hierarchy.
-  printf '║  %s  %-*s%s  ║' "$CD" "$((BOX_W - 6))" "${1:-}" "$C0"
+  printf '│  %s  %-*s%s  │' "$CD" "$((BOX_W - 6))" "${1:-}" "$C0"
 }
 
 _fmt_row_kv() {
@@ -198,22 +193,22 @@ _fmt_row_kv() {
   local val_w=$(( BOX_W - 4 - key_w - 1 ))
   [ "$val_w" -lt 4 ] && val_w=4
   if [ "${#val}" -gt "$val_w" ]; then val="${val:0:$((val_w - 1))}…"; fi
-  printf '║  %s%-*s%s %s%-*s%s  ║' \
+  printf '│  %s%-*s%s %s%-*s%s  │' \
     "$CD" "$key_w" "$key" "$C0" \
     "$CB" "$val_w" "$val" "$C0"
 }
 
 _fmt_row_logo() {
-  local t="  OpenWeb  ·  Deployment Wizard"
+  local t="✦  OpenWeb  ·  Deployment Wizard"
   local inner=$(( BOX_W - 4 ))
   [ "${#t}" -gt "$inner" ] && t="${t:0:$inner}"
-  printf '║  %s%-*s%s  ║' "${CB}${CC}" "$inner" "$t" "$C0"
+  printf '│  %s%-*s%s  │' "${CB}${CC}" "$inner" "$t" "$C0"
 }
 
 _fmt_row_step() {
   local cur="$1" tot="$2" label="Step $cur of $tot"
   # Right-aligned step indicator.
-  printf '║  %s%*s%s  ║' "${CD}${CY}" "$((BOX_W - 4))" "$label" "$C0"
+  printf '│  %s%*s%s  │' "$CD" "$((BOX_W - 4))" "$label" "$C0"
 }
 
 _fmt_row_progress() {
@@ -221,11 +216,11 @@ _fmt_row_progress() {
   local bw=$(( BOX_W - 4 ))
   [ "$bw" -lt 4 ] && bw=4
   local filled=$(( bw * cur / tot )) empty=$(( bw - bw * cur / tot ))
-  local fbar="" ebar="" i=0
-  while [ "$i" -lt "$filled" ]; do fbar="${fbar}▓"; i=$(( i+1 )); done
+  local bar="" i=0
+  while [ "$i" -lt "$filled" ]; do bar="${bar}█"; i=$(( i+1 )); done
   i=0
-  while [ "$i" -lt "$empty"  ]; do ebar="${ebar}░"; i=$(( i+1 )); done
-  printf '║  %s%s%s%s%s  ║' "${CB}${CC}" "$fbar" "${C0}${CD}" "$ebar" "$C0"
+  while [ "$i" -lt "$empty"  ]; do bar="${bar}░"; i=$(( i+1 )); done
+  printf '│  %s%-*s%s  │' "$CG" "$bw" "$bar" "$C0"
 }
 
 _fmt_row_center() {
@@ -236,15 +231,7 @@ _fmt_row_center() {
   local rpad=$(( BOX_W - lpad - vw ))
   [ "$lpad" -lt 0 ] && lpad=0
   [ "$rpad" -lt 0 ] && rpad=0
-  printf '║%*s%s%s%s%*s║' "$lpad" "" "$pre" "$t" "$suf" "$rpad" ""
-}
-
-_fmt_row_accent() {
-  # A row with a leading colored accent bar for menu items / highlights.
-  local marker="${1:-›}" text="${2:-}" color="${3:-$CC}"
-  local inner=$(( BOX_W - 6 ))
-  [ "$inner" -lt 1 ] && inner=1
-  printf '║  %s%s%s %-*s  ║' "${CB}${color}" "$marker" "$C0" "$inner" "$text"
+  printf '│%*s%s%s%s%*s│' "$lpad" "" "$pre" "$t" "$suf" "$rpad" ""
 }
 
 # ─── Mode-aware emit ─────────────────────────────────────────────────────────
@@ -278,7 +265,7 @@ _bot()   {
     printf '%s\n' "$_BOX_BOT" >/dev/tty
   fi
 }
-_blank()        { _emit "$(_fmt_blank)"; }
+_blank() { _emit "$(_fmt_blank)"; }
 
 _row()          { _emit "$(_fmt_row          "${1:-}")"; }
 _row_bold()     { _emit "$(_fmt_row_bold     "${1:-}")"; }
@@ -288,7 +275,6 @@ _row_logo()     { _emit "$(_fmt_row_logo)"; }
 _row_step()     { _emit "$(_fmt_row_step     "$1" "$2")"; }
 _row_progress() { _emit "$(_fmt_row_progress "$1" "$2")"; }
 _row_center()   { _emit "$(_fmt_row_center   "$1" "${2:-}" "${3:-}")"; }
-_row_accent()   { _emit "$(_fmt_row_accent   "${1:-›}" "${2:-}" "${3:-$CC}")"; }
 
 # ─── Buffered screen header & paint ──────────────────────────────────────────
 #
@@ -316,9 +302,7 @@ _paint_chrome() {
     printf '%s\n' "$(_fmt_row_progress "$SCREEN_STEP" "$TOTAL_STEPS")" >/dev/tty
     printf '%s\n' "$(_fmt_blank)"      >/dev/tty
   fi
-  # Title row with accent
-  local tw=$(( BOX_W - 4 ))
-  printf '║  %s%s%-*s%s  ║\n' "${CB}" "${CW}" "$tw" "$SCREEN_TITLE" "$C0" >/dev/tty
+  printf '%s\n' "$(_fmt_row_bold "$SCREEN_TITLE")" >/dev/tty
   printf '%s\n' "$_BOX_MID"            >/dev/tty
 }
 
@@ -380,9 +364,9 @@ _paint_screen() {
 
 # ─── Status lines ─────────────────────────────────────────────────────────────
 
-_info() { printf '  %s◆%s  %s\n'  "${CC}" "$C0" "$1" >/dev/tty; }
-_ok()   { printf '  %s✔%s  %s%s%s\n' "${CB}${CG}" "$C0" "$CG" "$1" "$C0" >/dev/tty; }
-_warn() { printf '  %s⚠%s  %s%s%s\n' "${CB}${CY}" "$C0" "$CY" "$1" "$C0" >/dev/tty; }
+_info() { printf '  %s·%s  %s\n' "$CC" "$C0" "$1" >/dev/tty; }
+_ok()   { printf '  %s✓%s  %s\n' "$CG" "$C0" "$1" >/dev/tty; }
+_warn() { printf '  %s⚠%s  %s\n' "$CY" "$C0" "$1" >/dev/tty; }
 
 # die: show an error box and exit.
 # Use this instead of relying on set -e to crash silently.
@@ -400,12 +384,12 @@ _show_error_screen() {
   [ -z "$msg" ] && return   # clean exit — nothing to show
   _update_box 2>/dev/null || true
   printf '\n' >/dev/tty 2>/dev/null || true
-  printf '%s\n' "$_BOX_TOP" >/dev/tty 2>/dev/null || true
-  printf '║  %s%-*s%s  ║\n' "${CR}${CB}" "$((BOX_W - 4))" "  ✖  Deployment Error" "$C0" \
+  _top  >/dev/tty 2>/dev/null || true
+  printf '│  %s%-*s%s  │\n' "${CR}${CB}" "$((BOX_W - 4))" "Deployment Error" "$C0" \
     >/dev/tty 2>/dev/null || true
   printf '%s\n' "$_BOX_MID" >/dev/tty 2>/dev/null || true
-  printf '║  %s%-*s%s  ║\n' "$CR" "$((BOX_W - 4))" "$msg" "$C0" >/dev/tty 2>/dev/null || true
-  printf '║  %-*s  ║\n' "$((BOX_W - 4))" "" >/dev/tty 2>/dev/null || true
+  printf '│  %-*s  │\n' "$((BOX_W - 4))" "$msg" >/dev/tty 2>/dev/null || true
+  printf '│  %-*s  │\n' "$((BOX_W - 4))" "" >/dev/tty 2>/dev/null || true
   printf '%s\n' "$_BOX_BOT" >/dev/tty 2>/dev/null || true
   printf '\n  %sPress Enter to exit…%s ' "$CD" "$C0" >/dev/tty 2>/dev/null || true
   tput cnorm >/dev/tty 2>/dev/null || true
@@ -424,7 +408,7 @@ _show_error_screen() {
 # printf display goes to the capture buffer instead of the terminal.
 
 _pause() {
-  printf '\n  %s%s↵  Press Enter to continue…%s ' "$CD" "$CB" "$C0" >/dev/tty
+  printf '\n  %sPress Enter to continue…%s ' "$CD" "$C0" >/dev/tty
   _cur_show
   IFS= read -r _ </dev/tty
   _cur_hide
@@ -450,7 +434,7 @@ prompt_input() {
   local label="$1" def="$2" val=""
   _REPLY=""
   while true; do
-    printf '\n  %s❯%s  %s%s%s' "${CB}${CC}" "$C0" "$CB" "$label" "$C0" >/dev/tty
+    printf '\n  %s›%s  %s%s%s' "$CC" "$C0" "$CB" "$label" "$C0" >/dev/tty
     [ -n "$def" ] && printf ' %s[%s]%s' "$CD" "$def" "$C0" >/dev/tty
     printf ': ' >/dev/tty
     _cur_show
@@ -458,7 +442,7 @@ prompt_input() {
     _cur_hide
     [ -z "$val" ] && val="$def"
     if [ -n "$val" ]; then _REPLY="$val"; return; fi
-    printf '  %s%s⚠%s  Value cannot be empty.\n' "$CB" "$CY" "$C0" >/dev/tty
+    printf '  %s⚠%s  Value cannot be empty.\n' "$CY" "$C0" >/dev/tty
   done
 }
 
@@ -468,7 +452,7 @@ prompt_secret() {
   local label="$1" def="$2" val=""
   _REPLY=""
   while true; do
-    printf '\n  %s🔒%s  %s%s%s' "${CM}" "$C0" "$CB" "$label" "$C0" >/dev/tty
+    printf '\n  %s›%s  %s%s%s' "$CC" "$C0" "$CB" "$label" "$C0" >/dev/tty
     [ -n "$def" ] && printf ' %s[%s]%s' "$CD" "$def" "$C0" >/dev/tty
     printf ': ' >/dev/tty
     _cur_show
@@ -477,7 +461,7 @@ prompt_secret() {
     printf '\n' >/dev/tty
     [ -z "$val" ] && val="$def"
     if [ -n "$val" ]; then _REPLY="$val"; return; fi
-    printf '  %s%s⚠%s  Value cannot be empty.\n' "$CB" "$CY" "$C0" >/dev/tty
+    printf '  %s⚠%s  Value cannot be empty.\n' "$CY" "$C0" >/dev/tty
   done
 }
 
@@ -486,14 +470,8 @@ prompt_yes_no() {
   local label="$1" def="$2" raw="" lv=""
   _REPLY=""
   while true; do
-    printf '\n  %s❯%s  %s%s%s' "${CB}${CC}" "$C0" "$CB" "$label" "$C0" >/dev/tty
-    if [ -n "$def" ]; then
-      if [ "$def" = "yes" ]; then
-        printf ' %s[%sYes%s/%sno%s]%s' "$CD" "${CB}${CG}" "$C0${CD}" "" "" "$C0" >/dev/tty
-      else
-        printf ' %s[%syes%s/%sNo%s]%s' "$CD" "" "" "${CB}${CR}" "$C0${CD}" "$C0" >/dev/tty
-      fi
-    fi
+    printf '\n  %s›%s  %s%s%s' "$CC" "$C0" "$CB" "$label" "$C0" >/dev/tty
+    [ -n "$def" ] && printf ' %s[%s]%s' "$CD" "$def" "$C0" >/dev/tty
     printf ': ' >/dev/tty
     _cur_show
     IFS= read -r raw </dev/tty
@@ -503,8 +481,8 @@ prompt_yes_no() {
     case "$lv" in
       y|yes) _REPLY="yes"; return ;;
       n|no)  _REPLY="no";  return ;;
-      *) printf '  %s%s⚠%s  Please enter %syes%s or %sno%s.\n' \
-           "$CB" "$CY" "$C0" "$CB" "$C0" "$CB" "$C0" >/dev/tty ;;
+      *) printf '  %s⚠%s  Please enter %syes%s or %sno%s.\n' \
+           "$CY" "$C0" "$CB" "$C0" "$CB" "$C0" >/dev/tty ;;
     esac
   done
 }
@@ -513,8 +491,8 @@ prompt_choice() {
   # $1 = default choice (number string) → result in _REPLY
   local def="$1" val=""
   _REPLY=""
-  printf '\n  %s❯%s  %sChoice%s %s[%s]%s: ' \
-    "${CB}${CC}" "$C0" "$CB" "$C0" "$CD" "$def" "$C0" >/dev/tty
+  printf '\n  %s›%s  %sChoice%s %s[%s]%s: ' \
+    "$CC" "$C0" "$CB" "$C0" "$CD" "$def" "$C0" >/dev/tty
   _cur_show
   IFS= read -r val </dev/tty
   _cur_hide
@@ -836,55 +814,28 @@ maintenance_edit_env() {
 # ─── Splash screen ────────────────────────────────────────────────────────────
 
 show_splash() {
-  local th tw
-  th="$(tput lines 2>/dev/null || echo 24)"
-  tw="$(tput cols  2>/dev/null || echo 80)"
+  local th; th="$(tput lines 2>/dev/null || echo 24)"
   _cls
-  _measure
-
-  # ASCII art logo — 5 lines tall, always centered
-  local logo_w=44   # visual width of the widest logo line
-  local lpad=$(( (BOX_W - logo_w) / 2 ))
-  [ "$lpad" -lt 0 ] && lpad=0
-  local indent="$(printf '%*s' "$lpad" '')"
-
-  local top_pad=$(( (th - 22) / 2 ))
+  local top_pad=$(( (th - 16) / 2 ))
   [ "$top_pad" -lt 0 ] && top_pad=0
   local i=0
   while [ "$i" -lt "$top_pad" ]; do printf '\n' >/dev/tty; i=$(( i+1 )); done
 
-  printf '%s\n' "$_BOX_TOP" >/dev/tty
-  printf '%s\n' "$(_fmt_blank)" >/dev/tty
-
-  # ASCII art (printed inside the box)
-  local art_indent=$(( (BOX_W - 44) / 2 ))
-  [ "$art_indent" -lt 0 ] && art_indent=0
-  local ai
-  ai="$(printf '%*s' "$art_indent" '')"
-  printf '║%s%s  ██████╗ ██████╗ ███████╗███╗   ██╗%s%*s║\n' \
-    "$ai" "${CB}${CC}" "$C0" "$(( BOX_W - art_indent - 38 ))" '' >/dev/tty
-  printf '║%s%s ██╔═══██╗██╔══██╗██╔════╝████╗  ██║%s%*s║\n' \
-    "$ai" "${CB}${CC}" "$C0" "$(( BOX_W - art_indent - 38 ))" '' >/dev/tty
-  printf '║%s%s ██║   ██║██████╔╝█████╗  ██╔██╗ ██║%s%*s║\n' \
-    "$ai" "${CB}${CC}" "$C0" "$(( BOX_W - art_indent - 38 ))" '' >/dev/tty
-  printf '║%s%s ██║   ██║██╔═══╝ ██╔══╝  ██║╚██╗██║%s%*s║\n' \
-    "$ai" "${CB}${CC}" "$C0" "$(( BOX_W - art_indent - 38 ))" '' >/dev/tty
-  printf '║%s%s ╚██████╔╝██║     ███████╗██║ ╚████║%s%*s║\n' \
-    "$ai" "${CB}${CC}" "$C0" "$(( BOX_W - art_indent - 38 ))" '' >/dev/tty
-  printf '║%s%s  ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝%s%*s║\n' \
-    "$ai" "${CB}${CC}" "$C0" "$(( BOX_W - art_indent - 38 ))" '' >/dev/tty
-
-  printf '%s\n' "$(_fmt_blank)" >/dev/tty
-  printf '%s\n' "$(_fmt_row_center "  W E B  —  D e p l o y m e n t  W i z a r d  " "${CB}${CD}" "$C0")" >/dev/tty
-  printf '%s\n' "$(_fmt_blank)" >/dev/tty
-  printf '%s\n' "$_BOX_MID" >/dev/tty
-  printf '%s\n' "$(_fmt_blank)" >/dev/tty
-  printf '%s\n' "$(_fmt_row_center "Self-hosted · Production-ready · Open source")" >/dev/tty
-  printf '%s\n' "$(_fmt_blank)" >/dev/tty
-  printf '%s\n' "$_BOX_MID" >/dev/tty
-  printf '%s\n' "$(_fmt_row_center "  ↵  Press Enter to begin  " "${CB}${CG}" "$C0")" >/dev/tty
-  printf '%s\n' "$(_fmt_blank)" >/dev/tty
-  printf '%s\n' "$_BOX_BOT" >/dev/tty
+  _top
+  _blank
+  _blank
+  _row_center "✦  OpenWeb" "${CB}${CC}" "$C0"
+  _row_center "Deployment Wizard" "$CD" "$C0"
+  _blank
+  _mid
+  _blank
+  _row_center "Interactive setup for self-hosted deployments"
+  _blank
+  _mid
+  _blank
+  _row_center "Press  Enter  to begin" "$CD" "$C0"
+  _blank
+  _bot
 
   _cur_show
   IFS= read -r _ </dev/tty
@@ -975,16 +926,15 @@ check_detected_deployment_up() {
 check_prereqs() {
   _header "Prerequisites Check" 1
   _blank
-  _row_bold "Verifying required tools before setup begins."
-  _blank
+  _row "Verifying required tools before setup begins."
   _bot
   printf '\n' >/dev/tty
 
-  require_cmd docker;  _ok "docker found"
-  require_cmd unzip;   _ok "unzip found"
+  require_cmd docker;  _ok "docker"
+  require_cmd unzip;   _ok "unzip"
   docker compose version >/dev/null 2>&1 \
     || fatal "Docker Compose plugin is required (docker compose)."
-  _ok "docker compose plugin found"
+  _ok "docker compose"
 
   printf '\n' >/dev/tty
   _ok "All prerequisite checks passed."
@@ -1276,13 +1226,13 @@ review_and_confirm() {
     _blank
     _print_summary
     _blank
-    _row_accent "1" "Deploy now" "$CG"
-    _row_accent "2" "Edit domain configuration" "$CC"
-    _row_accent "3" "Edit database settings" "$CC"
-    _row_accent "4" "Edit docker mode and ports" "$CC"
-    _row_accent "5" "Edit public ports only" "$CC"
-    _row_accent "6" "Edit backup restore" "$CC"
-    _row_accent "7" "Exit without changes" "$CD"
+    _row "1)  Deploy now"
+    _row "2)  Edit domain configuration"
+    _row "3)  Edit database settings"
+    _row "4)  Edit docker mode and ports"
+    _row "5)  Edit public ports only"
+    _row "6)  Edit backup restore"
+    _row "7)  Exit without changes"
     _bot
 
     prompt_choice "1"
@@ -2137,17 +2087,17 @@ maintenance_menu_if_running() {
   while true; do
     _header "Detected Running Deployment"
     _blank
-    _row_bold "$DETECTED_UP_DETAILS"
+    _row "$DETECTED_UP_DETAILS"
     _row_dim "Mode: $MODE"
     [ "$MODE" = "swarm" ] && _row_dim "Stack: $STACK_NAME"
     _mid
-    _row_accent "1" "Continue with full deployment wizard" "$CG"
-    _row_accent "2" "Update database credentials" "$CC"
-    _row_accent "3" "Rebuild / update app" "$CC"
-    _row_accent "4" "Check GitHub updates (origin/main) and download" "$CY"
-    _row_accent "5" "Edit environment variables" "$CC"
-    _row_accent "6" "View Anthropic API usage" "$CM"
-    _row_accent "7" "Exit" "$CD"
+    _row "1) Continue with full deployment wizard"
+    _row "2) Update database credentials"
+    _row "3) Rebuild / update app"
+    _row "4) Check GitHub updates (origin/main) and download"
+    _row "5) Edit environment variables"
+    _row "6) View Anthropic API usage"
+    _row "7) Exit"
     _bot
 
     prompt_choice "2"
@@ -2306,115 +2256,38 @@ show_completion() {
   [ -n "$DOMAIN" ] && base="http://${DOMAIN}"
 
   _cls
-  _measure
-  printf '%s\n' "$_BOX_TOP" >/dev/tty
-  printf '%s\n' "$(_fmt_row_logo)" >/dev/tty
-  printf '%s\n' "$_BOX_MID" >/dev/tty
-
-  # Success banner
-  local bw=$(( BOX_W - 4 ))
-  printf '║  %s%-*s%s  ║\n' "${CB}${CG}" "$bw" "  ✔  Deployment Complete!" "$C0" >/dev/tty
-
-  # Celebration art (simple, narrow)
-  local cel_art="★  ★  ★  ★  ★  ★  ★  ★  ★  ★"
-  printf '%s\n' "$(_fmt_row_center "$cel_art" "${CB}${CY}" "$C0")" >/dev/tty
-  printf '%s\n' "$_BOX_MID" >/dev/tty
-
-  printf '%s\n' "$(_fmt_blank)" >/dev/tty
-  printf '%s\n' "$(_fmt_row_kv "App URL:"   "${base}/")" >/dev/tty
-  printf '%s\n' "$(_fmt_row_kv "Setup URL:" "${base}/setup")" >/dev/tty
-  printf '%s\n' "$(_fmt_row_kv "Admin URL:" "${base}/admin")" >/dev/tty
+  _top
+  _row_logo
+  _mid
+  printf '│  %s%-*s%s  │\n' \
+    "${CG}${CB}" "$((BOX_W - 4))" "✦  Deployment Complete" "$C0" >/dev/tty
+  _mid
+  _blank
+  _row_kv "App URL:"   "${base}/"
+  _row_kv "Setup URL:" "${base}/setup"
+  _row_kv "Admin URL:" "${base}/admin"
   if [ -n "$DOMAIN" ]; then
-    printf '%s\n' "$(_fmt_blank)" >/dev/tty
-    printf '%s\n' "$(_fmt_row_kv "Domain:" "$DOMAIN")" >/dev/tty
-    [ "$ALLOW_SUBDOMAINS" = "yes" ] && printf '%s\n' "$(_fmt_row_kv "Subdomains:" "*.${DOMAIN}  (wildcard)")" >/dev/tty
-    [ -n "$EXTRA_DOMAINS" ]         && printf '%s\n' "$(_fmt_row_kv "Extra:"      "$EXTRA_DOMAINS")" >/dev/tty
+    _blank
+    _row_kv "Domain:" "$DOMAIN"
+    [ "$ALLOW_SUBDOMAINS" = "yes" ] && _row_kv "Subdomains:" "*.${DOMAIN}  (wildcard)"
+    [ -n "$EXTRA_DOMAINS" ]         && _row_kv "Extra:"      "$EXTRA_DOMAINS"
   fi
-  printf '%s\n' "$(_fmt_blank)" >/dev/tty
-  printf '%s\n' "$_BOX_MID" >/dev/tty
-  printf '%s\n' "$(_fmt_row_dim "First visit /setup to create your admin account.")" >/dev/tty
+  _blank
+  _mid
+  _row_dim "First visit /setup to create your admin account."
   if [ -z "$DOMAIN" ]; then
-    printf '%s\n' "$(_fmt_row_dim "Point a domain to this server and re-run setup to configure it.")" >/dev/tty
+    _row_dim "Point a domain to this server and re-run setup to configure it."
   else
-    printf '%s\n' "$(_fmt_row_dim "DNS must resolve $DOMAIN to this server's IP address.")" >/dev/tty
-    printf '%s\n' "$(_fmt_row_dim "Add TLS with Let's Encrypt (certbot) when ready for production.")" >/dev/tty
+    _row_dim "DNS must resolve $DOMAIN to this server's IP address."
+    _row_dim "Add TLS with Let's Encrypt (certbot) when ready for production."
   fi
-  printf '%s\n' "$(_fmt_blank)" >/dev/tty
-  printf '%s\n' "$_BOX_BOT" >/dev/tty
+  _blank
+  _bot
 
-  printf '\n  %s%s↵  Press Enter to exit…%s ' "$CB" "$CD" "$C0" >/dev/tty
+  printf '\n  %sPress Enter to exit…%s ' "$CD" "$C0" >/dev/tty
   _cur_show
   IFS= read -r _ </dev/tty 2>/dev/null || true
   _cur_hide
-}
-
-# ─── Startup update check ─────────────────────────────────────────────────────
-# Silently checks for updates from origin/main. If behind, offers the user
-# a chance to update before proceeding. Non-blocking on network failure.
-
-_startup_update_check() {
-  # Require git and a valid repo with an 'origin' remote.
-  _git_root_check 2>/dev/null || return 0
-  local remote_url
-  remote_url="$(git -C "$ROOT_DIR" remote get-url origin 2>/dev/null || true)"
-  [ -n "$remote_url" ] || return 0
-
-  local branch behind remote_sha local_sha
-  branch="$(_git_current_branch)"
-  [ -n "$branch" ] || return 0
-
-  # Silent fetch — if network is unavailable, just continue
-  _measure
-  _cls
-  printf '\n%s\n' "$_BOX_TOP" >/dev/tty
-  printf '%s\n' "$(_fmt_row_logo)" >/dev/tty
-  printf '%s\n' "$_BOX_MID" >/dev/tty
-  printf '%s\n' "$(_fmt_row_center "Checking for updates…" "${CD}" "$C0")" >/dev/tty
-  printf '%s\n' "$(_fmt_blank)" >/dev/tty
-  printf '%s\n' "$_BOX_BOT" >/dev/tty
-
-  git -C "$ROOT_DIR" fetch origin main --quiet >/dev/null 2>&1 || { _cls; return 0; }
-
-  local_sha="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
-  remote_sha="$(git -C "$ROOT_DIR" rev-parse origin/main 2>/dev/null || echo unknown)"
-  behind="$(git -C "$ROOT_DIR" rev-list --count HEAD..origin/main 2>/dev/null || echo 0)"
-
-  _cls
-
-  # No updates — proceed silently
-  [ "${behind:-0}" -eq 0 ] && return 0
-
-  # Updates available — prompt the user
-  _measure
-  printf '\n%s\n' "$_BOX_TOP" >/dev/tty
-  printf '%s\n' "$(_fmt_row_logo)" >/dev/tty
-  printf '%s\n' "$_BOX_MID" >/dev/tty
-  printf '%s\n' "$(_fmt_row_center "  ★  Update Available  ★  " "${CB}${CY}" "$C0")" >/dev/tty
-  printf '%s\n' "$_BOX_MID" >/dev/tty
-  printf '%s\n' "$(_fmt_blank)" >/dev/tty
-  printf '%s\n' "$(_fmt_row_kv "Commits behind:" "$behind")" >/dev/tty
-  printf '%s\n' "$(_fmt_row_kv "Remote:" "$remote_url")" >/dev/tty
-  printf '%s\n' "$(_fmt_row_kv "Branch:" "$branch")" >/dev/tty
-  printf '%s\n' "$(_fmt_row_kv "Current SHA:"  "${local_sha:0:12}")" >/dev/tty
-  printf '%s\n' "$(_fmt_row_kv "Available SHA:" "${remote_sha:0:12}")" >/dev/tty
-  printf '%s\n' "$(_fmt_blank)" >/dev/tty
-  printf '%s\n' "$_BOX_MID" >/dev/tty
-  printf '%s\n' "$(_fmt_row_dim "Apply update now? Stashes local changes, pulls, then reapplies.")" >/dev/tty
-  printf '%s\n' "$(_fmt_blank)" >/dev/tty
-  printf '%s\n' "$_BOX_BOT" >/dev/tty
-
-  prompt_yes_no "Apply update now?" "yes"
-  if [ "$_REPLY" = "yes" ]; then
-    _cls
-    printf '\n' >/dev/tty
-    if _git_is_dirty; then
-      _do_git_pull_with_stash || true
-    else
-      _do_git_pull_clean || true
-    fi
-    _ok "Update complete. Continuing to deployment wizard…"
-    _pause
-  fi
 }
 
 # ─── Entrypoint ──────────────────────────────────────────────────────────────
@@ -2425,9 +2298,6 @@ main() {
   init_colors
   init_tui      # ← alternate screen engaged; only TUI is visible from here
   show_splash
-
-  # ── Startup update check (non-blocking) ──────────────────────────────────
-  _startup_update_check
 
   check_prereqs
   detect_existing_deployment
