@@ -319,9 +319,9 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
           <Plus className="size-4" /> Add question
         </button>
       </DialogTrigger>
-      <DialogContent className="max-w-4xl w-[95vw] h-[85vh] md:h-[600px] p-0 gap-0 overflow-hidden flex flex-col rounded-xl border border-border shadow-2xl bg-background">
+      <DialogContent className="w-[95vw] sm:max-w-none md:max-w-3xl lg:max-w-5xl h-[85vh] lg:h-[700px] p-0 gap-0 overflow-hidden flex flex-col rounded-xl border border-border shadow-2xl bg-background">
         {/* Desktop Layout (Split Pane) */}
-        <div className="hidden md:flex flex-1 h-full overflow-hidden">
+        <div className="hidden lg:flex flex-1 h-full overflow-hidden">
           {/* Left Column: Search & List */}
           <div className="w-[340px] border-r border-border flex flex-col bg-muted/20">
             {/* Search Header */}
@@ -489,7 +489,7 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
         </div>
 
         {/* Mobile Layout (Slide-in Detail view) */}
-        <div className="flex md:hidden flex-1 flex-col overflow-hidden h-full">
+        <div className="flex lg:hidden flex-1 flex-col overflow-hidden h-full">
           {mobileView === "list" ? (
             <div className="flex-1 flex flex-col overflow-hidden bg-background">
               <div className="p-4 border-b border-border bg-background/50">
