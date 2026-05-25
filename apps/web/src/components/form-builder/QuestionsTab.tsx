@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors,
   type DragEndEvent,
@@ -6,12 +6,14 @@ import {
 import {
   SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Layers, Plus, Trash2 } from "lucide-react";
+import { Layers, Plus, Trash2, Search, ArrowLeft, ChevronRight, X, Sparkles } from "lucide-react";
 import type { FormField, FormFieldType, FormLayout, FormSection, FormTheme } from "@/lib/api";
 import { emptyField, QUESTION_TYPE_LIST, uid } from "@/lib/formFields";
 import { QuestionCard } from "@/components/form-builder/QuestionCard";
 import { SectionRoutingEditor, type ConditionRefField } from "@/components/form-builder/editors";
 import { RichTextEditor } from "@/components/editor/RichTextEditor";
+import { QuestionInput } from "@/components/form-fields/QuestionInput";
+import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 
 type QuestionsTabProps = {
   name: string;
@@ -24,8 +26,6 @@ type QuestionsTabProps = {
   onDescription: (v: string) => void;
   onSections: (next: FormSection[]) => void;
 };
-
-const TYPE_GROUPS = ["Text", "Choice", "Scale", "Advanced"] as const;
 
 export function QuestionsTab(props: QuestionsTabProps) {
   const { name, description, theme, layout, isQuiz, sections, onName, onDescription, onSections } = props;
@@ -177,7 +177,7 @@ export function QuestionsTab(props: QuestionsTabProps) {
             </p>
           )}
 
-          <AddQuestionMenu onAdd={(type) => addField(section.id, type)} />
+          <AddQuestionDialog onAdd={(type) => addField(section.id, type)} themeColor={theme.themeColor} />
         </div>
       ))}
 
@@ -192,43 +192,461 @@ export function QuestionsTab(props: QuestionsTabProps) {
   );
 }
 
-function AddQuestionMenu({ onAdd }: { onAdd: (type: FormFieldType) => void }) {
+const QUESTION_DESCRIPTIONS: Record<FormFieldType, string> = {
+  text: "Best for short text input (e.g. names, single-line answers). Supports input validation for custom formats.",
+  textarea: "Best for longer, multi-line text input (e.g. comments, descriptions, feedback). Supports character limit controls.",
+  email: "A text field with automatic email format validation. Minimizes user errors and simplifies contact collection.",
+  number: "Accepts numeric values only. Useful for age, quantities, or scores. Supports setting minimum and maximum limits.",
+  multiple_choice: "Responders select a single option from a list of choices. Supports custom option routing (branching logic) to redirect users based on their answer.",
+  checkboxes: "Allows responders to select one or multiple choices from a list of options. Useful for multi-select checklists.",
+  dropdown: "Displays a list of options in a clean select menu. Ideal for saving space or when choosing from a long list (e.g. states or countries). Supports option prefilling.",
+  checkbox: "A binary checkbox field for simple confirmations, agreements, or toggle selections (e.g. 'I agree to the terms').",
+  select: "Displays options in a clean dropdown menu. (Legacy format for select fields).",
+  date: "Displays an interactive calendar date picker. Perfect for birthdays, booking dates, or scheduling.",
+  time: "Displays an interactive clock/time picker. Perfect for appointment scheduling or tracking time slots.",
+  linear_scale: "Responders rate an item on a continuous scale (e.g. 1 to 5, 1 to 10) with custom low and high labels. Great for satisfaction ratings.",
+  rating: "A visual rating bar (stars or hearts). Highly interactive and ideal for reviews, service satisfaction, or feedback ratings.",
+  file: "Allows responders to upload documents, images, PDFs, or spreadsheets directly. You can limit file types, sizes, and file counts.",
+  grid_multiple_choice: "Renders a matrix where responders can select one column choice per row. Ideal for matching multiple items to a single rating scale.",
+  grid_checkbox: "Renders a matrix where responders can select multiple column choices per row. Ideal for complex scheduling or multi-criteria availability tables."
+};
+
+function getMockField(type: FormFieldType): FormField {
+  const base = emptyField(type);
+  switch (type) {
+    case "text":
+      return { ...base, label: "Full Name", placeholder: "e.g. Jane Doe" };
+    case "textarea":
+      return { ...base, label: "Feedback", placeholder: "Please share your thoughts with us..." };
+    case "email":
+      return { ...base, label: "Email Address", placeholder: "you@example.com" };
+    case "number":
+      return { ...base, label: "Age", placeholder: "e.g. 25" };
+    case "multiple_choice":
+      return { ...base, label: "Preferred Contact Method", options: ["Email", "Phone call", "SMS text"] };
+    case "checkboxes":
+      return { ...base, label: "Interests", options: ["Technology", "Art & Design", "Sports", "Music"] };
+    case "dropdown":
+      return { ...base, label: "Country / Region", options: ["United States", "Puerto Rico", "Canada", "United Kingdom", "Other"] };
+    case "checkbox":
+      return { ...base, label: "Terms of Service", placeholder: "I agree to the Terms of Service and Privacy Policy" };
+    case "date":
+      return { ...base, label: "Date of Birth" };
+    case "time":
+      return { ...base, label: "Preferred Meeting Time" };
+    case "linear_scale":
+      return {
+        ...base,
+        label: "How likely are you to recommend us?",
+        scaleMin: 1,
+        scaleMax: 5,
+        scaleMinLabel: "Not likely",
+        scaleMaxLabel: "Very likely"
+      };
+    case "rating":
+      return { ...base, label: "Product Rating", ratingMax: 5, ratingIcon: "star" };
+    case "file":
+      return { ...base, label: "Upload Resume (PDF, Word)", fileMaxMB: 10, fileMaxCount: 1 };
+    case "grid_multiple_choice":
+      return {
+        ...base,
+        label: "Rate features",
+        rows: ["Speed", "Usability", "Design"],
+        columns: ["Needs Work", "Good", "Outstanding"]
+      };
+    case "grid_checkbox":
+      return {
+        ...base,
+        label: "Select your availability",
+        rows: ["Monday", "Wednesday", "Friday"],
+        columns: ["Morning", "Afternoon", "Evening"]
+      };
+    default:
+      return base;
+  }
+}
+
+function getDefaultPreviewValue(type: FormFieldType): any {
+  switch (type) {
+    case "checkbox":
+      return false;
+    case "checkboxes":
+      return [];
+    case "grid_multiple_choice":
+    case "grid_checkbox":
+      return {};
+    case "file":
+      return [];
+    default:
+      return "";
+  }
+}
+
+function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType) => void; themeColor: string }) {
   const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedType, setSelectedType] = useState<FormFieldType>("text");
+  const [mobileView, setMobileView] = useState<"list" | "detail">("list");
+  const [previewValue, setPreviewValue] = useState<any>("");
+
+  useEffect(() => {
+    setPreviewValue(getDefaultPreviewValue(selectedType));
+  }, [selectedType]);
+
+  const groups = ["Text", "Choice", "Scale", "Advanced"] as const;
+  const filteredTypes = QUESTION_TYPE_LIST.filter(t => 
+    t.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    t.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    t.group.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const selectedTypeDef = QUESTION_TYPE_LIST.find(t => t.type === selectedType);
+
   return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-border py-2.5 text-sm hover:bg-muted transition-colors"
-      >
-        <Plus className="size-4" /> Add question
-      </button>
-      {open && (
-        <>
-          <button className="fixed inset-0 z-10 cursor-default" aria-label="Close" onClick={() => setOpen(false)} />
-          <div className="absolute z-20 mt-1 w-full rounded-xl border border-border bg-background p-2 shadow-lg max-h-80 overflow-y-auto">
-            {TYPE_GROUPS.map((group) => (
-              <div key={group} className="mb-1.5 last:mb-0">
-                <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">{group}</p>
-                {QUESTION_TYPE_LIST.filter((t) => t.group === group).map((t) => {
-                  const Icon = t.icon;
-                  return (
+    <Dialog open={open} onOpenChange={(val) => {
+      setOpen(val);
+      if (val) {
+        setSearchQuery("");
+        setSelectedType("text");
+        setMobileView("list");
+      }
+    }}>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-border py-2.5 text-sm hover:bg-muted transition-colors cursor-pointer"
+        >
+          <Plus className="size-4" /> Add question
+        </button>
+      </DialogTrigger>
+      <DialogContent className="max-w-4xl w-[95vw] h-[85vh] md:h-[600px] p-0 gap-0 overflow-hidden flex flex-col rounded-xl border border-border shadow-2xl bg-background">
+        {/* Desktop Layout (Split Pane) */}
+        <div className="hidden md:flex flex-1 h-full overflow-hidden">
+          {/* Left Column: Search & List */}
+          <div className="w-[340px] border-r border-border flex flex-col bg-muted/20">
+            {/* Search Header */}
+            <div className="p-4 border-b border-border bg-background/50 backdrop-blur-xs">
+              <h3 className="text-sm font-semibold mb-2">Add Question Block</h3>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search block types..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-border bg-background focus:outline-hidden focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="size-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+            {/* Category List */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-4">
+              {groups.map((group) => {
+                const items = filteredTypes.filter((t) => t.group === group);
+                if (items.length === 0) return null;
+                return (
+                  <div key={group} className="space-y-1">
+                    <span className="text-[10px] font-bold text-muted-foreground/85 tracking-wider uppercase px-2">
+                      {group}
+                    </span>
+                    <div className="space-y-0.5">
+                      {items.map((t) => {
+                        const Icon = t.icon;
+                        const isSelected = selectedType === t.type;
+                        return (
+                          <button
+                            key={t.type}
+                            type="button"
+                            onClick={() => setSelectedType(t.type)}
+                            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-left transition-all cursor-pointer ${
+                              isSelected
+                                ? "bg-primary/10 text-primary font-medium"
+                                : "hover:bg-muted/70 text-foreground/80 hover:text-foreground"
+                            }`}
+                          >
+                            <div className={`p-1.5 rounded-md ${
+                              isSelected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                            }`}>
+                              <Icon className="size-4" />
+                            </div>
+                            <span className="flex-1">{t.label}</span>
+                            {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+              {filteredTypes.length === 0 && (
+                <div className="text-center py-8 text-sm text-muted-foreground">
+                  No matching question types found.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right Column: Details & Preview */}
+          <div className="flex-1 flex flex-col overflow-hidden bg-background">
+            {/* Header */}
+            <div className="p-5 border-b border-border flex items-center justify-between">
+              <div>
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide uppercase bg-primary/10 text-primary mb-1">
+                  {selectedTypeDef?.group}
+                </span>
+                <h2 className="text-xl font-bold tracking-tight text-foreground">{selectedTypeDef?.label}</h2>
+              </div>
+            </div>
+
+            {/* Main Details and Live Preview */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Description */}
+              <div className="space-y-2 bg-muted/30 p-4 rounded-xl border border-border/40">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Description</h4>
+                <p className="text-sm text-foreground/80 leading-relaxed">
+                  {QUESTION_DESCRIPTIONS[selectedType]}
+                </p>
+              </div>
+
+              {/* Live Preview Pane */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between px-1">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <Sparkles className="size-3.5 text-primary" /> Interactive Live Preview
+                  </h4>
+                  <span className="text-[10px] text-muted-foreground">Interact below to test</span>
+                </div>
+
+                {/* Browser Card Mockup */}
+                <div className="border border-border rounded-xl overflow-hidden shadow-lg bg-background flex flex-col">
+                  {/* Browser Header */}
+                  <div className="bg-muted/50 px-4 py-2.5 flex items-center gap-3 border-b border-border/50">
+                    <div className="flex gap-1.5 shrink-0">
+                      <span className="w-2.5 h-2.5 rounded-full bg-red-400/80" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-yellow-400/80" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-green-400/80" />
+                    </div>
+                    <div className="flex-1 max-w-sm mx-auto bg-background/80 border border-border/60 rounded-md py-0.5 px-3 text-[10px] text-muted-foreground/80 truncate text-center font-mono select-none">
+                      openweb.dev/form/preview
+                    </div>
+                  </div>
+                  {/* Viewport */}
+                  <div className="p-6 bg-background dark:bg-neutral-900 min-h-[160px] flex flex-col justify-center border-t-0">
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-foreground flex items-center gap-1">
+                        {getMockField(selectedType).label}
+                        {getMockField(selectedType).required && <span className="text-red-500">*</span>}
+                      </label>
+                      {getMockField(selectedType).description && (
+                        <p className="text-xs text-muted-foreground mb-2">{getMockField(selectedType).description}</p>
+                      )}
+                      <div className="pt-1">
+                        <QuestionInput
+                          field={getMockField(selectedType)}
+                          value={previewValue}
+                          onChange={setPreviewValue}
+                          accent={themeColor}
+                          disabled={selectedType === "file"}
+                        />
+                      </div>
+                      {previewValue !== undefined && previewValue !== "" && (
+                        <div className="mt-4 p-2 bg-muted/40 rounded-lg text-[10px] font-mono text-muted-foreground flex gap-1 items-center border border-border/30">
+                          <span className="font-semibold text-primary/80">Value:</span>
+                          <span className="truncate">{JSON.stringify(previewValue)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-border bg-muted/20 flex justify-end gap-3">
+              <DialogClose asChild>
+                <button className="px-4 py-2 text-sm font-medium border border-border hover:bg-muted rounded-lg transition-colors cursor-pointer">
+                  Cancel
+                </button>
+              </DialogClose>
+              <button
+                onClick={() => {
+                  onAdd(selectedType);
+                  setOpen(false);
+                }}
+                className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/95 hover-lift shadow-sm hover:shadow-md rounded-lg flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                <Plus className="size-4" /> Add Question Block
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile Layout (Slide-in Detail view) */}
+        <div className="flex md:hidden flex-1 flex-col overflow-hidden h-full">
+          {mobileView === "list" ? (
+            <div className="flex-1 flex flex-col overflow-hidden bg-background">
+              <div className="p-4 border-b border-border bg-background/50">
+                <h3 className="text-sm font-semibold mb-2">Select Question Block</h3>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Search block types..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-border bg-background focus:outline-hidden focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                  />
+                  {searchQuery && (
                     <button
-                      key={t.type}
-                      type="button"
-                      onClick={() => { onAdd(t.type); setOpen(false); }}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-muted text-left"
+                      onClick={() => setSearchQuery("")}
+                      className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
                     >
-                      <Icon className="size-4 text-muted-foreground" />
-                      {t.label}
+                      <X className="size-4" />
                     </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {groups.map((group) => {
+                  const items = filteredTypes.filter((t) => t.group === group);
+                  if (items.length === 0) return null;
+                  return (
+                    <div key={group} className="space-y-1">
+                      <span className="text-[10px] font-bold text-muted-foreground/80 tracking-wider uppercase px-2">
+                        {group}
+                      </span>
+                      <div className="space-y-0.5">
+                        {items.map((t) => {
+                          const Icon = t.icon;
+                          return (
+                            <button
+                              key={t.type}
+                              type="button"
+                              onClick={() => {
+                                setSelectedType(t.type);
+                                setMobileView("detail");
+                              }}
+                              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-left hover:bg-muted/70 text-foreground/80 active:bg-muted transition-all cursor-pointer"
+                            >
+                              <div className="p-1.5 rounded-md bg-muted text-muted-foreground">
+                                <Icon className="size-4" />
+                              </div>
+                              <span className="flex-1 font-medium">{t.label}</span>
+                              <ChevronRight className="size-4 text-muted-foreground/60" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   );
                 })}
+                {filteredTypes.length === 0 && (
+                  <div className="text-center py-8 text-sm text-muted-foreground">
+                    No matching question types found.
+                  </div>
+                )}
               </div>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
+              <div className="p-4 border-t border-border bg-muted/20">
+                <DialogClose asChild>
+                  <button className="w-full py-2.5 text-sm font-medium border border-border hover:bg-muted active:bg-muted/80 rounded-lg transition-colors cursor-pointer">
+                    Cancel
+                  </button>
+                </DialogClose>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col overflow-hidden bg-background">
+              {/* Navigation Bar */}
+              <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+                <button
+                  onClick={() => setMobileView("list")}
+                  className="p-1.5 -ml-1 hover:bg-muted active:bg-muted/80 rounded-lg transition-colors flex items-center gap-1 text-sm font-medium text-primary cursor-pointer"
+                >
+                  <ArrowLeft className="size-4" />
+                  <span>List</span>
+                </button>
+                <span className="text-xs text-muted-foreground">/</span>
+                <span className="text-sm font-semibold truncate">{selectedTypeDef?.label}</span>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-5">
+                <div>
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide uppercase bg-primary/10 text-primary mb-1">
+                    {selectedTypeDef?.group}
+                  </span>
+                  <h2 className="text-lg font-bold text-foreground">{selectedTypeDef?.label}</h2>
+                </div>
+
+                {/* Description */}
+                <div className="p-3 bg-muted/30 rounded-lg border border-border/40 text-xs text-foreground/80 leading-relaxed">
+                  {QUESTION_DESCRIPTIONS[selectedType]}
+                </div>
+
+                {/* Preview */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Live Preview</h4>
+                  <div className="border border-border rounded-xl overflow-hidden shadow-md bg-background">
+                    <div className="bg-muted/50 px-3 py-2 flex items-center gap-2 border-b border-border/50">
+                      <div className="flex gap-1">
+                        <span className="w-2 h-2 rounded-full bg-red-400/80" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-yellow-400/80" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-green-400/80" />
+                      </div>
+                      <div className="flex-1 text-[9px] text-muted-foreground/70 truncate text-center font-mono select-none">
+                        openweb.dev/preview
+                      </div>
+                    </div>
+                    <div className="p-4 bg-background dark:bg-neutral-900 min-h-[120px] flex flex-col justify-center">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-foreground">
+                          {getMockField(selectedType).label}
+                        </label>
+                        <div className="pt-1">
+                          <QuestionInput
+                            field={getMockField(selectedType)}
+                            value={previewValue}
+                            onChange={setPreviewValue}
+                            accent={themeColor}
+                            disabled={selectedType === "file"}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 border-t border-border bg-muted/20 flex gap-2">
+                <button
+                  onClick={() => setMobileView("list")}
+                  className="flex-1 py-2.5 text-sm font-medium border border-border hover:bg-muted active:bg-muted/80 rounded-lg transition-colors cursor-pointer"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={() => {
+                    onAdd(selectedType);
+                    setOpen(false);
+                  }}
+                  className="flex-[2] py-2.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/95 active:bg-primary/90 rounded-lg flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                >
+                  <Plus className="size-4" /> Add Question Block
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
