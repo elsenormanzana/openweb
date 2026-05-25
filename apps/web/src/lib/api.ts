@@ -99,6 +99,10 @@ export type FormField = {
   feedbackCorrect?: string;
   feedbackIncorrect?: string;
   optionRouting?: Record<string, string>;
+  selectPrefill?: "us_states" | "pr_municipalities" | "us_state_counties" | "us_state_counties_static" | null;
+  parentFieldId?: string | null;
+  prefillState?: string | null;
+  prefillFilter?: string[] | null;
 };
 export type FormSection = {
   id: string;

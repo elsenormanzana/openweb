@@ -120,7 +120,7 @@ export function QuestionCard(props: QuestionCardProps) {
         </div>
 
         {/* Type-specific editor */}
-        {caps.hasOptions && <OptionsEditor field={field} onChange={onChange} />}
+        {caps.hasOptions && <OptionsEditor field={field} onChange={onChange} sections={sections} />}
         {field.type === "linear_scale" && <ScaleEditor field={field} onChange={onChange} />}
         {field.type === "rating" && <RatingEditor field={field} onChange={onChange} />}
         {caps.hasGrid && <GridEditor field={field} onChange={onChange} />}

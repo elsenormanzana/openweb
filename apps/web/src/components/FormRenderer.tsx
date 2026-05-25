@@ -33,11 +33,13 @@ type FormRendererProps = {
 };
 
 function QuestionRow({
-  field, value, onChange, error, slug, accent, theme, isQuiz, labels,
+  field, value, onChange, error, slug, accent, theme, isQuiz, labels, sections, formValues,
 }: {
   field: FormField; value: unknown; onChange: (v: unknown) => void;
   error?: string; slug?: string; accent: string; theme?: FormTheme; isQuiz: boolean;
   labels?: { options?: string[]; rows?: string[]; columns?: string[] };
+  sections?: FormSection[];
+  formValues?: Record<string, unknown>;
 }) {
   const labelFont = theme ? { fontFamily: FONT_PRESET_CSS[theme.questionFont] } : undefined;
   return (
@@ -57,7 +59,16 @@ function QuestionRow({
           dangerouslySetInnerHTML={{ __html: field.description }}
         />
       )}
-      <QuestionInput field={field} value={value} onChange={onChange} slug={slug} accent={accent} labels={labels} />
+      <QuestionInput 
+        field={field} 
+        value={value} 
+        onChange={onChange} 
+        slug={slug} 
+        accent={accent} 
+        labels={labels} 
+        sections={sections}
+        formValues={formValues}
+      />
       {error && <p className="text-xs text-red-600">{error}</p>}
     </div>
   );
@@ -282,6 +293,8 @@ export function FormRenderer({
               theme={theme}
               isQuiz={settings?.isQuiz ?? false}
               labels={labelOverrides?.[field.id]}
+              sections={sections}
+              formValues={values}
             />
           ))}
         </div>

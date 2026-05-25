@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Heart, Loader2, Star, Upload, X } from "lucide-react";
-import { api, type FormField, type FormFile } from "@/lib/api";
+import { api, type FormField, type FormFile, type FormSection } from "@/lib/api";
+import { US_STATES, PR_MUNICIPALITIES, US_STATE_COUNTIES } from "@/lib/usGeoData";
 
 const INPUT_CLASS =
   "w-full px-3.5 py-2.5 rounded-lg border border-gray-300 text-sm bg-white text-gray-900 " +
@@ -22,6 +23,8 @@ export type QuestionInputProps = {
    * multilingual translator so branching/grading/analytics keep working in any language.
    */
   labels?: { options?: string[]; rows?: string[]; columns?: string[] };
+  sections?: FormSection[];
+  formValues?: Record<string, unknown>;
 };
 
 export function QuestionInput(props: QuestionInputProps) {
@@ -72,16 +75,53 @@ function TextareaInput({ field, value, onChange, disabled }: QuestionInputProps)
   );
 }
 
-function DropdownInput({ field, value, onChange, disabled, labels }: QuestionInputProps) {
-  const opts = field.options ?? [];
+function DropdownInput({ field, value, onChange, disabled, labels, sections, formValues }: QuestionInputProps) {
+  let opts = field.options ?? [];
+
+  if (field.selectPrefill === "us_states") {
+    opts = US_STATES;
+  } else if (field.selectPrefill === "pr_municipalities") {
+    opts = PR_MUNICIPALITIES;
+  } else if (field.selectPrefill === "us_state_counties_static" && field.prefillState) {
+    opts = US_STATE_COUNTIES[field.prefillState] || [];
+  } else if (field.selectPrefill === "us_state_counties") {
+    const parentFieldId = field.parentFieldId;
+    const parentField = parentFieldId && sections
+      ?.flatMap((s) => s.fields)
+      .find((f) => f.id === parentFieldId);
+
+    const parentVal = parentField && formValues ? String(formValues[parentField.name] || "") : "";
+    if (parentVal && US_STATE_COUNTIES[parentVal]) {
+      opts = US_STATE_COUNTIES[parentVal];
+    } else {
+      opts = [];
+    }
+  }
+
+  // Filter options based on allowed list
+  if (field.prefillFilter && field.prefillFilter.length > 0) {
+    opts = opts.filter((opt) => field.prefillFilter?.includes(opt));
+  }
+
+  const valString = typeof value === "string" ? value : "";
+  const isValValid = valString === "" || opts.includes(valString);
+
+  if (valString && !isValValid && !disabled) {
+    setTimeout(() => onChange(""), 0);
+  }
+
+  const placeholder = field.selectPrefill === "us_state_counties" && !opts.length
+    ? "Select State first…"
+    : (field.placeholder || "Select…");
+
   return (
     <select
-      value={typeof value === "string" ? value : ""}
+      value={isValValid ? valString : ""}
       onChange={(e) => onChange(e.target.value)}
-      disabled={disabled}
+      disabled={disabled || (field.selectPrefill === "us_state_counties" && !opts.length)}
       className={INPUT_CLASS}
     >
-      <option value="">{field.placeholder || "Select…"}</option>
+      <option value="">{placeholder}</option>
       {opts.map((opt, i) => <option key={opt} value={opt}>{labels?.options?.[i] || opt}</option>)}
     </select>
   );

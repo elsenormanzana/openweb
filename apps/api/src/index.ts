@@ -3092,6 +3092,10 @@ type FormField = {
   feedbackCorrect?: string;
   feedbackIncorrect?: string;
   optionRouting?: Record<string, string>;
+  selectPrefill?: string | null;
+  parentFieldId?: string | null;
+  prefillState?: string | null;
+  prefillFilter?: string[] | null;
 };
 type FormSection = {
   id: string;

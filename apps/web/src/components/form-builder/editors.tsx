@@ -1,9 +1,11 @@
-import { GripVertical, Plus, X } from "lucide-react";
+import { useState } from "react";
+import { GripVertical, Plus, Search, X } from "lucide-react";
 import type {
   Condition, ConditionOperator, FormField, FormSection,
 } from "@/lib/api";
 import { ROUTE_SUBMIT } from "@/lib/formConditions";
 import { Field, inputCls } from "@/components/form-builder/ui";
+import { US_STATES, PR_MUNICIPALITIES, US_STATE_COUNTIES } from "@/lib/usGeoData";
 
 export type FieldEditorProps = {
   field: FormField;
@@ -12,8 +14,31 @@ export type FieldEditorProps = {
 
 // ── Options (choice questions) ───────────────────────────────────────────────
 
-export function OptionsEditor({ field, onChange }: FieldEditorProps) {
+export function OptionsEditor({ field, onChange, sections }: FieldEditorProps & { sections?: FormSection[] }) {
   const options = field.options ?? [];
+  const isDropdown = field.type === "dropdown" || field.type === "select";
+
+  const otherDropdownFields = (sections ?? [])
+    .flatMap((s) => s.fields)
+    .filter((f) => f.id !== field.id && (f.type === "dropdown" || f.type === "select"));
+
+  const prefill = field.selectPrefill || "";
+  const parentId = field.parentFieldId || "";
+  const prefillState = field.prefillState || "";
+  const prefillFilter = field.prefillFilter || [];
+
+  const [filterSearch, setFilterSearch] = useState("");
+
+  function handlePrefillChange(val: string) {
+    const nextPrefill = val === "" ? null : (val as FormField["selectPrefill"]);
+    onChange({
+      selectPrefill: nextPrefill,
+      options: nextPrefill ? [] : ["Option 1"],
+      parentFieldId: nextPrefill === "us_state_counties" ? (otherDropdownFields[0]?.id || null) : null,
+      prefillState: nextPrefill === "us_state_counties_static" ? "Alabama" : null,
+      prefillFilter: null
+    });
+  }
 
   function rename(i: number, value: string) {
     const old = options[i];
@@ -41,35 +66,218 @@ export function OptionsEditor({ field, onChange }: FieldEditorProps) {
     onChange(patch);
   }
 
+  const baseList = (() => {
+    if (prefill === "us_states") return US_STATES;
+    if (prefill === "pr_municipalities") return PR_MUNICIPALITIES;
+    if (prefill === "us_state_counties_static" && prefillState) {
+      return US_STATE_COUNTIES[prefillState] || [];
+    }
+    return [];
+  })();
+
+  const filteredList = baseList.filter((item) =>
+    item.toLowerCase().includes(filterSearch.toLowerCase())
+  );
+
   return (
-    <div className="space-y-1.5">
-      {options.map((opt, i) => (
-        <div key={i} className="flex items-center gap-1.5">
-          <GripVertical className="size-3.5 text-muted-foreground/50 shrink-0" />
-          <input
+    <div className="space-y-3.5">
+      {isDropdown && (
+        <div className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-2.5">
+          <label className="text-xs font-semibold block text-muted-foreground">Dropdown Options Source</label>
+          <select
             className={inputCls}
-            value={opt}
-            onChange={(e) => rename(i, e.target.value)}
-            placeholder={`Option ${i + 1}`}
-          />
+            value={prefill}
+            onChange={(e) => handlePrefillChange(e.target.value)}
+          >
+            <option value="">Custom List (defined below)</option>
+            <option value="us_states">Prefill: USA States</option>
+            <option value="pr_municipalities">Prefill: Puerto Rico Municipalities</option>
+            <option value="us_state_counties">Dynamic: US Counties (linked to State dropdown)</option>
+            <option value="us_state_counties_static">Prefill: US Counties for a specific State</option>
+          </select>
+
+          {prefill === "us_state_counties" && (
+            <div className="space-y-1 pt-2 border-t border-border/50">
+              <label className="text-[11px] font-semibold text-muted-foreground block">Linked Parent State Dropdown</label>
+              {otherDropdownFields.length === 0 ? (
+                <p className="text-[10px] text-destructive leading-normal">
+                  To link this to a state dropdown, first add another dropdown field in your form to act as the USA State selector.
+                </p>
+              ) : (
+                <select
+                  className={inputCls}
+                  value={parentId}
+                  onChange={(e) => onChange({ parentFieldId: e.target.value })}
+                >
+                  <option value="" disabled>-- Select State Field --</option>
+                  {otherDropdownFields.map((f) => (
+                    <option key={f.id} value={f.id}>{f.label || f.name}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+
+          {prefill === "us_state_counties_static" && (
+            <div className="space-y-1 pt-2 border-t border-border/50">
+              <label className="text-[11px] font-semibold text-muted-foreground block">Select Target US State</label>
+              <select
+                className={inputCls}
+                value={prefillState}
+                onChange={(e) => {
+                  onChange({
+                    prefillState: e.target.value,
+                    prefillFilter: null
+                  });
+                }}
+              >
+                <option value="" disabled>-- Select State --</option>
+                {US_STATES.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
+
+      {prefill && baseList.length > 0 && (
+        <div className="space-y-2 border-t pt-3 mt-2">
+          <div className="flex justify-between items-center">
+            <span className="text-xs font-semibold text-muted-foreground">Filter Allowed Options</span>
+            <span className="text-[10px] text-muted-foreground">
+              {prefillFilter.length ? `${prefillFilter.length} selected` : "All allowed"}
+            </span>
+          </div>
+
+          <div className="relative flex items-center">
+            <Search className="size-3 text-muted-foreground/60 absolute left-2.5" />
+            <input
+              type="text"
+              placeholder="Search options..."
+              value={filterSearch}
+              onChange={(e) => setFilterSearch(e.target.value)}
+              className={`${inputCls} pl-7 h-7 text-xs`}
+            />
+            {filterSearch && (
+              <button
+                type="button"
+                onClick={() => setFilterSearch("")}
+                className="absolute right-2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-3" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 text-[10px] text-indigo-500 font-medium">
+            <button
+              type="button"
+              onClick={() => {
+                const next = Array.from(new Set([...prefillFilter, ...filteredList]));
+                onChange({ prefillFilter: next });
+              }}
+              className="hover:underline"
+            >
+              Select All Visible
+            </button>
+            <span className="text-muted-foreground/30">|</span>
+            <button
+              type="button"
+              onClick={() => {
+                const next = prefillFilter.filter(item => !filteredList.includes(item));
+                onChange({ prefillFilter: next.length ? next : null });
+              }}
+              className="hover:underline"
+            >
+              Clear Visible
+            </button>
+            {prefillFilter.length > 0 && (
+              <>
+                <span className="text-muted-foreground/30">|</span>
+                <button
+                  type="button"
+                  onClick={() => onChange({ prefillFilter: null })}
+                  className="hover:underline text-destructive"
+                >
+                  Reset (Allow All)
+                </button>
+              </>
+            )}
+          </div>
+
+          <div className="max-h-36 overflow-y-auto border border-border rounded-md p-1.5 space-y-0.5 bg-muted/10">
+            {filteredList.length === 0 ? (
+              <p className="text-[10px] text-muted-foreground text-center py-2">No matching options found.</p>
+            ) : (
+              filteredList.map((opt) => {
+                const checked = prefillFilter.includes(opt);
+                return (
+                  <label
+                    key={opt}
+                    className="flex items-center gap-2 text-[11px] py-0.5 px-1 rounded hover:bg-muted/40 cursor-pointer text-foreground/80"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        const next = checked
+                          ? prefillFilter.filter((x) => x !== opt)
+                          : [...prefillFilter, opt];
+                        onChange({ prefillFilter: next.length ? next : null });
+                      }}
+                      className="size-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span className="truncate">{opt}</span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {!prefill ? (
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold block text-muted-foreground">Options List</label>
+          {options.map((opt, i) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <GripVertical className="size-3.5 text-muted-foreground/50 shrink-0" />
+              <input
+                className={inputCls}
+                value={opt}
+                onChange={(e) => rename(i, e.target.value)}
+                placeholder={`Option ${i + 1}`}
+              />
+              <button
+                type="button"
+                onClick={() => remove(i)}
+                disabled={options.length <= 1}
+                className="rounded-lg p-1.5 text-muted-foreground hover:text-destructive disabled:opacity-30"
+                aria-label="Remove option"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          ))}
           <button
             type="button"
-            onClick={() => remove(i)}
-            disabled={options.length <= 1}
-            className="rounded-lg p-1.5 text-muted-foreground hover:text-destructive disabled:opacity-30"
-            aria-label="Remove option"
+            onClick={() => onChange({ options: [...options, `Option ${options.length + 1}`] })}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
           >
-            <X className="size-3.5" />
+            <Plus className="size-3.5" /> Add option
           </button>
         </div>
-      ))}
-      <button
-        type="button"
-        onClick={() => onChange({ options: [...options, `Option ${options.length + 1}`] })}
-        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-      >
-        <Plus className="size-3.5" /> Add option
-      </button>
+      ) : (
+        <div className="text-[11px] text-muted-foreground italic bg-muted/40 p-2 rounded-lg text-center">
+          Options will be automatically prefilled at runtime from the {
+            prefill === "us_states" ? "USA States" :
+            prefill === "pr_municipalities" ? "Puerto Rico Municipalities" :
+            prefill === "us_state_counties_static" ? `US Counties for ${prefillState}` :
+            "US Counties (linked dynamically)"
+          } database.
+        </div>
+      )}
     </div>
   );
 }
