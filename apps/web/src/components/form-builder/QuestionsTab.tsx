@@ -486,7 +486,14 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
             if (shouldAbort()) return;
             await new Promise(resolve => setTimeout(resolve, 300));
             if (shouldAbort()) return;
-            await typeText("Jane Doe");
+            const textVal = "Jane Doe";
+            await typeText(textVal);
+            if (shouldAbort()) return;
+            // Hold so the user can read the value
+            await new Promise(resolve => setTimeout(resolve, 1600));
+            if (shouldAbort()) return;
+            // Backspace it out
+            await deleteText(textVal);
           }
           break;
         }
@@ -510,14 +517,21 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
             // Pause so user can see the error
             await new Promise(resolve => setTimeout(resolve, 1600));
             if (shouldAbort()) return;
-            // Delete it character by character
+            // Backspace it out
             await deleteText(wrongEmail);
             if (shouldAbort()) return;
             setDemoEmailError(null);
             await new Promise(resolve => setTimeout(resolve, 400));
             if (shouldAbort()) return;
             // Type the correct email
-            await typeText("jane@example.com");
+            const correctEmail = "jane@example.com";
+            await typeText(correctEmail);
+            if (shouldAbort()) return;
+            // Hold so the user can read the valid value
+            await new Promise(resolve => setTimeout(resolve, 1600));
+            if (shouldAbort()) return;
+            // Backspace the correct email too before loop
+            await deleteText(correctEmail);
           }
           break;
         }
@@ -532,7 +546,12 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
             if (shouldAbort()) return;
             await new Promise(resolve => setTimeout(resolve, 300));
             if (shouldAbort()) return;
-            await typeText("25");
+            const numVal = "25";
+            await typeText(numVal);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 1600));
+            if (shouldAbort()) return;
+            await deleteText(numVal);
           }
           break;
         }
@@ -547,7 +566,12 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
             if (shouldAbort()) return;
             await new Promise(resolve => setTimeout(resolve, 300));
             if (shouldAbort()) return;
-            await typeText("Great builder layout! Very clean and intuitive.", 65);
+            const taVal = "Great builder layout! Very clean and intuitive.";
+            await typeText(taVal, 65);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 1600));
+            if (shouldAbort()) return;
+            await deleteText(taVal, 30);
           }
           break;
         }
@@ -865,12 +889,12 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
         }
         case "grid_multiple_choice":
         case "grid_checkbox": {
-          // Grid rows: Speed(0-2), Usability(3-5), Design(6-8)
-          // cols per row: [Needs Work, Good, Outstanding]
+          // grid_multiple_choice rows: ["Speed","Usability","Design"] cols: ["Needs Work","Good","Outstanding"]
+          // grid_checkbox rows:         ["Monday","Wednesday","Friday"] cols: ["Morning","Afternoon","Evening"]
           const cells = container.querySelectorAll('table input');
           const isGridCheckbox = selectedType === "grid_checkbox";
 
-          // Helper: move cursor to cell and ripple (don't call el.click() on controlled inputs)
+          // Helper: move cursor to cell and show ripple (no el.click to avoid controlled-component conflict)
           const pickGridCell = async (cell: HTMLInputElement) => {
             await moveToElement(cell);
             if (shouldAbort()) return;
@@ -881,35 +905,41 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
           };
 
           if (cells.length > 0) {
-            // Row 0 / col 0 — Speed / Needs Work
+            // Row 0 col 0
             const cell1 = cells[0] as HTMLInputElement;
             await pickGridCell(cell1);
             if (shouldAbort()) return;
-            setPreviewValue(isGridCheckbox ? { "Speed": ["Needs Work"] } : { "Speed": "Needs Work" });
+            setPreviewValue(
+              isGridCheckbox
+                ? { "Monday": ["Morning"] }
+                : { "Speed": "Needs Work" }
+            );
 
-            // Row 1 / col 1 — Usability / Good (index 3+1 = 4)
+            // Row 1 col 1  (index = 1*cols + 1 = 4 for 3-col grid)
             if (cells.length > 4) {
               const cell2 = cells[4] as HTMLInputElement;
               await new Promise(resolve => setTimeout(resolve, 1000));
               if (shouldAbort()) return;
               await pickGridCell(cell2);
               if (shouldAbort()) return;
-              setPreviewValue(isGridCheckbox
-                ? { "Speed": ["Needs Work"], "Usability": ["Good"] }
-                : { "Speed": "Needs Work", "Usability": "Good" }
+              setPreviewValue(
+                isGridCheckbox
+                  ? { "Monday": ["Morning"], "Wednesday": ["Afternoon"] }
+                  : { "Speed": "Needs Work", "Usability": "Good" }
               );
             }
 
-            // Row 2 / col 2 — Design / Outstanding (index 6+2 = 8)
+            // Row 2 col 2  (index = 2*cols + 2 = 8 for 3-col grid)
             if (cells.length > 8) {
               const cell3 = cells[8] as HTMLInputElement;
               await new Promise(resolve => setTimeout(resolve, 1000));
               if (shouldAbort()) return;
               await pickGridCell(cell3);
               if (shouldAbort()) return;
-              setPreviewValue(isGridCheckbox
-                ? { "Speed": ["Needs Work"], "Usability": ["Good"], "Design": ["Outstanding"] }
-                : { "Speed": "Needs Work", "Usability": "Good", "Design": "Outstanding" }
+              setPreviewValue(
+                isGridCheckbox
+                  ? { "Monday": ["Morning"], "Wednesday": ["Afternoon"], "Friday": ["Evening"] }
+                  : { "Speed": "Needs Work", "Usability": "Good", "Design": "Outstanding" }
               );
             }
           }
