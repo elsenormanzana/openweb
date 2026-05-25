@@ -183,6 +183,18 @@ export const forms = pgTable("forms", {
   settings: text("settings").notNull().default("{}"), // JSON: FormSettings — behavior
   primaryLanguage: text("primary_language").notNull().default("en"),
   translations: text("translations").notNull().default("{}"), // JSON: Record<lang, FormTranslations>
+  publishedName: text("published_name"),
+  publishedDescription: text("published_description"),
+  publishedSubmitLabel: text("published_submit_label"),
+  publishedSuccessMessage: text("published_success_message"),
+  publishedFields: text("published_fields"),
+  publishedSections: text("published_sections"),
+  publishedLayout: text("published_layout"),
+  publishedTheme: text("published_theme"),
+  publishedSettings: text("published_settings"),
+  publishedPrimaryLanguage: text("published_primary_language"),
+  publishedTranslations: text("published_translations"),
+  publishedAt: timestamp("published_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => ({

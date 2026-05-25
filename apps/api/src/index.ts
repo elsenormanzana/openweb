@@ -99,6 +99,20 @@ await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "settings
 await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "primary_language" text NOT NULL DEFAULT 'en'`));
 await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "translations" text NOT NULL DEFAULT '{}'`));
 
+// Forms: Draft vs Published configuration columns
+await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "published_name" text`));
+await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "published_description" text`));
+await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "published_submit_label" text`));
+await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "published_success_message" text`));
+await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "published_fields" text`));
+await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "published_sections" text`));
+await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "published_layout" text`));
+await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "published_theme" text`));
+await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "published_settings" text`));
+await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "published_primary_language" text`));
+await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "published_translations" text`));
+await db.execute(sql.raw(`ALTER TABLE "forms" ADD COLUMN IF NOT EXISTS "published_at" timestamp`));
+
 await db.execute(sql.raw(`
   CREATE TABLE IF NOT EXISTS "crm_lead_activities" (
     "id" serial PRIMARY KEY,
@@ -3290,6 +3304,13 @@ function normalizeFormField(item: unknown, index: number, slugifyName: boolean):
   if (typeof field.feedbackIncorrect === "string") out.feedbackIncorrect = field.feedbackIncorrect;
   const optionRouting = normalizeStringMap(field.optionRouting);
   if (optionRouting) out.optionRouting = optionRouting;
+
+  out.selectPrefill = typeof field.selectPrefill === "string" && field.selectPrefill.trim() ? field.selectPrefill.trim() : null;
+  out.parentFieldId = typeof field.parentFieldId === "string" && field.parentFieldId.trim() ? field.parentFieldId.trim() : null;
+  out.prefillState = typeof field.prefillState === "string" && field.prefillState.trim() ? field.prefillState.trim() : null;
+  const prefillFilter = coerceStringArray(field.prefillFilter);
+  out.prefillFilter = prefillFilter.length ? prefillFilter : null;
+
   return out;
 }
 
@@ -3440,6 +3461,16 @@ function mapFormRow(row: typeof forms.$inferSelect) {
     const legacy = parseFormFields(row.fields);
     if (legacy.length > 0) sections = synthesizeSections(legacy);
   }
+
+  let publishedSections: FormSection[] | null = null;
+  if (row.publishedAt) {
+    publishedSections = parseFormSections(row.publishedSections);
+    if (publishedSections.length === 0 && row.publishedFields) {
+      const legacyPub = parseFormFields(row.publishedFields);
+      if (legacyPub.length > 0) publishedSections = synthesizeSections(legacyPub);
+    }
+  }
+
   return {
     ...row,
     layout: row.layout === "steps" ? "steps" : "single",
@@ -3449,6 +3480,15 @@ function mapFormRow(row: typeof forms.$inferSelect) {
     settings: normalizeFormSettings(parseJsonObject(row.settings)),
     primaryLanguage: row.primaryLanguage || "en",
     translations: normalizeTranslationsMap(parseJsonObject(row.translations)),
+
+    publishedLayout: row.publishedLayout === "steps" ? "steps" : (row.publishedLayout || null),
+    publishedSections,
+    publishedFields: publishedSections ? deriveFlatFields(publishedSections) : null,
+    publishedTheme: row.publishedTheme ? normalizeFormTheme(parseJsonObject(row.publishedTheme)) : null,
+    publishedSettings: row.publishedSettings ? normalizeFormSettings(parseJsonObject(row.publishedSettings)) : null,
+    publishedPrimaryLanguage: row.publishedPrimaryLanguage || null,
+    publishedTranslations: row.publishedTranslations ? normalizeTranslationsMap(parseJsonObject(row.publishedTranslations)) : null,
+    publishedAt: row.publishedAt ? row.publishedAt.toISOString() : null,
   };
 }
 
@@ -4123,8 +4163,23 @@ app.get<{ Params: { slug: string } }>("/api/forms/by-slug/:slug", async (req, re
   const [row] = await db.select().from(forms)
     .where(and(eq(forms.siteId, req.siteId), eq(forms.slug, req.params.slug), eq(forms.status, "active")))
     .limit(1);
-  if (!row) return reply.status(404).send({ error: "Form not found" });
-  return mapFormRow(row);
+  if (!row || !row.publishedAt) return reply.status(404).send({ error: "Form not found" });
+  
+  const mapped = mapFormRow(row);
+  return {
+    ...mapped,
+    name: row.publishedName || mapped.name,
+    description: row.publishedDescription ?? mapped.description,
+    submitLabel: row.publishedSubmitLabel || mapped.submitLabel,
+    successMessage: row.publishedSuccessMessage || mapped.successMessage,
+    sections: mapped.publishedSections || mapped.sections,
+    fields: mapped.publishedFields || mapped.fields,
+    layout: mapped.publishedLayout || mapped.layout,
+    theme: mapped.publishedTheme || mapped.theme,
+    settings: mapped.publishedSettings || mapped.settings,
+    primaryLanguage: mapped.publishedPrimaryLanguage || mapped.primaryLanguage,
+    translations: mapped.publishedTranslations || mapped.translations,
+  };
 });
 
 // Resolve a form slug that is unique within the site, suffixing -2, -3, … on collision.
@@ -4232,6 +4287,33 @@ app.put<{ Params: { id: string } }>("/api/forms/:id", { preHandler: requireAuth(
     translations: body.translations !== undefined ? JSON.stringify(normalizeTranslationsMap(body.translations)) : existing.translations,
     updatedAt: new Date(),
   }).where(eq(forms.id, id)).returning();
+  return mapFormRow(updated);
+});
+
+app.post<{ Params: { id: string } }>("/api/forms/:id/publish", { preHandler: requireAuth(["admin", "page_developer", "blogger_admin"]) }, async (req, reply) => {
+  const id = Number(req.params.id);
+  if (Number.isNaN(id)) return reply.status(400).send({ error: "Invalid id" });
+  const [existing] = await db.select().from(forms)
+    .where(and(eq(forms.id, id), eq(forms.siteId, req.siteId)))
+    .limit(1);
+  if (!existing) return reply.status(404).send({ error: "Form not found" });
+
+  const [updated] = await db.update(forms).set({
+    publishedName: existing.name,
+    publishedDescription: existing.description,
+    publishedSubmitLabel: existing.submitLabel,
+    publishedSuccessMessage: existing.successMessage,
+    publishedFields: existing.fields,
+    publishedSections: existing.sections,
+    publishedLayout: existing.layout,
+    publishedTheme: existing.theme,
+    publishedSettings: existing.settings,
+    publishedPrimaryLanguage: existing.primaryLanguage,
+    publishedTranslations: existing.translations,
+    publishedAt: new Date(),
+    updatedAt: new Date(),
+  }).where(eq(forms.id, id)).returning();
+
   return mapFormRow(updated);
 });
 
@@ -4384,11 +4466,11 @@ app.post<{ Params: { slug: string } }>("/api/forms/submit/:slug", async (req, re
   const [form] = await db.select().from(forms)
     .where(and(eq(forms.siteId, req.siteId), eq(forms.slug, req.params.slug), eq(forms.status, "active")))
     .limit(1);
-  if (!form) return reply.status(404).send({ error: "Form not found" });
+  if (!form || !form.publishedAt) return reply.status(404).send({ error: "Form not found" });
 
   const mapped = mapFormRow(form);
-  const sections = mapped.sections;
-  const settings = mapped.settings;
+  const sections = mapped.publishedSections || mapped.sections;
+  const settings = mapped.publishedSettings || mapped.settings;
 
   if (!settings.acceptingResponses) {
     return reply.status(403).send({ error: settings.closedMessage });

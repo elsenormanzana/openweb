@@ -243,6 +243,18 @@ export type CmsForm = {
   settings: FormSettings;
   primaryLanguage: string;
   translations: Record<string, FormTranslations>;
+  publishedName: string | null;
+  publishedDescription: string | null;
+  publishedSubmitLabel: string | null;
+  publishedSuccessMessage: string | null;
+  publishedLayout: FormLayout | null;
+  publishedSections: FormSection[] | null;
+  publishedFields: FormField[] | null;
+  publishedTheme: FormTheme | null;
+  publishedSettings: FormSettings | null;
+  publishedPrimaryLanguage: string | null;
+  publishedTranslations: Record<string, FormTranslations> | null;
+  publishedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -705,6 +717,7 @@ export const api = {
         method: "POST", body: JSON.stringify({ targetLang, languageName }),
       }),
     delete: (id: number) => request<{ ok: true }>(`/api/forms/${id}`, { method: "DELETE" }),
+    publish: (id: number) => request<CmsForm>(`/api/forms/${id}/publish`, { method: "POST" }),
     submit: (slug: string, body: { values: Record<string, unknown>; meta?: Record<string, unknown> }) =>
       request<{ ok: true; message: string; lead: CrmLead; score: QuizScore | null }>(`/api/forms/submit/${encodeURIComponent(slug)}`, { method: "POST", body: JSON.stringify(body) }),
     uploadFile: (slug: string, file: File) => {

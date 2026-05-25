@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors,
   type DragEndEvent,
@@ -289,9 +289,317 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
   const [previewValue, setPreviewValue] = useState<any>("");
 
+  const [cursorPos, setCursorPos] = useState({ x: 0, y: 0, opacity: 0 });
+  const [clickRipple, setClickRipple] = useState(false);
+  const [isAutoPlaying, setIsAutoPlaying] = useState(true);
+  const desktopContainerRef = useRef<HTMLDivElement>(null);
+  const mobileContainerRef = useRef<HTMLDivElement>(null);
+  const interactionTimeoutRef = useRef<any>(null);
+
+  const stopAutoPlay = () => {
+    if (!isAutoPlaying) return;
+    setIsAutoPlaying(false);
+    setCursorPos(prev => ({ ...prev, opacity: 0 }));
+    if (interactionTimeoutRef.current) clearTimeout(interactionTimeoutRef.current);
+    interactionTimeoutRef.current = setTimeout(() => {
+      setIsAutoPlaying(true);
+    }, 8000); // Resume autoplay after 8 seconds of idle
+  };
+
+  useEffect(() => {
+    return () => {
+      if (interactionTimeoutRef.current) clearTimeout(interactionTimeoutRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     setPreviewValue(getDefaultPreviewValue(selectedType));
   }, [selectedType]);
+
+  useEffect(() => {
+    if (!isAutoPlaying || !open) {
+      setCursorPos(prev => ({ ...prev, opacity: 0 }));
+      return;
+    }
+
+    setPreviewValue(getDefaultPreviewValue(selectedType));
+
+    let active = true;
+
+    const runSequence = async () => {
+      // Wait for DOM elements to mount
+      await new Promise(resolve => setTimeout(resolve, 800));
+      if (!active || !isAutoPlaying) return;
+
+      const container = (desktopContainerRef.current?.offsetWidth ?? 0) > 0 
+        ? desktopContainerRef.current 
+        : mobileContainerRef.current;
+
+      if (!container) return;
+
+      const moveToElement = (el: HTMLElement) => {
+        if (!container || !el) return { x: 0, y: 0 };
+        const containerRect = container.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        const x = elRect.left - containerRect.left + elRect.width / 2;
+        const y = elRect.top - containerRect.top + elRect.height / 2;
+        setCursorPos({ x, y, opacity: 1 });
+        return { x, y };
+      };
+
+      const clickElement = async (el: HTMLElement) => {
+        setClickRipple(true);
+        setTimeout(() => setClickRipple(false), 300);
+        el.click();
+      };
+
+      const typeIntoInput = async (text: string) => {
+        for (let i = 1; i <= text.length; i++) {
+          if (!active || !isAutoPlaying) return;
+          const slice = text.slice(0, i);
+          setPreviewValue(slice);
+          await new Promise(resolve => setTimeout(resolve, 80));
+        }
+      };
+
+      // Set initial position
+      setCursorPos({ x: 120, y: 80, opacity: 0 });
+      await new Promise(resolve => setTimeout(resolve, 400));
+      if (!active || !isAutoPlaying) return;
+
+      switch (selectedType) {
+        case "text":
+        case "email":
+        case "number": {
+          const input = container.querySelector('input') as HTMLInputElement;
+          if (input) {
+            moveToElement(input);
+            await new Promise(resolve => setTimeout(resolve, 800));
+            if (!active || !isAutoPlaying) return;
+            
+            clickElement(input);
+            await new Promise(resolve => setTimeout(resolve, 400));
+            if (!active || !isAutoPlaying) return;
+
+            const text = selectedType === "text" ? "Jane Doe" : selectedType === "email" ? "jane@example.com" : "25";
+            await typeIntoInput(text);
+          }
+          break;
+        }
+        case "textarea": {
+          const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+          if (textarea) {
+            moveToElement(textarea);
+            await new Promise(resolve => setTimeout(resolve, 800));
+            if (!active || !isAutoPlaying) return;
+
+            clickElement(textarea);
+            await new Promise(resolve => setTimeout(resolve, 400));
+            if (!active || !isAutoPlaying) return;
+
+            await typeIntoInput("Great builder layout! Very clean.");
+          }
+          break;
+        }
+        case "checkbox": {
+          const input = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
+          if (input) {
+            moveToElement(input);
+            await new Promise(resolve => setTimeout(resolve, 800));
+            if (!active || !isAutoPlaying) return;
+
+            clickElement(input);
+            setPreviewValue(true);
+          }
+          break;
+        }
+        case "multiple_choice":
+        case "dropdown":
+        case "select": {
+          if (selectedType === "dropdown" || selectedType === "select") {
+            const select = container.querySelector('select') as HTMLSelectElement;
+            if (select) {
+              moveToElement(select);
+              await new Promise(resolve => setTimeout(resolve, 800));
+              if (!active || !isAutoPlaying) return;
+
+              clickElement(select);
+              await new Promise(resolve => setTimeout(resolve, 500));
+              if (!active || !isAutoPlaying) return;
+
+              setPreviewValue("Puerto Rico");
+            }
+          } else {
+            const radios = container.querySelectorAll('input[type="radio"]');
+            if (radios.length > 1) {
+              const r2 = radios[1] as HTMLElement;
+              moveToElement(r2);
+              await new Promise(resolve => setTimeout(resolve, 800));
+              if (!active || !isAutoPlaying) return;
+
+              clickElement(r2);
+              setPreviewValue("Phone call");
+              await new Promise(resolve => setTimeout(resolve, 1200));
+              if (!active || !isAutoPlaying) return;
+
+              const r1 = radios[0] as HTMLElement;
+              moveToElement(r1);
+              await new Promise(resolve => setTimeout(resolve, 800));
+              if (!active || !isAutoPlaying) return;
+
+              clickElement(r1);
+              setPreviewValue("Email");
+            }
+          }
+          break;
+        }
+        case "checkboxes": {
+          const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+          if (checkboxes.length > 2) {
+            const c1 = checkboxes[0] as HTMLInputElement;
+            const c3 = checkboxes[2] as HTMLInputElement;
+
+            moveToElement(c1);
+            await new Promise(resolve => setTimeout(resolve, 800));
+            if (!active || !isAutoPlaying) return;
+            clickElement(c1);
+            setPreviewValue(["Technology"]);
+
+            await new Promise(resolve => setTimeout(resolve, 1200));
+            if (!active || !isAutoPlaying) return;
+
+            moveToElement(c3);
+            await new Promise(resolve => setTimeout(resolve, 800));
+            if (!active || !isAutoPlaying) return;
+            clickElement(c3);
+            setPreviewValue(["Technology", "Sports"]);
+          }
+          break;
+        }
+        case "linear_scale": {
+          const radios = container.querySelectorAll('input[type="radio"]');
+          if (radios.length > 4) {
+            const r4 = radios[3] as HTMLElement;
+            const r5 = radios[4] as HTMLElement;
+
+            moveToElement(r4);
+            await new Promise(resolve => setTimeout(resolve, 800));
+            if (!active || !isAutoPlaying) return;
+            clickElement(r4);
+            setPreviewValue("4");
+
+            await new Promise(resolve => setTimeout(resolve, 1200));
+            if (!active || !isAutoPlaying) return;
+
+            moveToElement(r5);
+            await new Promise(resolve => setTimeout(resolve, 800));
+            if (!active || !isAutoPlaying) return;
+            clickElement(r5);
+            setPreviewValue("5");
+          }
+          break;
+        }
+        case "rating": {
+          const stars = container.querySelectorAll('button[aria-label]');
+          if (stars.length > 4) {
+            for (let i = 0; i < 5; i++) {
+              const star = stars[i] as HTMLElement;
+              moveToElement(star);
+              await new Promise(resolve => setTimeout(resolve, 250));
+              if (!active || !isAutoPlaying) return;
+            }
+            const star5 = stars[4] as HTMLElement;
+            clickElement(star5);
+            setPreviewValue("5");
+          }
+          break;
+        }
+        case "file": {
+          const button = container.querySelector('button') as HTMLElement;
+          if (button) {
+            moveToElement(button);
+            await new Promise(resolve => setTimeout(resolve, 800));
+            if (!active || !isAutoPlaying) return;
+
+            clickElement(button);
+            await new Promise(resolve => setTimeout(resolve, 600));
+            if (!active || !isAutoPlaying) return;
+
+            setPreviewValue([{ name: "resume.pdf", url: "#", size: 124000 }]);
+          }
+          break;
+        }
+        case "grid_multiple_choice":
+        case "grid_checkbox": {
+          const cells = container.querySelectorAll('table input');
+          const isGridCheckbox = selectedType === "grid_checkbox";
+          
+          if (cells.length > 5) {
+            const cell1 = cells[0] as HTMLInputElement;
+            const cell2 = cells[4] as HTMLInputElement;
+            
+            if (cell1) {
+              moveToElement(cell1);
+              await new Promise(resolve => setTimeout(resolve, 800));
+              if (!active || !isAutoPlaying) return;
+              clickElement(cell1);
+              setPreviewValue(isGridCheckbox ? { "Speed": ["Needs Work"] } : { "Speed": "Needs Work" });
+            }
+
+            if (cells.length > 4 && cell2) {
+              await new Promise(resolve => setTimeout(resolve, 1200));
+              if (!active || !isAutoPlaying) return;
+              moveToElement(cell2);
+              await new Promise(resolve => setTimeout(resolve, 800));
+              if (!active || !isAutoPlaying) return;
+              clickElement(cell2);
+              setPreviewValue(isGridCheckbox 
+                ? { "Speed": ["Needs Work"], "Usability": ["Good"] } 
+                : { "Speed": "Needs Work", "Usability": "Good" }
+              );
+            }
+          }
+          break;
+        }
+        case "date": {
+          const input = container.querySelector('input[type="date"]') as HTMLInputElement;
+          if (input) {
+            moveToElement(input);
+            await new Promise(resolve => setTimeout(resolve, 800));
+            if (!active || !isAutoPlaying) return;
+
+            clickElement(input);
+            setPreviewValue("2026-05-25");
+          }
+          break;
+        }
+        case "time": {
+          const input = container.querySelector('input[type="time"]') as HTMLInputElement;
+          if (input) {
+            moveToElement(input);
+            await new Promise(resolve => setTimeout(resolve, 800));
+            if (!active || !isAutoPlaying) return;
+
+            clickElement(input);
+            setPreviewValue("14:00");
+          }
+          break;
+        }
+        default:
+          break;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 2500));
+      if (!active || !isAutoPlaying) return;
+      setCursorPos(prev => ({ ...prev, opacity: 0 }));
+    };
+
+    runSequence();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedType, isAutoPlaying, open]);
 
   const groups = ["Text", "Choice", "Scale", "Advanced"] as const;
   const filteredTypes = QUESTION_TYPE_LIST.filter(t => 
@@ -427,18 +735,51 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
                 {/* Browser Card Mockup */}
                 <div className="border border-border rounded-xl overflow-hidden shadow-lg bg-background flex flex-col">
                   {/* Browser Header */}
-                  <div className="bg-muted/50 px-4 py-2.5 flex items-center gap-3 border-b border-border/50">
-                    <div className="flex gap-1.5 shrink-0">
+                  <div className="bg-muted/50 px-4 py-2.5 flex items-center justify-between gap-3 border-b border-border/50">
+                    <div className="flex gap-1.5 shrink-0 w-[50px]">
                       <span className="w-2.5 h-2.5 rounded-full bg-red-400/80" />
                       <span className="w-2.5 h-2.5 rounded-full bg-yellow-400/80" />
                       <span className="w-2.5 h-2.5 rounded-full bg-green-400/80" />
                     </div>
-                    <div className="flex-1 max-w-sm mx-auto bg-background/80 border border-border/60 rounded-md py-0.5 px-3 text-[10px] text-muted-foreground/80 truncate text-center font-mono select-none">
+                    <div className="flex-1 max-w-xs bg-background/80 border border-border/60 rounded-md py-0.5 px-3 text-[10px] text-muted-foreground/80 truncate text-center font-mono select-none">
                       openweb.dev/form/preview
+                    </div>
+                    <div className="w-[100px] flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setIsAutoPlaying(!isAutoPlaying)}
+                        className={`px-2 py-0.5 rounded-md text-[9px] font-semibold flex items-center gap-1 border border-border/50 hover:bg-muted cursor-pointer transition-all ${
+                          isAutoPlaying ? "bg-primary/10 text-primary border-primary/20" : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full ${isAutoPlaying ? "bg-emerald-500 animate-pulse" : "bg-neutral-400"}`} />
+                        <span>{isAutoPlaying ? "Auto Demo" : "Interactive"}</span>
+                      </button>
                     </div>
                   </div>
                   {/* Viewport */}
-                  <div className="p-6 bg-background dark:bg-neutral-900 min-h-[160px] flex flex-col justify-center border-t-0">
+                  <div 
+                    ref={desktopContainerRef}
+                    onMouseMove={stopAutoPlay}
+                    onMouseDown={stopAutoPlay}
+                    className="p-6 bg-background dark:bg-neutral-900 min-h-[160px] flex flex-col justify-center border-t-0 relative overflow-hidden"
+                  >
+                    {/* Imaginary Mouse Pointer */}
+                    {isAutoPlaying && cursorPos.opacity > 0 && (
+                      <div
+                        className="absolute pointer-events-none rounded-full w-4 h-4 bg-primary/30 border border-primary shadow-md z-30 flex items-center justify-center transition-all duration-700 ease-out"
+                        style={{
+                          left: cursorPos.x - 8,
+                          top: cursorPos.y - 8,
+                          opacity: cursorPos.opacity,
+                          transform: clickRipple ? "scale(0.85)" : "scale(1)",
+                        }}
+                      >
+                        {clickRipple && <span className="absolute inset-0 rounded-full bg-primary/30 animate-ping" />}
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+                      </div>
+                    )}
+
                     <div className="space-y-2">
                       <label className="text-sm font-semibold text-foreground flex items-center gap-1">
                         {getMockField(selectedType).label}
@@ -595,8 +936,8 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
                 <div className="space-y-2">
                   <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Live Preview</h4>
                   <div className="border border-border rounded-xl overflow-hidden shadow-md bg-background">
-                    <div className="bg-muted/50 px-3 py-2 flex items-center gap-2 border-b border-border/50">
-                      <div className="flex gap-1">
+                    <div className="bg-muted/50 px-3 py-2 flex items-center justify-between gap-2 border-b border-border/50">
+                      <div className="flex gap-1 shrink-0 w-[40px]">
                         <span className="w-2 h-2 rounded-full bg-red-400/80" />
                         <span className="w-2.5 h-2.5 rounded-full bg-yellow-400/80" />
                         <span className="w-2.5 h-2.5 rounded-full bg-green-400/80" />
@@ -604,8 +945,41 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
                       <div className="flex-1 text-[9px] text-muted-foreground/70 truncate text-center font-mono select-none">
                         openweb.dev/preview
                       </div>
+                      <div className="w-[85px] flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => setIsAutoPlaying(!isAutoPlaying)}
+                          className={`px-1.5 py-0.5 rounded-md text-[8px] font-semibold flex items-center gap-1 border border-border/50 hover:bg-muted cursor-pointer transition-all ${
+                            isAutoPlaying ? "bg-primary/10 text-primary border-primary/20" : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          <span className={`w-1 h-1 rounded-full ${isAutoPlaying ? "bg-emerald-500 animate-pulse" : "bg-neutral-400"}`} />
+                          <span>{isAutoPlaying ? "Demo" : "Interactive"}</span>
+                        </button>
+                      </div>
                     </div>
-                    <div className="p-4 bg-background dark:bg-neutral-900 min-h-[120px] flex flex-col justify-center">
+                    <div 
+                      ref={mobileContainerRef}
+                      onMouseMove={stopAutoPlay}
+                      onMouseDown={stopAutoPlay}
+                      className="p-4 bg-background dark:bg-neutral-900 min-h-[120px] flex flex-col justify-center relative overflow-hidden"
+                    >
+                      {/* Imaginary Mouse Pointer */}
+                      {isAutoPlaying && cursorPos.opacity > 0 && (
+                        <div
+                          className="absolute pointer-events-none rounded-full w-4 h-4 bg-primary/30 border border-primary shadow-md z-30 flex items-center justify-center transition-all duration-700 ease-out"
+                          style={{
+                            left: cursorPos.x - 8,
+                            top: cursorPos.y - 8,
+                            opacity: cursorPos.opacity,
+                            transform: clickRipple ? "scale(0.85)" : "scale(1)",
+                          }}
+                        >
+                          {clickRipple && <span className="absolute inset-0 rounded-full bg-primary/30 animate-ping" />}
+                          <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+                        </div>
+                      )}
+
                       <div className="space-y-1.5">
                         <label className="text-xs font-bold text-foreground">
                           {getMockField(selectedType).label}

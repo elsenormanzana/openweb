@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Eye, Languages, Palette, Pencil, Save } from "lucide-react";
+import { AlertCircle, ArrowLeft, Check, Cloud, Eye, Languages, Loader2, Palette, Pencil, Send } from "lucide-react";
 import {
   api, type CmsForm, type FormLayout, type FormSection, type FormSettings, type FormTheme,
   type FormTranslations,
@@ -27,6 +27,58 @@ type FormDraft = {
   primaryLanguage: string;
   translations: Record<string, FormTranslations>;
 };
+
+function isDraftDifferent(a: FormDraft | null, b: FormDraft | null): boolean {
+  if (!a || !b) return false;
+  return (
+    a.name !== b.name ||
+    a.slug !== b.slug ||
+    a.description !== b.description ||
+    a.status !== b.status ||
+    a.submitLabel !== b.submitLabel ||
+    a.successMessage !== b.successMessage ||
+    a.layout !== b.layout ||
+    a.primaryLanguage !== b.primaryLanguage ||
+    JSON.stringify(a.sections) !== JSON.stringify(b.sections) ||
+    JSON.stringify(a.theme) !== JSON.stringify(b.theme) ||
+    JSON.stringify(a.settings) !== JSON.stringify(b.settings) ||
+    JSON.stringify(a.translations) !== JSON.stringify(b.translations)
+  );
+}
+
+function hasUnpublishedChanges(d: FormDraft | null, f: CmsForm | null): boolean {
+  if (!f) return false;
+  if (!f.publishedAt) return true; // Never published
+  if (!d) return false;
+  
+  const publishedDraft: FormDraft = {
+    name: f.publishedName ?? "",
+    slug: f.slug,
+    description: f.publishedDescription ?? "",
+    status: f.status,
+    submitLabel: f.publishedSubmitLabel ?? "Submit",
+    successMessage: f.publishedSuccessMessage ?? "Thanks, we received your submission.",
+    layout: f.publishedLayout ?? "single",
+    sections: f.publishedSections ?? [],
+    theme: f.publishedTheme ?? defaultTheme(),
+    settings: f.publishedSettings ?? defaultSettings(),
+    primaryLanguage: f.publishedPrimaryLanguage ?? "en",
+    translations: f.publishedTranslations ?? {},
+  };
+
+  return (
+    d.name !== publishedDraft.name ||
+    d.description !== publishedDraft.description ||
+    d.submitLabel !== publishedDraft.submitLabel ||
+    d.successMessage !== publishedDraft.successMessage ||
+    d.layout !== publishedDraft.layout ||
+    d.primaryLanguage !== publishedDraft.primaryLanguage ||
+    JSON.stringify(d.sections) !== JSON.stringify(publishedDraft.sections) ||
+    JSON.stringify(d.theme) !== JSON.stringify(publishedDraft.theme) ||
+    JSON.stringify(d.settings) !== JSON.stringify(publishedDraft.settings) ||
+    JSON.stringify(d.translations) !== JSON.stringify(publishedDraft.translations)
+  );
+}
 
 type BuilderTab = "questions" | "responses" | "settings";
 
@@ -60,11 +112,18 @@ export function FormBuilderShell() {
     searchParams.get("tab") === "responses" ? "responses"
       : searchParams.get("tab") === "settings" ? "settings" : "questions",
   );
+  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved" | "error">("saved");
+  const [publishing, setPublishing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const [languagesOpen, setLanguagesOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+
+  const isSavingRef = useRef(false);
+  const draftRef = useRef<FormDraft | null>(null);
+  draftRef.current = draft;
+  const formRef = useRef<CmsForm | null>(null);
+  formRef.current = form;
 
   useEffect(() => {
     if (!id) return;
@@ -77,23 +136,113 @@ export function FormBuilderShell() {
     setDraft((d) => (d ? { ...d, ...patch } : d));
   }
 
-  async function save() {
-    if (!draft || !id) return;
-    setSaving(true);
+  // Auto-save logic
+  useEffect(() => {
+    if (!draft || !form) return;
+
+    const savedDraft = draftFromForm(form);
+    const hasChanges = isDraftDifferent(draft, savedDraft);
+
+    if (!hasChanges) {
+      setSaveStatus((prev) => (prev === "saving" ? "saving" : "saved"));
+      return;
+    }
+
+    setSaveStatus("unsaved");
+
+    const timer = setTimeout(() => {
+      autoSave();
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [draft, form]);
+
+  // Unload warning logic
+  useEffect(() => {
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      const savedDraft = form ? draftFromForm(form) : null;
+      if (draft && savedDraft && isDraftDifferent(draft, savedDraft)) {
+        e.preventDefault();
+        e.returnValue = "You have unsaved changes. Are you sure you want to leave?";
+        return e.returnValue;
+      }
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [draft, form]);
+
+  async function autoSave() {
+    if (isSavingRef.current || !draftRef.current || !id) return;
+    isSavingRef.current = true;
+    setSaveStatus("saving");
+    try {
+      const currentDraft = draftRef.current;
+      const updated = await api.forms.update(Number(id), {
+        name: currentDraft.name, slug: currentDraft.slug, description: currentDraft.description, status: currentDraft.status,
+        submitLabel: currentDraft.submitLabel, successMessage: currentDraft.successMessage,
+        layout: currentDraft.layout, sections: currentDraft.sections, theme: currentDraft.theme, settings: currentDraft.settings,
+        primaryLanguage: currentDraft.primaryLanguage, translations: currentDraft.translations,
+      });
+      setForm(updated);
+      setSaveStatus("saved");
+    } catch (e) {
+      console.error("Auto-save error:", e);
+      setError((e as Error).message || "Auto-save failed");
+      setSaveStatus("error");
+    } finally {
+      isSavingRef.current = false;
+    }
+  }
+
+  async function saveImmediately(): Promise<CmsForm | null> {
+    if (!draftRef.current || !id) return null;
+    
+    if (isSavingRef.current) {
+      const savedDraft = draftFromForm(formRef.current!);
+      if (!isDraftDifferent(draftRef.current, savedDraft)) {
+        return formRef.current;
+      }
+    }
+
+    setSaveStatus("saving");
+    isSavingRef.current = true;
+    try {
+      const currentDraft = draftRef.current;
+      const updated = await api.forms.update(Number(id), {
+        name: currentDraft.name, slug: currentDraft.slug, description: currentDraft.description, status: currentDraft.status,
+        submitLabel: currentDraft.submitLabel, successMessage: currentDraft.successMessage,
+        layout: currentDraft.layout, sections: currentDraft.sections, theme: currentDraft.theme, settings: currentDraft.settings,
+        primaryLanguage: currentDraft.primaryLanguage, translations: currentDraft.translations,
+      });
+      setForm(updated);
+      setSaveStatus("saved");
+      return updated;
+    } catch (e) {
+      console.error("Manual save error:", e);
+      setError((e as Error).message || "Save failed");
+      setSaveStatus("error");
+      throw e;
+    } finally {
+      isSavingRef.current = false;
+    }
+  }
+
+  async function handlePublish() {
+    setPublishing(true);
     setError(null);
     try {
-      const updated = await api.forms.update(Number(id), {
-        name: draft.name, slug: draft.slug, description: draft.description, status: draft.status,
-        submitLabel: draft.submitLabel, successMessage: draft.successMessage,
-        layout: draft.layout, sections: draft.sections, theme: draft.theme, settings: draft.settings,
-        primaryLanguage: draft.primaryLanguage, translations: draft.translations,
-      });
+      const savedForm = await saveImmediately();
+      const targetForm = savedForm || form;
+      if (!targetForm) throw new Error("No form to publish");
+
+      const updated = await api.forms.publish(targetForm.id);
       setForm(updated);
       setDraft(draftFromForm(updated));
     } catch (e) {
-      setError((e as Error).message || "Failed to save");
+      console.error("Publish error:", e);
+      setError((e as Error).message || "Failed to publish");
     } finally {
-      setSaving(false);
+      setPublishing(false);
     }
   }
 
@@ -124,8 +273,51 @@ export function FormBuilderShell() {
           className="font-semibold bg-transparent px-1 py-1 rounded outline-none focus:bg-muted/60 min-w-0"
           placeholder="Form title"
         />
+
+        {/* Save Status Indicator */}
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground ml-2">
+          {saveStatus === "saving" && (
+            <>
+              <Loader2 className="size-3.5 animate-spin" />
+              <span>Saving...</span>
+            </>
+          )}
+          {saveStatus === "saved" && (
+            <>
+              <Cloud className="size-3.5 text-emerald-500" />
+              <span className="text-emerald-600 dark:text-emerald-500">Saved to cloud</span>
+            </>
+          )}
+          {saveStatus === "unsaved" && (
+            <>
+              <Cloud className="size-3.5 text-amber-500" />
+              <span className="text-amber-600 dark:text-amber-500">Unsaved changes</span>
+            </>
+          )}
+          {saveStatus === "error" && (
+            <>
+              <AlertCircle className="size-3.5 text-destructive" />
+              <span className="text-destructive font-medium">Failed to save</span>
+            </>
+          )}
+        </div>
+
         <div className="ml-auto flex items-center gap-1.5">
           {error && <span className="text-xs text-destructive mr-1">{error}</span>}
+
+          {/* Draft/Published Status Badge */}
+          {form.publishedAt ? (
+            hasUnpublishedChanges(draft, form) && (
+              <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800 border border-amber-200 dark:bg-amber-950/20 dark:border-amber-900/50 dark:text-amber-400">
+                Unpublished Draft
+              </span>
+            )
+          ) : (
+            <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-800 border border-blue-200 dark:bg-blue-950/20 dark:border-blue-900/50 dark:text-blue-400">
+              Not Published
+            </span>
+          )}
+
           <button
             onClick={() => setThemeOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-sm hover:bg-muted"
@@ -151,13 +343,26 @@ export function FormBuilderShell() {
               {preview ? "Edit" : "Preview"}
             </button>
           )}
-          <button
-            onClick={save}
-            disabled={saving}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-foreground text-background px-3 py-1.5 text-sm font-medium disabled:opacity-60"
-          >
-            <Save className="size-4" /> {saving ? "Saving…" : "Save"}
-          </button>
+          
+          {/* Publish / Published Button */}
+          {hasUnpublishedChanges(draft, form) ? (
+            <button
+              onClick={handlePublish}
+              disabled={publishing}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 text-sm font-medium transition-colors shadow-sm disabled:opacity-60"
+            >
+              <Send className="size-4" />
+              {publishing ? "Publishing..." : "Publish"}
+            </button>
+          ) : (
+            <button
+              disabled
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 px-3 py-1.5 text-sm font-medium dark:bg-emerald-950/30 dark:border-emerald-900/50 dark:text-emerald-400"
+            >
+              <Check className="size-4" />
+              Published
+            </button>
+          )}
         </div>
       </div>
 

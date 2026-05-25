@@ -217,3 +217,36 @@ html { scroll-behavior: smooth; }
   transform: translateY(-2px);
 }
 
+/* ── Custom Scrollbars (Apple & Google Style) ──────────────────────────────── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: oklch(0.85 0.02 250 / 0.6);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.7 0.03 250 / 0.8);
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: oklch(0.3 0.03 260 / 0.6);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.45 0.03 260 / 0.8);
+}
+
+/* Firefox compatibility */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.85 0.02 250 / 0.6) transparent;
+}
+.dark * {
+  scrollbar-color: oklch(0.3 0.03 260 / 0.6) transparent;
+}
+
