@@ -310,6 +310,8 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
   const desktopContainerRef = useRef<HTMLDivElement>(null);
   const mobileContainerRef = useRef<HTMLDivElement>(null);
   const interactionTimeoutRef = useRef<any>(null);
+  // Prevents stopAutoPlay from firing when the animation itself triggers focus/click
+  const isAnimationClickRef = useRef(false);
 
   useEffect(() => {
     isAutoPlayingRef.current = isAutoPlaying;
@@ -329,6 +331,8 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
   };
 
   const stopAutoPlay = () => {
+    // Ignore events that the animation itself triggered
+    if (isAnimationClickRef.current) return;
     setIsAutoPlaying(false);
     updateCursor({ ...cursorPosRef.current, opacity: 0 });
     if (interactionTimeoutRef.current) clearTimeout(interactionTimeoutRef.current);
@@ -430,10 +434,15 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
       };
 
       const clickElement = async (el: HTMLElement) => {
+        // Guard so focus/click events don't trigger stopAutoPlay
+        isAnimationClickRef.current = true;
         setClickRipple(true);
         setTimeout(() => setClickRipple(false), 300);
-        el.focus();
+        // Do NOT call el.focus() — it fires onFocusCapture → stopAutoPlay
         el.click();
+        // Yield to let React flush the click handlers, then release the guard
+        await new Promise(resolve => setTimeout(resolve, 0));
+        isAnimationClickRef.current = false;
       };
 
       const typeText = async (text: string, delayMs = 75) => {
