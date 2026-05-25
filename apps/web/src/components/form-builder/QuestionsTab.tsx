@@ -288,6 +288,7 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
   const [selectedType, setSelectedType] = useState<FormFieldType>("text");
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
   const [previewValue, setPreviewValue] = useState<any>("");
+  const [demoEmailError, setDemoEmailError] = useState<string | null>(null);
 
   const [cursorPos, setCursorPos] = useState({ x: 0, y: 0, opacity: 0 });
   const cursorPosRef = useRef({ x: 0, y: 0, opacity: 0 });
@@ -346,6 +347,7 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
 
   useEffect(() => {
     setPreviewValue(getDefaultPreviewValue(selectedType));
+    setDemoEmailError(null);
     setIsDropdownOpen(false);
     setIsCalendarOpen(false);
     setIsTimeOpen(false);
@@ -453,12 +455,18 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
         }
       };
 
-      const deleteText = async (text: string, delayMs = 40) => {
+      const deleteText = async (text: string, delayMs = 65) => {
         for (let i = text.length; i >= 0; i--) {
           if (shouldAbort()) return;
           setPreviewValue(text.slice(0, i));
           await new Promise(resolve => setTimeout(resolve, delayMs));
         }
+      };
+
+      // Visual-only ripple at cursor position (for grid inputs where el.click() conflicts)
+      const rippleClick = () => {
+        setClickRipple(true);
+        setTimeout(() => setClickRipple(false), 300);
       };
 
       // Set initial cursor position (off-screen / invisible)
@@ -497,12 +505,15 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
             const wrongEmail = "janeatexample.com";
             await typeText(wrongEmail);
             if (shouldAbort()) return;
-            // Pause to show the validation error
-            await new Promise(resolve => setTimeout(resolve, 1400));
+            // Show validation error banner
+            setDemoEmailError("Please enter a valid email address.");
+            // Pause so user can see the error
+            await new Promise(resolve => setTimeout(resolve, 1600));
             if (shouldAbort()) return;
-            // Delete it
+            // Delete it character by character
             await deleteText(wrongEmail);
             if (shouldAbort()) return;
+            setDemoEmailError(null);
             await new Promise(resolve => setTimeout(resolve, 400));
             if (shouldAbort()) return;
             // Type the correct email
@@ -854,46 +865,52 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
         }
         case "grid_multiple_choice":
         case "grid_checkbox": {
+          // Grid rows: Speed(0-2), Usability(3-5), Design(6-8)
+          // cols per row: [Needs Work, Good, Outstanding]
           const cells = container.querySelectorAll('table input');
           const isGridCheckbox = selectedType === "grid_checkbox";
-          
-          if (cells.length > 2) {
-            // Click cell 1 (row 0, col 0 = "Speed / Needs Work")
-            const cell1 = cells[0] as HTMLInputElement;
-            await moveToElement(cell1);
+
+          // Helper: move cursor to cell and ripple (don't call el.click() on controlled inputs)
+          const pickGridCell = async (cell: HTMLInputElement) => {
+            await moveToElement(cell);
             if (shouldAbort()) return;
             await new Promise(resolve => setTimeout(resolve, 400));
             if (shouldAbort()) return;
-            await clickElement(cell1);
+            rippleClick();
+            await new Promise(resolve => setTimeout(resolve, 100));
+          };
+
+          if (cells.length > 0) {
+            // Row 0 / col 0 — Speed / Needs Work
+            const cell1 = cells[0] as HTMLInputElement;
+            await pickGridCell(cell1);
+            if (shouldAbort()) return;
             setPreviewValue(isGridCheckbox ? { "Speed": ["Needs Work"] } : { "Speed": "Needs Work" });
 
+            // Row 1 / col 1 — Usability / Good (index 3+1 = 4)
             if (cells.length > 4) {
-              // Click cell in row 1 col 1 (Usability / Good)
               const cell2 = cells[4] as HTMLInputElement;
               await new Promise(resolve => setTimeout(resolve, 1000));
               if (shouldAbort()) return;
-              await moveToElement(cell2);
+              await pickGridCell(cell2);
               if (shouldAbort()) return;
-              await new Promise(resolve => setTimeout(resolve, 400));
-              if (shouldAbort()) return;
-              await clickElement(cell2);
-              setPreviewValue(isGridCheckbox 
-                ? { "Speed": ["Needs Work"], "Usability": ["Good"] } 
+              setPreviewValue(isGridCheckbox
+                ? { "Speed": ["Needs Work"], "Usability": ["Good"] }
                 : { "Speed": "Needs Work", "Usability": "Good" }
               );
             }
 
-            if (cells.length > 8 && isGridCheckbox) {
-              // Click Design / Outstanding (row 2, col 2)
+            // Row 2 / col 2 — Design / Outstanding (index 6+2 = 8)
+            if (cells.length > 8) {
               const cell3 = cells[8] as HTMLInputElement;
               await new Promise(resolve => setTimeout(resolve, 1000));
               if (shouldAbort()) return;
-              await moveToElement(cell3);
+              await pickGridCell(cell3);
               if (shouldAbort()) return;
-              await new Promise(resolve => setTimeout(resolve, 400));
-              if (shouldAbort()) return;
-              await clickElement(cell3);
-              setPreviewValue({ "Speed": ["Needs Work"], "Usability": ["Good"], "Design": ["Outstanding"] });
+              setPreviewValue(isGridCheckbox
+                ? { "Speed": ["Needs Work"], "Usability": ["Good"], "Design": ["Outstanding"] }
+                : { "Speed": "Needs Work", "Usability": "Good", "Design": "Outstanding" }
+              );
             }
           }
           break;
@@ -911,6 +928,7 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
       await new Promise(resolve => setTimeout(resolve, 800));
       if (shouldAbort()) return;
       setPreviewValue(getDefaultPreviewValue(selectedType));
+      setDemoEmailError(null);
       setIsDropdownOpen(false);
       setIsCalendarOpen(false);
       setIsTimeOpen(false);
@@ -1098,10 +1116,10 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
                       ["dropdown", "select", "date", "time"].includes(selectedType) ? "min-h-[380px]" : "min-h-[160px]"
                     }`}
                   >
-                    {/* Imaginary Mouse Pointer */}
+                    {/* Imaginary Mouse Pointer — z-[9999] so it floats above all dropdowns/pickers */}
                     {isAutoPlaying && cursorPos.opacity > 0 && (
                       <div
-                        className="absolute pointer-events-none z-30"
+                        className="absolute pointer-events-none z-[9999]"
                         style={{
                           left: cursorPos.x,
                           top: cursorPos.y,
@@ -1160,6 +1178,13 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
                           />
                         )}
                       </div>
+                      {/* Email validation error banner */}
+                      {demoEmailError && selectedType === "email" && (
+                        <div className="mt-2 flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/50 rounded-lg px-3 py-2">
+                          <svg className="size-3.5 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                          {demoEmailError}
+                        </div>
+                      )}
                       {previewValue !== undefined && previewValue !== "" && (
                         <div className="mt-4 p-2 bg-muted/40 rounded-lg text-[10px] font-mono text-muted-foreground flex gap-1 items-center border border-border/30">
                           <span className="font-semibold text-primary/80">Value:</span>
@@ -1335,10 +1360,10 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
                         ["dropdown", "select", "date", "time"].includes(selectedType) ? "min-h-[320px]" : "min-h-[120px]"
                       }`}
                     >
-                      {/* Imaginary Mouse Pointer */}
+                      {/* Imaginary Mouse Pointer — z-[9999] so it floats above all dropdowns/pickers */}
                       {isAutoPlaying && cursorPos.opacity > 0 && (
                         <div
-                          className="absolute pointer-events-none z-30"
+                          className="absolute pointer-events-none z-[9999]"
                           style={{
                             left: cursorPos.x,
                             top: cursorPos.y,
