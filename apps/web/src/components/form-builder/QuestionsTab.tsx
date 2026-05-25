@@ -6,7 +6,7 @@ import {
 import {
   SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Layers, Plus, Trash2, Search, ArrowLeft, ChevronRight, X, Sparkles } from "lucide-react";
+import { Layers, Plus, Trash2, Search, ArrowLeft, ChevronRight, X, Sparkles, MousePointer2, ChevronDown, Calendar, Clock } from "lucide-react";
 import type { FormField, FormFieldType, FormLayout, FormSection, FormTheme } from "@/lib/api";
 import { emptyField, QUESTION_TYPE_LIST, uid } from "@/lib/formFields";
 import { QuestionCard } from "@/components/form-builder/QuestionCard";
@@ -296,6 +296,10 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
   const mobileContainerRef = useRef<HTMLDivElement>(null);
   const interactionTimeoutRef = useRef<any>(null);
 
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [isTimeOpen, setIsTimeOpen] = useState(false);
+
   const stopAutoPlay = () => {
     if (!isAutoPlaying) return;
     setIsAutoPlaying(false);
@@ -314,6 +318,9 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
 
   useEffect(() => {
     setPreviewValue(getDefaultPreviewValue(selectedType));
+    setIsDropdownOpen(false);
+    setIsCalendarOpen(false);
+    setIsTimeOpen(false);
   }, [selectedType]);
 
   useEffect(() => {
@@ -350,6 +357,7 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
       const clickElement = async (el: HTMLElement) => {
         setClickRipple(true);
         setTimeout(() => setClickRipple(false), 300);
+        el.focus();
         el.click();
       };
 
@@ -417,17 +425,27 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
         case "dropdown":
         case "select": {
           if (selectedType === "dropdown" || selectedType === "select") {
-            const select = container.querySelector('select') as HTMLSelectElement;
-            if (select) {
-              moveToElement(select);
+            const selectEl = container.querySelector('.mock-select-input') as HTMLElement;
+            if (selectEl) {
+              moveToElement(selectEl);
               await new Promise(resolve => setTimeout(resolve, 800));
               if (!active || !isAutoPlaying) return;
 
-              clickElement(select);
-              await new Promise(resolve => setTimeout(resolve, 500));
+              clickElement(selectEl);
+              setIsDropdownOpen(true);
+              await new Promise(resolve => setTimeout(resolve, 600));
               if (!active || !isAutoPlaying) return;
 
-              setPreviewValue("Puerto Rico");
+              const optBtn = container.querySelector('.mock-option-puerto-rico') as HTMLElement;
+              if (optBtn) {
+                moveToElement(optBtn);
+                await new Promise(resolve => setTimeout(resolve, 800));
+                if (!active || !isAutoPlaying) return;
+
+                clickElement(optBtn);
+                setPreviewValue("Puerto Rico");
+                setIsDropdownOpen(false);
+              }
             }
           } else {
             const radios = container.querySelectorAll('input[type="radio"]');
@@ -514,6 +532,56 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
           }
           break;
         }
+        case "date": {
+          const input = container.querySelector('.mock-date-input') as HTMLElement;
+          if (input) {
+            moveToElement(input);
+            await new Promise(resolve => setTimeout(resolve, 800));
+            if (!active || !isAutoPlaying) return;
+
+            clickElement(input);
+            setIsCalendarOpen(true);
+            await new Promise(resolve => setTimeout(resolve, 600));
+            if (!active || !isAutoPlaying) return;
+
+            const dateBtn = container.querySelector('.mock-date-25') as HTMLElement;
+            if (dateBtn) {
+              moveToElement(dateBtn);
+              await new Promise(resolve => setTimeout(resolve, 800));
+              if (!active || !isAutoPlaying) return;
+
+              clickElement(dateBtn);
+              setPreviewValue("2026-05-25");
+              setIsCalendarOpen(false);
+            }
+          }
+          break;
+        }
+        case "time": {
+          const input = container.querySelector('.mock-time-input') as HTMLElement;
+          if (input) {
+            moveToElement(input);
+            await new Promise(resolve => setTimeout(resolve, 800));
+            if (!active || !isAutoPlaying) return;
+
+            clickElement(input);
+            setIsTimeOpen(true);
+            await new Promise(resolve => setTimeout(resolve, 600));
+            if (!active || !isAutoPlaying) return;
+
+            const timeBtn = container.querySelector('.mock-time-12') as HTMLElement;
+            if (timeBtn) {
+              moveToElement(timeBtn);
+              await new Promise(resolve => setTimeout(resolve, 800));
+              if (!active || !isAutoPlaying) return;
+
+              clickElement(timeBtn);
+              setPreviewValue("12:00 PM");
+              setIsTimeOpen(false);
+            }
+          }
+          break;
+        }
         case "file": {
           const button = container.querySelector('button') as HTMLElement;
           if (button) {
@@ -561,30 +629,7 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
           }
           break;
         }
-        case "date": {
-          const input = container.querySelector('input[type="date"]') as HTMLInputElement;
-          if (input) {
-            moveToElement(input);
-            await new Promise(resolve => setTimeout(resolve, 800));
-            if (!active || !isAutoPlaying) return;
 
-            clickElement(input);
-            setPreviewValue("2026-05-25");
-          }
-          break;
-        }
-        case "time": {
-          const input = container.querySelector('input[type="time"]') as HTMLInputElement;
-          if (input) {
-            moveToElement(input);
-            await new Promise(resolve => setTimeout(resolve, 800));
-            if (!active || !isAutoPlaying) return;
-
-            clickElement(input);
-            setPreviewValue("14:00");
-          }
-          break;
-        }
         default:
           break;
       }
@@ -760,23 +805,25 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
                   {/* Viewport */}
                   <div 
                     ref={desktopContainerRef}
-                    onMouseMove={stopAutoPlay}
                     onMouseDown={stopAutoPlay}
+                    onFocusCapture={stopAutoPlay}
+                    onKeyDown={stopAutoPlay}
                     className="p-6 bg-background dark:bg-neutral-900 min-h-[160px] flex flex-col justify-center border-t-0 relative overflow-hidden"
                   >
                     {/* Imaginary Mouse Pointer */}
                     {isAutoPlaying && cursorPos.opacity > 0 && (
                       <div
-                        className="absolute pointer-events-none rounded-full w-4 h-4 bg-primary/30 border border-primary shadow-md z-30 flex items-center justify-center transition-all duration-700 ease-out"
+                        className="absolute pointer-events-none z-30 transition-all duration-700 ease-out flex items-center justify-center"
                         style={{
-                          left: cursorPos.x - 8,
-                          top: cursorPos.y - 8,
+                          left: cursorPos.x,
+                          top: cursorPos.y,
                           opacity: cursorPos.opacity,
-                          transform: clickRipple ? "scale(0.85)" : "scale(1)",
                         }}
                       >
-                        {clickRipple && <span className="absolute inset-0 rounded-full bg-primary/30 animate-ping" />}
-                        <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+                        <MousePointer2 className="size-5 text-neutral-900 fill-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)] select-none pointer-events-none" />
+                        {clickRipple && (
+                          <span className="absolute w-6 h-6 rounded-full bg-primary/40 animate-ping -left-1 -top-1" />
+                        )}
                       </div>
                     )}
 
@@ -789,13 +836,39 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
                         <p className="text-xs text-muted-foreground mb-2">{getMockField(selectedType).description}</p>
                       )}
                       <div className="pt-1">
-                        <QuestionInput
-                          field={getMockField(selectedType)}
-                          value={previewValue}
-                          onChange={setPreviewValue}
-                          accent={themeColor}
-                          disabled={selectedType === "file"}
-                        />
+                        {selectedType === "dropdown" || selectedType === "select" ? (
+                          <DemoDropdown
+                            value={previewValue}
+                            onChange={setPreviewValue}
+                            themeColor={themeColor}
+                            isOpen={isDropdownOpen}
+                            setIsOpen={setIsDropdownOpen}
+                          />
+                        ) : selectedType === "date" ? (
+                          <DemoDatePicker
+                            value={previewValue}
+                            onChange={setPreviewValue}
+                            themeColor={themeColor}
+                            isOpen={isCalendarOpen}
+                            setIsOpen={setIsCalendarOpen}
+                          />
+                        ) : selectedType === "time" ? (
+                          <DemoTimePicker
+                            value={previewValue}
+                            onChange={setPreviewValue}
+                            themeColor={themeColor}
+                            isOpen={isTimeOpen}
+                            setIsOpen={setIsTimeOpen}
+                          />
+                        ) : (
+                          <QuestionInput
+                            field={getMockField(selectedType)}
+                            value={previewValue}
+                            onChange={setPreviewValue}
+                            accent={themeColor}
+                            disabled={selectedType === "file"}
+                          />
+                        )}
                       </div>
                       {previewValue !== undefined && previewValue !== "" && (
                         <div className="mt-4 p-2 bg-muted/40 rounded-lg text-[10px] font-mono text-muted-foreground flex gap-1 items-center border border-border/30">
@@ -960,23 +1033,25 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
                     </div>
                     <div 
                       ref={mobileContainerRef}
-                      onMouseMove={stopAutoPlay}
                       onMouseDown={stopAutoPlay}
+                      onFocusCapture={stopAutoPlay}
+                      onKeyDown={stopAutoPlay}
                       className="p-4 bg-background dark:bg-neutral-900 min-h-[120px] flex flex-col justify-center relative overflow-hidden"
                     >
                       {/* Imaginary Mouse Pointer */}
                       {isAutoPlaying && cursorPos.opacity > 0 && (
                         <div
-                          className="absolute pointer-events-none rounded-full w-4 h-4 bg-primary/30 border border-primary shadow-md z-30 flex items-center justify-center transition-all duration-700 ease-out"
+                          className="absolute pointer-events-none z-30 transition-all duration-700 ease-out flex items-center justify-center"
                           style={{
-                            left: cursorPos.x - 8,
-                            top: cursorPos.y - 8,
+                            left: cursorPos.x,
+                            top: cursorPos.y,
                             opacity: cursorPos.opacity,
-                            transform: clickRipple ? "scale(0.85)" : "scale(1)",
                           }}
                         >
-                          {clickRipple && <span className="absolute inset-0 rounded-full bg-primary/30 animate-ping" />}
-                          <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+                          <MousePointer2 className="size-5 text-neutral-900 fill-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)] select-none pointer-events-none" />
+                          {clickRipple && (
+                            <span className="absolute w-6 h-6 rounded-full bg-primary/40 animate-ping -left-1 -top-1" />
+                          )}
                         </div>
                       )}
 
@@ -985,13 +1060,39 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
                           {getMockField(selectedType).label}
                         </label>
                         <div className="pt-1">
-                          <QuestionInput
-                            field={getMockField(selectedType)}
-                            value={previewValue}
-                            onChange={setPreviewValue}
-                            accent={themeColor}
-                            disabled={selectedType === "file"}
-                          />
+                          {selectedType === "dropdown" || selectedType === "select" ? (
+                            <DemoDropdown
+                              value={previewValue}
+                              onChange={setPreviewValue}
+                              themeColor={themeColor}
+                              isOpen={isDropdownOpen}
+                              setIsOpen={setIsDropdownOpen}
+                            />
+                          ) : selectedType === "date" ? (
+                            <DemoDatePicker
+                              value={previewValue}
+                              onChange={setPreviewValue}
+                              themeColor={themeColor}
+                              isOpen={isCalendarOpen}
+                              setIsOpen={setIsCalendarOpen}
+                            />
+                          ) : selectedType === "time" ? (
+                            <DemoTimePicker
+                              value={previewValue}
+                              onChange={setPreviewValue}
+                              themeColor={themeColor}
+                              isOpen={isTimeOpen}
+                              setIsOpen={setIsTimeOpen}
+                            />
+                          ) : (
+                            <QuestionInput
+                              field={getMockField(selectedType)}
+                              value={previewValue}
+                              onChange={setPreviewValue}
+                              accent={themeColor}
+                              disabled={selectedType === "file"}
+                            />
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1022,5 +1123,165 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function DemoDropdown({ value, onChange, themeColor, isOpen, setIsOpen }: {
+  value: any;
+  onChange: (v: any) => void;
+  themeColor: string;
+  isOpen: boolean;
+  setIsOpen: (v: boolean) => void;
+}) {
+  const options = ["United States", "Puerto Rico", "Canada", "United Kingdom", "Other"];
+  return (
+    <div className="relative w-full">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="mock-select-input w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm text-gray-900 dark:text-neutral-100 transition-colors cursor-pointer"
+        style={isOpen ? { borderColor: themeColor, boxShadow: `0 0 0 2px ${themeColor}33` } : {}}
+      >
+        <span>{value || "Select..."}</span>
+        <ChevronDown className="size-4 text-gray-400" />
+      </button>
+      {isOpen && (
+        <div className="absolute left-0 right-0 mt-1.5 max-h-60 overflow-y-auto rounded-lg border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 py-1 shadow-lg z-50 animate-in fade-in slide-in-from-top-1 duration-200">
+          {options.map((opt) => {
+            const isSelected = value === opt;
+            const isPR = opt === "Puerto Rico";
+            return (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => {
+                  onChange(opt);
+                  setIsOpen(false);
+                }}
+                className={`mock-option-${isPR ? "puerto-rico" : opt.toLowerCase().replace(/\s+/g, "-")} flex w-full items-center px-3.5 py-2.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer ${
+                  isSelected ? "font-medium" : "text-gray-700 dark:text-neutral-300"
+                }`}
+                style={isSelected ? { color: themeColor, backgroundColor: `${themeColor}1a` } : {}}
+              >
+                {opt}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DemoDatePicker({ value, onChange, themeColor, isOpen, setIsOpen }: {
+  value: any;
+  onChange: (v: any) => void;
+  themeColor: string;
+  isOpen: boolean;
+  setIsOpen: (v: boolean) => void;
+}) {
+  const daysInMonth = 31;
+  const startDayOffset = 5; // May 2026 starts on Friday
+  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+  const weekdays = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+  return (
+    <div className="relative w-full">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="mock-date-input w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm text-gray-900 dark:text-neutral-100 transition-colors cursor-pointer"
+        style={isOpen ? { borderColor: themeColor, boxShadow: `0 0 0 2px ${themeColor}33` } : {}}
+      >
+        <span>{value || "Select date..."}</span>
+        <Calendar className="size-4 text-gray-400" />
+      </button>
+      {isOpen && (
+        <div className="absolute left-0 mt-1.5 w-64 rounded-xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3 shadow-lg z-50 animate-in fade-in slide-in-from-top-1 duration-200">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-gray-700 dark:text-neutral-300">May 2026</span>
+          </div>
+          <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-medium text-gray-400 dark:text-neutral-500 mb-1">
+            {weekdays.map((w) => <div key={w}>{w}</div>)}
+          </div>
+          <div className="grid grid-cols-7 gap-1 text-center">
+            {Array.from({ length: startDayOffset }).map((_, i) => (
+              <div key={`empty-${i}`} />
+            ))}
+            {days.map((d) => {
+              const dateStr = `2026-05-${d < 10 ? "0" + d : d}`;
+              const isSelected = value === dateStr;
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => {
+                    onChange(dateStr);
+                    setIsOpen(false);
+                  }}
+                  className={`mock-date-${d} size-7 text-[11px] rounded-md flex items-center justify-center hover:bg-gray-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer ${
+                    isSelected 
+                      ? "text-white font-semibold" 
+                      : "text-gray-700 dark:text-neutral-300"
+                  }`}
+                  style={isSelected ? { backgroundColor: themeColor } : {}}
+                >
+                  {d}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DemoTimePicker({ value, onChange, themeColor, isOpen, setIsOpen }: {
+  value: any;
+  onChange: (v: any) => void;
+  themeColor: string;
+  isOpen: boolean;
+  setIsOpen: (v: boolean) => void;
+}) {
+  const times = [
+    "09:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "01:00 PM", "02:00 PM", "03:00 PM", "04:00 PM"
+  ];
+  return (
+    <div className="relative w-full">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="mock-time-input w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm text-gray-900 dark:text-neutral-100 transition-colors cursor-pointer"
+        style={isOpen ? { borderColor: themeColor, boxShadow: `0 0 0 2px ${themeColor}33` } : {}}
+      >
+        <span>{value || "Select time..."}</span>
+        <Clock className="size-4 text-gray-400" />
+      </button>
+      {isOpen && (
+        <div className="absolute left-0 mt-1.5 w-40 max-h-48 overflow-y-auto rounded-lg border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 py-1 shadow-lg z-50 animate-in fade-in slide-in-from-top-1 duration-200">
+          {times.map((t) => {
+            const isSelected = value === t;
+            const is12 = t === "12:00 PM";
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() => {
+                  onChange(t);
+                  setIsOpen(false);
+                }}
+                className={`mock-time-${is12 ? "12" : t.split(":")[0]} flex w-full items-center px-3 py-1.5 text-xs text-left hover:bg-gray-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer ${
+                  isSelected ? "font-medium" : "text-gray-700 dark:text-neutral-300"
+                }`}
+                style={isSelected ? { color: themeColor, backgroundColor: `${themeColor}1a` } : {}}
+              >
+                {t}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { AlertCircle, ArrowLeft, Check, Cloud, Eye, Languages, Loader2, Palette, Pencil, Send } from "lucide-react";
+import { AlertCircle, ArrowLeft, Check, Cloud, Eye, Languages, Loader2, Palette, Pencil, Save, Send } from "lucide-react";
 import {
   api, type CmsForm, type FormLayout, type FormSection, type FormSettings, type FormTheme,
   type FormTranslations,
@@ -28,6 +28,31 @@ type FormDraft = {
   translations: Record<string, FormTranslations>;
 };
 
+function isEquivalent(val1: any, val2: any): boolean {
+  if (val1 === val2) return true;
+  
+  const v1 = val1 === undefined ? null : val1;
+  const v2 = val2 === undefined ? null : val2;
+  if (v1 === v2) return true;
+  
+  if (v1 === null || v2 === null) return false;
+  
+  if (Array.isArray(v1) && Array.isArray(v2)) {
+    if (v1.length !== v2.length) return false;
+    return v1.every((x, i) => isEquivalent(x, v2[i]));
+  }
+  
+  if (typeof v1 === "object" && typeof v2 === "object") {
+    const keys = new Set([...Object.keys(v1), ...Object.keys(v2)]);
+    for (const key of keys) {
+      if (!isEquivalent(v1[key], v2[key])) return false;
+    }
+    return true;
+  }
+  
+  return false;
+}
+
 function isDraftDifferent(a: FormDraft | null, b: FormDraft | null): boolean {
   if (!a || !b) return false;
   return (
@@ -39,10 +64,10 @@ function isDraftDifferent(a: FormDraft | null, b: FormDraft | null): boolean {
     a.successMessage !== b.successMessage ||
     a.layout !== b.layout ||
     a.primaryLanguage !== b.primaryLanguage ||
-    JSON.stringify(a.sections) !== JSON.stringify(b.sections) ||
-    JSON.stringify(a.theme) !== JSON.stringify(b.theme) ||
-    JSON.stringify(a.settings) !== JSON.stringify(b.settings) ||
-    JSON.stringify(a.translations) !== JSON.stringify(b.translations)
+    !isEquivalent(a.sections, b.sections) ||
+    !isEquivalent(a.theme, b.theme) ||
+    !isEquivalent(a.settings, b.settings) ||
+    !isEquivalent(a.translations, b.translations)
   );
 }
 
@@ -73,10 +98,10 @@ function hasUnpublishedChanges(d: FormDraft | null, f: CmsForm | null): boolean 
     d.successMessage !== publishedDraft.successMessage ||
     d.layout !== publishedDraft.layout ||
     d.primaryLanguage !== publishedDraft.primaryLanguage ||
-    JSON.stringify(d.sections) !== JSON.stringify(publishedDraft.sections) ||
-    JSON.stringify(d.theme) !== JSON.stringify(publishedDraft.theme) ||
-    JSON.stringify(d.settings) !== JSON.stringify(publishedDraft.settings) ||
-    JSON.stringify(d.translations) !== JSON.stringify(publishedDraft.translations)
+    !isEquivalent(d.sections, publishedDraft.sections) ||
+    !isEquivalent(d.theme, publishedDraft.theme) ||
+    !isEquivalent(d.settings, publishedDraft.settings) ||
+    !isEquivalent(d.translations, publishedDraft.translations)
   );
 }
 
@@ -343,7 +368,16 @@ export function FormBuilderShell() {
               {preview ? "Edit" : "Preview"}
             </button>
           )}
-          
+          {/* Save Draft Button */}
+          <button
+            onClick={() => saveImmediately()}
+            disabled={saveStatus === "saving" || saveStatus === "saved"}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-sm hover:bg-muted disabled:opacity-50 transition-colors"
+          >
+            <Save className="size-4" />
+            {saveStatus === "saving" ? "Saving..." : "Save Draft"}
+          </button>
+
           {/* Publish / Published Button */}
           {hasUnpublishedChanges(draft, form) ? (
             <button
