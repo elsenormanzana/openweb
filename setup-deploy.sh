@@ -180,47 +180,81 @@ _cls() {
 _fmt_blank() { printf '║%*s║' "$BOX_W" ""; }
 
 _fmt_row() {
-  printf '║  %-*s  ║' "$((BOX_W - 4))" "${1:-}"
+  local t="${1:-}"
+  local vw="${#t}"
+  local rpad=$(( BOX_W - 4 - vw ))
+  [ "$rpad" -lt 0 ] && rpad=0
+  printf '║  %s%*s  ║' "$t" "$rpad" ""
 }
 
 _fmt_row_bold() {
-  printf '║  %s%-*s%s  ║' "$CB" "$((BOX_W - 4))" "${1:-}" "$C0"
+  local t="${1:-}"
+  local vw="${#t}"
+  local rpad=$(( BOX_W - 4 - vw ))
+  [ "$rpad" -lt 0 ] && rpad=0
+  printf '║  %s%s%s%*s  ║' "$CB" "$t" "$C0" "$rpad" ""
 }
 
 _fmt_row_dim() {
   # 2-space indent inside the box for visual hierarchy.
-  printf '║  %s  %-*s%s  ║' "$CD" "$((BOX_W - 6))" "${1:-}" "$C0"
+  local t="${1:-}"
+  local vw="${#t}"
+  local rpad=$(( BOX_W - 6 - vw ))
+  [ "$rpad" -lt 0 ] && rpad=0
+  printf '║  %s  %s%s%*s  ║' "$CD" "$t" "$C0" "$rpad" ""
 }
 
 _fmt_row_kv() {
-  local key="$1" val="$2"
+  local key="${1:-}" val="${2:-}"
   local key_w=18
   local val_w=$(( BOX_W - 4 - key_w - 1 ))
   [ "$val_w" -lt 4 ] && val_w=4
   if [ "${#val}" -gt "$val_w" ]; then val="${val:0:$((val_w - 1))}…"; fi
-  printf '║  %s%-*s%s %s%-*s%s  ║' \
-    "$CD" "$key_w" "$key" "$C0" \
-    "$CB" "$val_w" "$val" "$C0"
+
+  local kvw="${#key}"
+  local kpad=$(( key_w - kvw ))
+  [ "$kpad" -lt 0 ] && kpad=0
+
+  local vvw="${#val}"
+  local vpad=$(( val_w - vvw ))
+  [ "$vpad" -lt 0 ] && vpad=0
+
+  printf '║  %s%s%*s%s %s%s%s%*s  ║' \
+    "$CD" "$key" "$kpad" "" "$C0" \
+    "$CB" "$val" "$C0" "$vpad" ""
 }
 
 _fmt_row_logo() {
   local t="  OpenWeb  ·  Deployment Wizard"
   local inner=$(( BOX_W - 4 ))
-  [ "${#t}" -gt "$inner" ] && t="${t:0:$inner}"
-  printf '║  %s%-*s%s  ║' "${CB}${CC}" "$inner" "$t" "$C0"
+  local vw="${#t}"
+  if [ "$vw" -gt "$inner" ]; then
+    t="${t:0:$inner}"
+    vw="$inner"
+  fi
+  local rpad=$(( inner - vw ))
+  [ "$rpad" -lt 0 ] && rpad=0
+  printf '║  %s%s%s%*s  ║' "${CB}${CC}" "$t" "$C0" "$rpad" ""
 }
 
 _fmt_row_step() {
-  local cur="$1" tot="$2" label="Step $cur of $tot"
+  local cur="${1:-}"
+  local tot="${2:-}"
+  local label="Step $cur of $tot"
   # Right-aligned step indicator.
   printf '║  %s%*s%s  ║' "${CD}${CY}" "$((BOX_W - 4))" "$label" "$C0"
 }
 
 _fmt_row_progress() {
-  local cur="$1" tot="$2"
+  local cur="${1:-0}"
+  local tot="${2:-1}"
   local bw=$(( BOX_W - 4 ))
   [ "$bw" -lt 4 ] && bw=4
-  local filled=$(( bw * cur / tot )) empty=$(( bw - bw * cur / tot ))
+  local filled=0
+  if [ "${tot}" -gt 0 ] 2>/dev/null; then
+    filled=$(( bw * cur / tot ))
+  fi
+  local empty=$(( bw - filled ))
   local fbar="" ebar="" i=0
   while [ "$i" -lt "$filled" ]; do fbar="${fbar}▓"; i=$(( i+1 )); done
   i=0
@@ -229,7 +263,9 @@ _fmt_row_progress() {
 }
 
 _fmt_row_center() {
-  local t="$1" pre="${2:-}" suf="${3:-}"
+  local t="${1:-}"
+  local pre="${2:-}"
+  local suf="${3:-}"
   local vw="${#t}"
   [ "$vw" -gt "$BOX_W" ] && { t="${t:0:$BOX_W}"; vw="$BOX_W"; }
   local lpad=$(( (BOX_W - vw) / 2 ))
@@ -241,10 +277,13 @@ _fmt_row_center() {
 
 _fmt_row_accent() {
   # A row with a leading colored accent bar for menu items / highlights.
-  local marker="${1:-›}" text="${2:-}" color="${3:-$CC}"
-  local inner=$(( BOX_W - 6 ))
-  [ "$inner" -lt 1 ] && inner=1
-  printf '║  %s%s%s %-*s  ║' "${CB}${color}" "$marker" "$C0" "$inner" "$text"
+  local marker="${1:-›}"
+  local text="${2:-}"
+  local color="${3:-$CC}"
+  local vw="${#text}"
+  local rpad=$(( BOX_W - 6 - vw ))
+  [ "$rpad" -lt 0 ] && rpad=0
+  printf '║  %s%s%s %s%*s  ║' "${CB}${color}" "$marker" "$C0" "$text" "$rpad" ""
 }
 
 # ─── Mode-aware emit ─────────────────────────────────────────────────────────
@@ -318,7 +357,15 @@ _paint_chrome() {
   fi
   # Title row with accent
   local tw=$(( BOX_W - 4 ))
-  printf '║  %s%s%-*s%s  ║\n' "${CB}" "${CW}" "$tw" "$SCREEN_TITLE" "$C0" >/dev/tty
+  local st="${SCREEN_TITLE}"
+  local svw="${#st}"
+  if [ "$svw" -gt "$tw" ]; then
+    st="${st:0:$tw}"
+    svw="$tw"
+  fi
+  local srpad=$(( tw - svw ))
+  [ "$srpad" -lt 0 ] && srpad=0
+  printf '║  %s%s%s%s%*s  ║\n' "${CB}" "${CW}" "$st" "$C0" "$srpad" "" >/dev/tty
   printf '%s\n' "$_BOX_MID"            >/dev/tty
 }
 
@@ -401,11 +448,23 @@ _show_error_screen() {
   _update_box 2>/dev/null || true
   printf '\n' >/dev/tty 2>/dev/null || true
   printf '%s\n' "$_BOX_TOP" >/dev/tty 2>/dev/null || true
-  printf '║  %s%-*s%s  ║\n' "${CR}${CB}" "$((BOX_W - 4))" "  ✖  Deployment Error" "$C0" \
-    >/dev/tty 2>/dev/null || true
+
+  local title="  ✖  Deployment Error"
+  local tvw="${#title}"
+  local trpad=$(( BOX_W - 4 - tvw ))
+  [ "$trpad" -lt 0 ] && trpad=0
+  printf '║  %s%s%s%*s  ║\n' "${CR}${CB}" "$title" "$C0" "$trpad" "" >/dev/tty 2>/dev/null || true
+
   printf '%s\n' "$_BOX_MID" >/dev/tty 2>/dev/null || true
-  printf '║  %s%-*s%s  ║\n' "$CR" "$((BOX_W - 4))" "$msg" "$C0" >/dev/tty 2>/dev/null || true
-  printf '║  %-*s  ║\n' "$((BOX_W - 4))" "" >/dev/tty 2>/dev/null || true
+
+  local mvw="${#msg}"
+  local mrpad=$(( BOX_W - 4 - mvw ))
+  [ "$mrpad" -lt 0 ] && mrpad=0
+  printf '║  %s%s%s%*s  ║\n' "$CR" "$msg" "$C0" "$mrpad" "" >/dev/tty 2>/dev/null || true
+
+  local brpad=$(( BOX_W - 4 ))
+  printf '║  %*s  ║\n' "$brpad" "" >/dev/tty 2>/dev/null || true
+
   printf '%s\n' "$_BOX_BOT" >/dev/tty 2>/dev/null || true
   printf '\n  %sPress Enter to exit…%s ' "$CD" "$C0" >/dev/tty 2>/dev/null || true
   tput cnorm >/dev/tty 2>/dev/null || true
@@ -447,7 +506,7 @@ require_cmd() {
 
 prompt_input() {
   # $1 = label, $2 = default value → result in _REPLY
-  local label="$1" def="$2" val=""
+  local label="${1:-}" def="${2:-}" val=""
   _REPLY=""
   while true; do
     printf '\n  %s❯%s  %s%s%s' "${CB}${CC}" "$C0" "$CB" "$label" "$C0" >/dev/tty
@@ -465,7 +524,7 @@ prompt_input() {
 prompt_secret() {
   # $1 = label, $2 = default value → result in _REPLY
   # Uses `read -s` (bash built-in) — never stty, so echo is always safe.
-  local label="$1" def="$2" val=""
+  local label="${1:-}" def="${2:-}" val=""
   _REPLY=""
   while true; do
     printf '\n  %s🔒%s  %s%s%s' "${CM}" "$C0" "$CB" "$label" "$C0" >/dev/tty
@@ -483,7 +542,7 @@ prompt_secret() {
 
 prompt_yes_no() {
   # $1 = label, $2 = default (yes|no) → result in _REPLY
-  local label="$1" def="$2" raw="" lv=""
+  local label="${1:-}" def="${2:-}" raw="" lv=""
   _REPLY=""
   while true; do
     printf '\n  %s❯%s  %s%s%s' "${CB}${CC}" "$C0" "$CB" "$label" "$C0" >/dev/tty
@@ -857,25 +916,15 @@ show_splash() {
   printf '%s\n' "$(_fmt_blank)" >/dev/tty
 
   # ASCII art (printed inside the box)
-  local art_indent=$(( (BOX_W - 44) / 2 ))
-  [ "$art_indent" -lt 0 ] && art_indent=0
-  local ai
-  ai="$(printf '%*s' "$art_indent" '')"
-  printf '║%s%s  ██████╗ ██████╗ ███████╗███╗   ██╗%s%*s║\n' \
-    "$ai" "${CB}${CC}" "$C0" "$(( BOX_W - art_indent - 38 ))" '' >/dev/tty
-  printf '║%s%s ██╔═══██╗██╔══██╗██╔════╝████╗  ██║%s%*s║\n' \
-    "$ai" "${CB}${CC}" "$C0" "$(( BOX_W - art_indent - 38 ))" '' >/dev/tty
-  printf '║%s%s ██║   ██║██████╔╝█████╗  ██╔██╗ ██║%s%*s║\n' \
-    "$ai" "${CB}${CC}" "$C0" "$(( BOX_W - art_indent - 38 ))" '' >/dev/tty
-  printf '║%s%s ██║   ██║██╔═══╝ ██╔══╝  ██║╚██╗██║%s%*s║\n' \
-    "$ai" "${CB}${CC}" "$C0" "$(( BOX_W - art_indent - 38 ))" '' >/dev/tty
-  printf '║%s%s ╚██████╔╝██║     ███████╗██║ ╚████║%s%*s║\n' \
-    "$ai" "${CB}${CC}" "$C0" "$(( BOX_W - art_indent - 38 ))" '' >/dev/tty
-  printf '║%s%s  ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝%s%*s║\n' \
-    "$ai" "${CB}${CC}" "$C0" "$(( BOX_W - art_indent - 38 ))" '' >/dev/tty
+  printf '%s\n' "$(_fmt_row_center " ██████  ███████  ████████ ██    ██ ██    ██ ████████ ███████ " "${CB}${CC}" "$C0")" >/dev/tty
+  printf '%s\n' "$(_fmt_row_center "██    ██ ██    ██ ██       ███   ██ ██    ██ ██       ██    ██" "${CB}${CC}" "$C0")" >/dev/tty
+  printf '%s\n' "$(_fmt_row_center "██    ██ ███████  ██████   ████  ██ ██    ██ ██████   ███████ " "${CB}${CC}" "$C0")" >/dev/tty
+  printf '%s\n' "$(_fmt_row_center "██    ██ ██       ██       ██ ██ ██ ██ █  ██ ██       ██    ██" "${CB}${CC}" "$C0")" >/dev/tty
+  printf '%s\n' "$(_fmt_row_center "██    ██ ██       ██       ██  ████ ████████ ██       ██    ██" "${CB}${CC}" "$C0")" >/dev/tty
+  printf '%s\n' "$(_fmt_row_center " ██████  ██       ████████ ██   ███  ██  ██  ████████ ███████ " "${CB}${CC}" "$C0")" >/dev/tty
 
   printf '%s\n' "$(_fmt_blank)" >/dev/tty
-  printf '%s\n' "$(_fmt_row_center "  W E B  —  D e p l o y m e n t  W i z a r d  " "${CB}${CD}" "$C0")" >/dev/tty
+  printf '%s\n' "$(_fmt_row_center "  D e p l o y m e n t   W i z a r d  " "${CB}${CD}" "$C0")" >/dev/tty
   printf '%s\n' "$(_fmt_blank)" >/dev/tty
   printf '%s\n' "$_BOX_MID" >/dev/tty
   printf '%s\n' "$(_fmt_blank)" >/dev/tty
@@ -2312,8 +2361,11 @@ show_completion() {
   printf '%s\n' "$_BOX_MID" >/dev/tty
 
   # Success banner
-  local bw=$(( BOX_W - 4 ))
-  printf '║  %s%-*s%s  ║\n' "${CB}${CG}" "$bw" "  ✔  Deployment Complete!" "$C0" >/dev/tty
+  local banner="  ✔  Deployment Complete!"
+  local bvw="${#banner}"
+  local brpad=$(( BOX_W - 4 - bvw ))
+  [ "$brpad" -lt 0 ] && brpad=0
+  printf '║  %s%s%s%*s  ║\n' "${CB}${CG}" "$banner" "$C0" "$brpad" "" >/dev/tty
 
   # Celebration art (simple, narrow)
   local cel_art="★  ★  ★  ★  ★  ★  ★  ★  ★  ★"
