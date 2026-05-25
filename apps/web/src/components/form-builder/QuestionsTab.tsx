@@ -420,13 +420,13 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
 
       if (!container) return;
 
-      const moveToElement = async (el: HTMLElement) => {
+      const moveToElement = async (el: HTMLElement, duration = 700) => {
         if (!container || !el) return;
         const containerRect = container.getBoundingClientRect();
         const elRect = el.getBoundingClientRect();
         const targetX = elRect.left - containerRect.left + elRect.width / 2;
         const targetY = elRect.top - containerRect.top + elRect.height / 2;
-        await animateMouseMove(targetX, targetY, 700);
+        await animateMouseMove(targetX, targetY, duration);
       };
 
       const clickElement = async (el: HTMLElement) => {
@@ -436,38 +436,83 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
         el.click();
       };
 
-      const typeIntoInput = async (text: string) => {
+      const typeText = async (text: string, delayMs = 75) => {
         for (let i = 1; i <= text.length; i++) {
           if (shouldAbort()) return;
-          const slice = text.slice(0, i);
-          setPreviewValue(slice);
-          await new Promise(resolve => setTimeout(resolve, 80));
+          setPreviewValue(text.slice(0, i));
+          await new Promise(resolve => setTimeout(resolve, delayMs));
         }
       };
 
-      // Set initial position
+      const deleteText = async (text: string, delayMs = 40) => {
+        for (let i = text.length; i >= 0; i--) {
+          if (shouldAbort()) return;
+          setPreviewValue(text.slice(0, i));
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+      };
+
+      // Set initial cursor position (off-screen / invisible)
       updateCursor({ x: 120, y: 80, opacity: 0 });
       await new Promise(resolve => setTimeout(resolve, 400));
       if (shouldAbort()) return;
 
       switch (selectedType) {
-        case "text":
-        case "email":
+        case "text": {
+          const input = container.querySelector('input') as HTMLInputElement;
+          if (input) {
+            await moveToElement(input);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 300));
+            if (shouldAbort()) return;
+            await clickElement(input);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 300));
+            if (shouldAbort()) return;
+            await typeText("Jane Doe");
+          }
+          break;
+        }
+        case "email": {
+          const input = container.querySelector('input') as HTMLInputElement;
+          if (input) {
+            await moveToElement(input);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 300));
+            if (shouldAbort()) return;
+            await clickElement(input);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 300));
+            if (shouldAbort()) return;
+            // Type invalid email first
+            const wrongEmail = "janeatexample.com";
+            await typeText(wrongEmail);
+            if (shouldAbort()) return;
+            // Pause to show the validation error
+            await new Promise(resolve => setTimeout(resolve, 1400));
+            if (shouldAbort()) return;
+            // Delete it
+            await deleteText(wrongEmail);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 400));
+            if (shouldAbort()) return;
+            // Type the correct email
+            await typeText("jane@example.com");
+          }
+          break;
+        }
         case "number": {
           const input = container.querySelector('input') as HTMLInputElement;
           if (input) {
             await moveToElement(input);
             if (shouldAbort()) return;
-            await new Promise(resolve => setTimeout(resolve, 400));
+            await new Promise(resolve => setTimeout(resolve, 300));
             if (shouldAbort()) return;
-            
             await clickElement(input);
             if (shouldAbort()) return;
-            await new Promise(resolve => setTimeout(resolve, 400));
+            await new Promise(resolve => setTimeout(resolve, 300));
             if (shouldAbort()) return;
-
-            const text = selectedType === "text" ? "Jane Doe" : selectedType === "email" ? "jane@example.com" : "25";
-            await typeIntoInput(text);
+            await typeText("25");
           }
           break;
         }
@@ -476,15 +521,13 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
           if (textarea) {
             await moveToElement(textarea);
             if (shouldAbort()) return;
-            await new Promise(resolve => setTimeout(resolve, 400));
+            await new Promise(resolve => setTimeout(resolve, 300));
             if (shouldAbort()) return;
-
             await clickElement(textarea);
             if (shouldAbort()) return;
-            await new Promise(resolve => setTimeout(resolve, 400));
+            await new Promise(resolve => setTimeout(resolve, 300));
             if (shouldAbort()) return;
-
-            await typeIntoInput("Great builder layout! Very clean.");
+            await typeText("Great builder layout! Very clean and intuitive.", 65);
           }
           break;
         }
@@ -495,153 +538,241 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
             if (shouldAbort()) return;
             await new Promise(resolve => setTimeout(resolve, 400));
             if (shouldAbort()) return;
-
             await clickElement(input);
             setPreviewValue(true);
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            if (shouldAbort()) return;
+            // Uncheck
+            await moveToElement(input);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 300));
+            if (shouldAbort()) return;
+            await clickElement(input);
+            setPreviewValue(false);
           }
           break;
         }
-        case "multiple_choice":
+        case "multiple_choice": {
+          const radios = container.querySelectorAll('input[type="radio"]');
+          if (radios.length > 1) {
+            // Select option 2
+            const r2 = radios[1] as HTMLElement;
+            await moveToElement(r2);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 400));
+            if (shouldAbort()) return;
+            await clickElement(r2);
+            setPreviewValue("Phone call");
+            await new Promise(resolve => setTimeout(resolve, 1100));
+            if (shouldAbort()) return;
+            // Select option 3 if available
+            if (radios.length > 2) {
+              const r3 = radios[2] as HTMLElement;
+              await moveToElement(r3);
+              if (shouldAbort()) return;
+              await new Promise(resolve => setTimeout(resolve, 400));
+              if (shouldAbort()) return;
+              await clickElement(r3);
+              setPreviewValue("SMS text");
+              await new Promise(resolve => setTimeout(resolve, 1100));
+              if (shouldAbort()) return;
+            }
+            // Select option 1
+            const r1 = radios[0] as HTMLElement;
+            await moveToElement(r1);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 400));
+            if (shouldAbort()) return;
+            await clickElement(r1);
+            setPreviewValue("Email");
+          }
+          break;
+        }
         case "dropdown":
         case "select": {
-          if (selectedType === "dropdown" || selectedType === "select") {
-            const selectEl = container.querySelector('.mock-select-input') as HTMLElement;
-            if (selectEl) {
-              await moveToElement(selectEl);
+          const selectEl = container.querySelector('.mock-select-input') as HTMLElement;
+          if (selectEl) {
+            // First selection: Canada
+            await moveToElement(selectEl);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 400));
+            if (shouldAbort()) return;
+            await clickElement(selectEl);
+            setIsDropdownOpen(true);
+            await new Promise(resolve => setTimeout(resolve, 700));
+            if (shouldAbort()) return;
+
+            const canadaBtn = container.querySelector('.mock-option-canada') as HTMLElement;
+            if (canadaBtn) {
+              await moveToElement(canadaBtn);
               if (shouldAbort()) return;
               await new Promise(resolve => setTimeout(resolve, 400));
               if (shouldAbort()) return;
-
-              await clickElement(selectEl);
-              setIsDropdownOpen(true);
-              await new Promise(resolve => setTimeout(resolve, 600));
+              await clickElement(canadaBtn);
+              setPreviewValue("Canada");
+              setIsDropdownOpen(false);
+              await new Promise(resolve => setTimeout(resolve, 1000));
               if (shouldAbort()) return;
-
-              const optBtn = container.querySelector('.mock-option-puerto-rico') as HTMLElement;
-              if (optBtn) {
-                await moveToElement(optBtn);
-                if (shouldAbort()) return;
-                await new Promise(resolve => setTimeout(resolve, 400));
-                if (shouldAbort()) return;
-
-                await clickElement(optBtn);
-                setPreviewValue("Puerto Rico");
-                setIsDropdownOpen(false);
-              }
             }
-          } else {
-            const radios = container.querySelectorAll('input[type="radio"]');
-            if (radios.length > 1) {
-              const r2 = radios[1] as HTMLElement;
-              await moveToElement(r2);
+
+            // Second selection: Puerto Rico
+            await moveToElement(selectEl);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 400));
+            if (shouldAbort()) return;
+            await clickElement(selectEl);
+            setIsDropdownOpen(true);
+            await new Promise(resolve => setTimeout(resolve, 700));
+            if (shouldAbort()) return;
+
+            const prBtn = container.querySelector('.mock-option-puerto-rico') as HTMLElement;
+            if (prBtn) {
+              await moveToElement(prBtn);
               if (shouldAbort()) return;
               await new Promise(resolve => setTimeout(resolve, 400));
               if (shouldAbort()) return;
-
-              await clickElement(r2);
-              setPreviewValue("Phone call");
-              await new Promise(resolve => setTimeout(resolve, 1200));
-              if (shouldAbort()) return;
-
-              const r1 = radios[0] as HTMLElement;
-              await moveToElement(r1);
-              if (shouldAbort()) return;
-              await new Promise(resolve => setTimeout(resolve, 400));
-              if (shouldAbort()) return;
-
-              await clickElement(r1);
-              setPreviewValue("Email");
+              await clickElement(prBtn);
+              setPreviewValue("Puerto Rico");
+              setIsDropdownOpen(false);
             }
           }
           break;
         }
         case "checkboxes": {
           const checkboxes = container.querySelectorAll('input[type="checkbox"]');
-          if (checkboxes.length > 2) {
+          if (checkboxes.length > 1) {
+            // Check Technology
             const c1 = checkboxes[0] as HTMLInputElement;
-            const c3 = checkboxes[2] as HTMLInputElement;
-
             await moveToElement(c1);
             if (shouldAbort()) return;
             await new Promise(resolve => setTimeout(resolve, 400));
             if (shouldAbort()) return;
             await clickElement(c1);
             setPreviewValue(["Technology"]);
-
-            await new Promise(resolve => setTimeout(resolve, 1200));
+            await new Promise(resolve => setTimeout(resolve, 900));
             if (shouldAbort()) return;
 
-            await moveToElement(c3);
-            if (shouldAbort()) return;
-            await new Promise(resolve => setTimeout(resolve, 400));
-            if (shouldAbort()) return;
-            await clickElement(c3);
-            setPreviewValue(["Technology", "Sports"]);
+            // Check Sports (index 2)
+            if (checkboxes.length > 2) {
+              const c3 = checkboxes[2] as HTMLInputElement;
+              await moveToElement(c3);
+              if (shouldAbort()) return;
+              await new Promise(resolve => setTimeout(resolve, 400));
+              if (shouldAbort()) return;
+              await clickElement(c3);
+              setPreviewValue(["Technology", "Sports"]);
+              await new Promise(resolve => setTimeout(resolve, 900));
+              if (shouldAbort()) return;
+            }
+
+            // Check Music (index 3)
+            if (checkboxes.length > 3) {
+              const c4 = checkboxes[3] as HTMLInputElement;
+              await moveToElement(c4);
+              if (shouldAbort()) return;
+              await new Promise(resolve => setTimeout(resolve, 400));
+              if (shouldAbort()) return;
+              await clickElement(c4);
+              setPreviewValue(["Technology", "Sports", "Music"]);
+            }
           }
           break;
         }
         case "linear_scale": {
           const radios = container.querySelectorAll('input[type="radio"]');
-          if (radios.length > 4) {
-            const r4 = radios[3] as HTMLElement;
-            const r5 = radios[4] as HTMLElement;
-
-            await moveToElement(r4);
-            if (shouldAbort()) return;
-            await new Promise(resolve => setTimeout(resolve, 400));
-            if (shouldAbort()) return;
-            await clickElement(r4);
-            setPreviewValue("4");
-
-            await new Promise(resolve => setTimeout(resolve, 1200));
-            if (shouldAbort()) return;
-
-            await moveToElement(r5);
-            if (shouldAbort()) return;
-            await new Promise(resolve => setTimeout(resolve, 400));
-            if (shouldAbort()) return;
-            await clickElement(r5);
-            setPreviewValue("5");
+          if (radios.length > 0) {
+            // Sweep left to right
+            for (let i = 0; i < Math.min(radios.length, 5); i++) {
+              if (shouldAbort()) return;
+              await moveToElement(radios[i] as HTMLElement, 300);
+              await new Promise(resolve => setTimeout(resolve, 100));
+              if (shouldAbort()) return;
+            }
+            // Click 4
+            if (radios.length > 3) {
+              const r4 = radios[3] as HTMLElement;
+              await moveToElement(r4);
+              if (shouldAbort()) return;
+              await new Promise(resolve => setTimeout(resolve, 200));
+              if (shouldAbort()) return;
+              await clickElement(r4);
+              setPreviewValue("4");
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              if (shouldAbort()) return;
+            }
+            // Click 5
+            if (radios.length > 4) {
+              const r5 = radios[4] as HTMLElement;
+              await moveToElement(r5);
+              if (shouldAbort()) return;
+              await new Promise(resolve => setTimeout(resolve, 300));
+              if (shouldAbort()) return;
+              await clickElement(r5);
+              setPreviewValue("5");
+            }
           }
           break;
         }
         case "rating": {
           const stars = container.querySelectorAll('button[aria-label]');
-          if (stars.length > 4) {
-            for (let i = 0; i < 5; i++) {
-              const star = stars[i] as HTMLElement;
-              await moveToElement(star);
+          if (stars.length > 0) {
+            // Hover left to right progressively
+            for (let i = 0; i < stars.length; i++) {
               if (shouldAbort()) return;
-              await new Promise(resolve => setTimeout(resolve, 150));
+              await moveToElement(stars[i] as HTMLElement, 200);
+              await new Promise(resolve => setTimeout(resolve, 120));
               if (shouldAbort()) return;
             }
-            const star5 = stars[4] as HTMLElement;
-            await clickElement(star5);
-            setPreviewValue("5");
+            // Click last star
+            const lastStar = stars[stars.length - 1] as HTMLElement;
+            await clickElement(lastStar);
+            setPreviewValue(String(stars.length));
           }
           break;
         }
         case "date": {
           const input = container.querySelector('.mock-date-input') as HTMLElement;
           if (input) {
+            // First pick: day 10
             await moveToElement(input);
             if (shouldAbort()) return;
             await new Promise(resolve => setTimeout(resolve, 400));
             if (shouldAbort()) return;
-
             await clickElement(input);
             setIsCalendarOpen(true);
-            await new Promise(resolve => setTimeout(resolve, 600));
+            await new Promise(resolve => setTimeout(resolve, 700));
             if (shouldAbort()) return;
 
-            const dateBtn = container.querySelector('.mock-date-25') as HTMLElement;
-            if (dateBtn) {
-              await moveToElement(dateBtn);
+            const date10 = container.querySelector('.mock-date-10') as HTMLElement;
+            if (date10) {
+              await moveToElement(date10);
               if (shouldAbort()) return;
               await new Promise(resolve => setTimeout(resolve, 400));
               if (shouldAbort()) return;
+              await clickElement(date10);
+              setPreviewValue("2026-05-10");
+              setIsCalendarOpen(false);
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              if (shouldAbort()) return;
+            }
 
-              await clickElement(dateBtn);
+            // Re-open and pick day 25
+            await moveToElement(input);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 400));
+            if (shouldAbort()) return;
+            await clickElement(input);
+            setIsCalendarOpen(true);
+            await new Promise(resolve => setTimeout(resolve, 700));
+            if (shouldAbort()) return;
+
+            const date25 = container.querySelector('.mock-date-25') as HTMLElement;
+            if (date25) {
+              await moveToElement(date25);
+              if (shouldAbort()) return;
+              await new Promise(resolve => setTimeout(resolve, 400));
+              if (shouldAbort()) return;
+              await clickElement(date25);
               setPreviewValue("2026-05-25");
               setIsCalendarOpen(false);
             }
@@ -651,24 +782,46 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
         case "time": {
           const input = container.querySelector('.mock-time-input') as HTMLElement;
           if (input) {
+            // First pick: 09:00 AM
             await moveToElement(input);
             if (shouldAbort()) return;
             await new Promise(resolve => setTimeout(resolve, 400));
             if (shouldAbort()) return;
-
             await clickElement(input);
             setIsTimeOpen(true);
-            await new Promise(resolve => setTimeout(resolve, 600));
+            await new Promise(resolve => setTimeout(resolve, 700));
             if (shouldAbort()) return;
 
-            const timeBtn = container.querySelector('.mock-time-12') as HTMLElement;
-            if (timeBtn) {
-              await moveToElement(timeBtn);
+            const time09 = container.querySelector('.mock-time-09') as HTMLElement;
+            if (time09) {
+              await moveToElement(time09);
               if (shouldAbort()) return;
               await new Promise(resolve => setTimeout(resolve, 400));
               if (shouldAbort()) return;
+              await clickElement(time09);
+              setPreviewValue("09:00 AM");
+              setIsTimeOpen(false);
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              if (shouldAbort()) return;
+            }
 
-              await clickElement(timeBtn);
+            // Re-open and pick 12:00 PM
+            await moveToElement(input);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 400));
+            if (shouldAbort()) return;
+            await clickElement(input);
+            setIsTimeOpen(true);
+            await new Promise(resolve => setTimeout(resolve, 700));
+            if (shouldAbort()) return;
+
+            const time12 = container.querySelector('.mock-time-12') as HTMLElement;
+            if (time12) {
+              await moveToElement(time12);
+              if (shouldAbort()) return;
+              await new Promise(resolve => setTimeout(resolve, 400));
+              if (shouldAbort()) return;
+              await clickElement(time12);
               setPreviewValue("12:00 PM");
               setIsTimeOpen(false);
             }
@@ -682,12 +835,10 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
             if (shouldAbort()) return;
             await new Promise(resolve => setTimeout(resolve, 400));
             if (shouldAbort()) return;
-
             await clickElement(button);
             if (shouldAbort()) return;
             await new Promise(resolve => setTimeout(resolve, 600));
             if (shouldAbort()) return;
-
             setPreviewValue([{ name: "resume.pdf", url: "#", size: 124000 }]);
           }
           break;
@@ -697,21 +848,20 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
           const cells = container.querySelectorAll('table input');
           const isGridCheckbox = selectedType === "grid_checkbox";
           
-          if (cells.length > 5) {
+          if (cells.length > 2) {
+            // Click cell 1 (row 0, col 0 = "Speed / Needs Work")
             const cell1 = cells[0] as HTMLInputElement;
-            const cell2 = cells[4] as HTMLInputElement;
-            
-            if (cell1) {
-              await moveToElement(cell1);
-              if (shouldAbort()) return;
-              await new Promise(resolve => setTimeout(resolve, 400));
-              if (shouldAbort()) return;
-              await clickElement(cell1);
-              setPreviewValue(isGridCheckbox ? { "Speed": ["Needs Work"] } : { "Speed": "Needs Work" });
-            }
+            await moveToElement(cell1);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 400));
+            if (shouldAbort()) return;
+            await clickElement(cell1);
+            setPreviewValue(isGridCheckbox ? { "Speed": ["Needs Work"] } : { "Speed": "Needs Work" });
 
-            if (cells.length > 4 && cell2) {
-              await new Promise(resolve => setTimeout(resolve, 1200));
+            if (cells.length > 4) {
+              // Click cell in row 1 col 1 (Usability / Good)
+              const cell2 = cells[4] as HTMLInputElement;
+              await new Promise(resolve => setTimeout(resolve, 1000));
               if (shouldAbort()) return;
               await moveToElement(cell2);
               if (shouldAbort()) return;
@@ -723,6 +873,19 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
                 : { "Speed": "Needs Work", "Usability": "Good" }
               );
             }
+
+            if (cells.length > 8 && isGridCheckbox) {
+              // Click Design / Outstanding (row 2, col 2)
+              const cell3 = cells[8] as HTMLInputElement;
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              if (shouldAbort()) return;
+              await moveToElement(cell3);
+              if (shouldAbort()) return;
+              await new Promise(resolve => setTimeout(resolve, 400));
+              if (shouldAbort()) return;
+              await clickElement(cell3);
+              setPreviewValue({ "Speed": ["Needs Work"], "Usability": ["Good"], "Design": ["Outstanding"] });
+            }
           }
           break;
         }
@@ -730,9 +893,25 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
           break;
       }
 
-      await new Promise(resolve => setTimeout(resolve, 2500));
+      // Hold final state briefly, then fade cursor
+      await new Promise(resolve => setTimeout(resolve, 2000));
       if (shouldAbort()) return;
       updateCursor({ ...cursorPosRef.current, opacity: 0 });
+
+      // Reset all state
+      await new Promise(resolve => setTimeout(resolve, 800));
+      if (shouldAbort()) return;
+      setPreviewValue(getDefaultPreviewValue(selectedType));
+      setIsDropdownOpen(false);
+      setIsCalendarOpen(false);
+      setIsTimeOpen(false);
+
+      // Brief pause before next loop
+      await new Promise(resolve => setTimeout(resolve, 600));
+      if (shouldAbort()) return;
+
+      // Recurse — loop forever
+      runSequence();
     };
 
     runSequence();
