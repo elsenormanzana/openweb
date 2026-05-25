@@ -290,15 +290,38 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
   const [previewValue, setPreviewValue] = useState<any>("");
 
   const [cursorPos, setCursorPos] = useState({ x: 0, y: 0, opacity: 0 });
+  const cursorPosRef = useRef({ x: 0, y: 0, opacity: 0 });
+  
+  const updateCursor = (pos: { x: number; y: number; opacity: number }) => {
+    cursorPosRef.current = pos;
+    setCursorPos(pos);
+  };
+
   const [clickRipple, setClickRipple] = useState(false);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
+  const isAutoPlayingRef = useRef(isAutoPlaying);
+  const [isHovered, setIsHovered] = useState(false);
+  const isHoveredRef = useRef(isHovered);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [isTimeOpen, setIsTimeOpen] = useState(false);
+  const openRef = useRef(open);
+
   const desktopContainerRef = useRef<HTMLDivElement>(null);
   const mobileContainerRef = useRef<HTMLDivElement>(null);
   const interactionTimeoutRef = useRef<any>(null);
 
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
-  const [isTimeOpen, setIsTimeOpen] = useState(false);  const [isHovered, setIsHovered] = useState(false);
+  useEffect(() => {
+    isAutoPlayingRef.current = isAutoPlaying;
+  }, [isAutoPlaying]);
+
+  useEffect(() => {
+    isHoveredRef.current = isHovered;
+  }, [isHovered]);
+
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
 
   const handleMouseLeave = () => {
     setIsHovered(false);
@@ -307,7 +330,7 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
 
   const stopAutoPlay = () => {
     setIsAutoPlaying(false);
-    setCursorPos(prev => ({ ...prev, opacity: 0 }));
+    updateCursor({ ...cursorPosRef.current, opacity: 0 });
     if (interactionTimeoutRef.current) clearTimeout(interactionTimeoutRef.current);
   };
 
@@ -322,21 +345,72 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
     setIsDropdownOpen(false);
     setIsCalendarOpen(false);
     setIsTimeOpen(false);
+    setIsAutoPlaying(true);
+    setIsHovered(false);
   }, [selectedType]);
 
   useEffect(() => {
     if (!isAutoPlaying || isHovered || !open) {
-      setCursorPos(prev => ({ ...prev, opacity: 0 }));
+      updateCursor({ ...cursorPosRef.current, opacity: 0 });
       return;
     }
 
     setPreviewValue(getDefaultPreviewValue(selectedType));
 
     let active = true;
-    const shouldAbort = () => !active || !isAutoPlaying || isHovered;
+    const shouldAbort = () => !active || !isAutoPlayingRef.current || isHoveredRef.current || !openRef.current;
+
+    const animateMouseMove = async (toX: number, toY: number, duration = 800) => {
+      const startX = cursorPosRef.current.x;
+      const startY = cursorPosRef.current.y;
+      const startOpacity = cursorPosRef.current.opacity;
+      
+      const midX = (startX + toX) / 2;
+      const midY = (startY + toY) / 2;
+      const dx = toX - startX;
+      const dy = toY - startY;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      
+      const offset = len * 0.15;
+      const perpX = -dy / (len || 1);
+      const perpY = dx / (len || 1);
+      const p1x = midX + perpX * offset;
+      const p1y = midY + perpY * offset;
+
+      const startTime = performance.now();
+
+      return new Promise<void>((resolve) => {
+        const step = (now: number) => {
+          if (shouldAbort()) {
+            resolve();
+            return;
+          }
+
+          const elapsed = now - startTime;
+          const progress = Math.min(elapsed / duration, 1);
+          
+          const t = progress < 0.5 
+            ? 4 * progress * progress * progress 
+            : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+          const curX = (1 - t) * (1 - t) * startX + 2 * (1 - t) * t * p1x + t * t * toX;
+          const curY = (1 - t) * (1 - t) * startY + 2 * (1 - t) * t * p1y + t * t * toY;
+          const curOpacity = startOpacity + (1 - startOpacity) * progress;
+
+          updateCursor({ x: curX, y: curY, opacity: curOpacity });
+
+          if (progress < 1) {
+            requestAnimationFrame(step);
+          } else {
+            updateCursor({ x: toX, y: toY, opacity: 1 });
+            resolve();
+          }
+        };
+        requestAnimationFrame(step);
+      });
+    };
 
     const runSequence = async () => {
-      // Wait for DOM elements to mount
       await new Promise(resolve => setTimeout(resolve, 800));
       if (shouldAbort()) return;
 
@@ -346,14 +420,13 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
 
       if (!container) return;
 
-      const moveToElement = (el: HTMLElement) => {
-        if (!container || !el) return { x: 0, y: 0 };
+      const moveToElement = async (el: HTMLElement) => {
+        if (!container || !el) return;
         const containerRect = container.getBoundingClientRect();
         const elRect = el.getBoundingClientRect();
-        const x = elRect.left - containerRect.left + elRect.width / 2;
-        const y = elRect.top - containerRect.top + elRect.height / 2;
-        setCursorPos({ x, y, opacity: 1 });
-        return { x, y };
+        const targetX = elRect.left - containerRect.left + elRect.width / 2;
+        const targetY = elRect.top - containerRect.top + elRect.height / 2;
+        await animateMouseMove(targetX, targetY, 700);
       };
 
       const clickElement = async (el: HTMLElement) => {
@@ -373,7 +446,7 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
       };
 
       // Set initial position
-      setCursorPos({ x: 120, y: 80, opacity: 0 });
+      updateCursor({ x: 120, y: 80, opacity: 0 });
       await new Promise(resolve => setTimeout(resolve, 400));
       if (shouldAbort()) return;
 
@@ -383,11 +456,13 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
         case "number": {
           const input = container.querySelector('input') as HTMLInputElement;
           if (input) {
-            moveToElement(input);
-            await new Promise(resolve => setTimeout(resolve, 800));
+            await moveToElement(input);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 400));
             if (shouldAbort()) return;
             
-            clickElement(input);
+            await clickElement(input);
+            if (shouldAbort()) return;
             await new Promise(resolve => setTimeout(resolve, 400));
             if (shouldAbort()) return;
 
@@ -399,11 +474,13 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
         case "textarea": {
           const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
           if (textarea) {
-            moveToElement(textarea);
-            await new Promise(resolve => setTimeout(resolve, 800));
+            await moveToElement(textarea);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 400));
             if (shouldAbort()) return;
 
-            clickElement(textarea);
+            await clickElement(textarea);
+            if (shouldAbort()) return;
             await new Promise(resolve => setTimeout(resolve, 400));
             if (shouldAbort()) return;
 
@@ -414,11 +491,12 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
         case "checkbox": {
           const input = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
           if (input) {
-            moveToElement(input);
-            await new Promise(resolve => setTimeout(resolve, 800));
+            await moveToElement(input);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 400));
             if (shouldAbort()) return;
 
-            clickElement(input);
+            await clickElement(input);
             setPreviewValue(true);
           }
           break;
@@ -429,22 +507,24 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
           if (selectedType === "dropdown" || selectedType === "select") {
             const selectEl = container.querySelector('.mock-select-input') as HTMLElement;
             if (selectEl) {
-              moveToElement(selectEl);
-              await new Promise(resolve => setTimeout(resolve, 800));
+              await moveToElement(selectEl);
+              if (shouldAbort()) return;
+              await new Promise(resolve => setTimeout(resolve, 400));
               if (shouldAbort()) return;
 
-              clickElement(selectEl);
+              await clickElement(selectEl);
               setIsDropdownOpen(true);
               await new Promise(resolve => setTimeout(resolve, 600));
               if (shouldAbort()) return;
 
               const optBtn = container.querySelector('.mock-option-puerto-rico') as HTMLElement;
               if (optBtn) {
-                moveToElement(optBtn);
-                await new Promise(resolve => setTimeout(resolve, 800));
+                await moveToElement(optBtn);
+                if (shouldAbort()) return;
+                await new Promise(resolve => setTimeout(resolve, 400));
                 if (shouldAbort()) return;
 
-                clickElement(optBtn);
+                await clickElement(optBtn);
                 setPreviewValue("Puerto Rico");
                 setIsDropdownOpen(false);
               }
@@ -453,21 +533,23 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
             const radios = container.querySelectorAll('input[type="radio"]');
             if (radios.length > 1) {
               const r2 = radios[1] as HTMLElement;
-              moveToElement(r2);
-              await new Promise(resolve => setTimeout(resolve, 800));
+              await moveToElement(r2);
+              if (shouldAbort()) return;
+              await new Promise(resolve => setTimeout(resolve, 400));
               if (shouldAbort()) return;
 
-              clickElement(r2);
+              await clickElement(r2);
               setPreviewValue("Phone call");
               await new Promise(resolve => setTimeout(resolve, 1200));
               if (shouldAbort()) return;
 
               const r1 = radios[0] as HTMLElement;
-              moveToElement(r1);
-              await new Promise(resolve => setTimeout(resolve, 800));
+              await moveToElement(r1);
+              if (shouldAbort()) return;
+              await new Promise(resolve => setTimeout(resolve, 400));
               if (shouldAbort()) return;
 
-              clickElement(r1);
+              await clickElement(r1);
               setPreviewValue("Email");
             }
           }
@@ -479,19 +561,21 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
             const c1 = checkboxes[0] as HTMLInputElement;
             const c3 = checkboxes[2] as HTMLInputElement;
 
-            moveToElement(c1);
-            await new Promise(resolve => setTimeout(resolve, 800));
+            await moveToElement(c1);
             if (shouldAbort()) return;
-            clickElement(c1);
+            await new Promise(resolve => setTimeout(resolve, 400));
+            if (shouldAbort()) return;
+            await clickElement(c1);
             setPreviewValue(["Technology"]);
 
             await new Promise(resolve => setTimeout(resolve, 1200));
             if (shouldAbort()) return;
 
-            moveToElement(c3);
-            await new Promise(resolve => setTimeout(resolve, 800));
+            await moveToElement(c3);
             if (shouldAbort()) return;
-            clickElement(c3);
+            await new Promise(resolve => setTimeout(resolve, 400));
+            if (shouldAbort()) return;
+            await clickElement(c3);
             setPreviewValue(["Technology", "Sports"]);
           }
           break;
@@ -502,19 +586,21 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
             const r4 = radios[3] as HTMLElement;
             const r5 = radios[4] as HTMLElement;
 
-            moveToElement(r4);
-            await new Promise(resolve => setTimeout(resolve, 800));
+            await moveToElement(r4);
             if (shouldAbort()) return;
-            clickElement(r4);
+            await new Promise(resolve => setTimeout(resolve, 400));
+            if (shouldAbort()) return;
+            await clickElement(r4);
             setPreviewValue("4");
 
             await new Promise(resolve => setTimeout(resolve, 1200));
             if (shouldAbort()) return;
 
-            moveToElement(r5);
-            await new Promise(resolve => setTimeout(resolve, 800));
+            await moveToElement(r5);
             if (shouldAbort()) return;
-            clickElement(r5);
+            await new Promise(resolve => setTimeout(resolve, 400));
+            if (shouldAbort()) return;
+            await clickElement(r5);
             setPreviewValue("5");
           }
           break;
@@ -524,12 +610,13 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
           if (stars.length > 4) {
             for (let i = 0; i < 5; i++) {
               const star = stars[i] as HTMLElement;
-              moveToElement(star);
-              await new Promise(resolve => setTimeout(resolve, 250));
+              await moveToElement(star);
+              if (shouldAbort()) return;
+              await new Promise(resolve => setTimeout(resolve, 150));
               if (shouldAbort()) return;
             }
             const star5 = stars[4] as HTMLElement;
-            clickElement(star5);
+            await clickElement(star5);
             setPreviewValue("5");
           }
           break;
@@ -537,22 +624,24 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
         case "date": {
           const input = container.querySelector('.mock-date-input') as HTMLElement;
           if (input) {
-            moveToElement(input);
-            await new Promise(resolve => setTimeout(resolve, 800));
+            await moveToElement(input);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 400));
             if (shouldAbort()) return;
 
-            clickElement(input);
+            await clickElement(input);
             setIsCalendarOpen(true);
             await new Promise(resolve => setTimeout(resolve, 600));
             if (shouldAbort()) return;
 
             const dateBtn = container.querySelector('.mock-date-25') as HTMLElement;
             if (dateBtn) {
-              moveToElement(dateBtn);
-              await new Promise(resolve => setTimeout(resolve, 800));
+              await moveToElement(dateBtn);
+              if (shouldAbort()) return;
+              await new Promise(resolve => setTimeout(resolve, 400));
               if (shouldAbort()) return;
 
-              clickElement(dateBtn);
+              await clickElement(dateBtn);
               setPreviewValue("2026-05-25");
               setIsCalendarOpen(false);
             }
@@ -562,22 +651,24 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
         case "time": {
           const input = container.querySelector('.mock-time-input') as HTMLElement;
           if (input) {
-            moveToElement(input);
-            await new Promise(resolve => setTimeout(resolve, 800));
+            await moveToElement(input);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 400));
             if (shouldAbort()) return;
 
-            clickElement(input);
+            await clickElement(input);
             setIsTimeOpen(true);
             await new Promise(resolve => setTimeout(resolve, 600));
             if (shouldAbort()) return;
 
             const timeBtn = container.querySelector('.mock-time-12') as HTMLElement;
             if (timeBtn) {
-              moveToElement(timeBtn);
-              await new Promise(resolve => setTimeout(resolve, 800));
+              await moveToElement(timeBtn);
+              if (shouldAbort()) return;
+              await new Promise(resolve => setTimeout(resolve, 400));
               if (shouldAbort()) return;
 
-              clickElement(timeBtn);
+              await clickElement(timeBtn);
               setPreviewValue("12:00 PM");
               setIsTimeOpen(false);
             }
@@ -587,11 +678,13 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
         case "file": {
           const button = container.querySelector('button') as HTMLElement;
           if (button) {
-            moveToElement(button);
-            await new Promise(resolve => setTimeout(resolve, 800));
+            await moveToElement(button);
+            if (shouldAbort()) return;
+            await new Promise(resolve => setTimeout(resolve, 400));
             if (shouldAbort()) return;
 
-            clickElement(button);
+            await clickElement(button);
+            if (shouldAbort()) return;
             await new Promise(resolve => setTimeout(resolve, 600));
             if (shouldAbort()) return;
 
@@ -609,20 +702,22 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
             const cell2 = cells[4] as HTMLInputElement;
             
             if (cell1) {
-              moveToElement(cell1);
-              await new Promise(resolve => setTimeout(resolve, 800));
+              await moveToElement(cell1);
               if (shouldAbort()) return;
-              clickElement(cell1);
+              await new Promise(resolve => setTimeout(resolve, 400));
+              if (shouldAbort()) return;
+              await clickElement(cell1);
               setPreviewValue(isGridCheckbox ? { "Speed": ["Needs Work"] } : { "Speed": "Needs Work" });
             }
 
             if (cells.length > 4 && cell2) {
               await new Promise(resolve => setTimeout(resolve, 1200));
               if (shouldAbort()) return;
-              moveToElement(cell2);
-              await new Promise(resolve => setTimeout(resolve, 800));
+              await moveToElement(cell2);
               if (shouldAbort()) return;
-              clickElement(cell2);
+              await new Promise(resolve => setTimeout(resolve, 400));
+              if (shouldAbort()) return;
+              await clickElement(cell2);
               setPreviewValue(isGridCheckbox 
                 ? { "Speed": ["Needs Work"], "Usability": ["Good"] } 
                 : { "Speed": "Needs Work", "Usability": "Good" }
@@ -637,7 +732,7 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
 
       await new Promise(resolve => setTimeout(resolve, 2500));
       if (shouldAbort()) return;
-      setCursorPos(prev => ({ ...prev, opacity: 0 }));
+      updateCursor({ ...cursorPosRef.current, opacity: 0 });
     };
 
     runSequence();
@@ -762,9 +857,9 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
             {/* Main Details and Live Preview */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {/* Description */}
-              <div className="space-y-2 bg-muted/30 p-4 rounded-xl border border-border/40">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Description</h4>
-                <p className="text-sm text-foreground/80 leading-relaxed">
+              <div className="bg-muted/30 p-2.5 rounded-lg border border-border/30 text-xs flex gap-2 items-start">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground bg-muted-foreground/10 px-1.5 py-0.5 rounded-md shrink-0 select-none">Info</span>
+                <p className="text-foreground/80 leading-normal">
                   {QUESTION_DESCRIPTIONS[selectedType]}
                 </p>
               </div>
@@ -818,7 +913,7 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
                     {/* Imaginary Mouse Pointer */}
                     {isAutoPlaying && cursorPos.opacity > 0 && (
                       <div
-                        className="absolute pointer-events-none z-30 transition-all duration-700 ease-out"
+                        className="absolute pointer-events-none z-30"
                         style={{
                           left: cursorPos.x,
                           top: cursorPos.y,
@@ -1008,9 +1103,12 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
                 </div>
 
                 {/* Description */}
-                <div className="p-3 bg-muted/30 rounded-lg border border-border/40 text-xs text-foreground/80 leading-relaxed">
-                  {QUESTION_DESCRIPTIONS[selectedType]}
-                </div>
+                <div className="bg-muted/30 p-2.5 rounded-lg border border-border/30 text-[11px] flex gap-2 items-start">
+                   <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground bg-muted-foreground/10 px-1.5 py-0.5 rounded-md shrink-0 select-none">Info</span>
+                   <p className="text-foreground/80 leading-normal">
+                     {QUESTION_DESCRIPTIONS[selectedType]}
+                   </p>
+                 </div>
 
                 {/* Preview */}
                 <div className="space-y-2">
@@ -1052,7 +1150,7 @@ function AddQuestionDialog({ onAdd, themeColor }: { onAdd: (type: FormFieldType)
                       {/* Imaginary Mouse Pointer */}
                       {isAutoPlaying && cursorPos.opacity > 0 && (
                         <div
-                          className="absolute pointer-events-none z-30 transition-all duration-700 ease-out"
+                          className="absolute pointer-events-none z-30"
                           style={{
                             left: cursorPos.x,
                             top: cursorPos.y,
