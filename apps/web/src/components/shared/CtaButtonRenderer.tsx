@@ -46,18 +46,24 @@ export function CtaButtonRenderer({
     baseClass += "backdrop-blur-md border hover:shadow-lg bg-black/5 border-black/10 text-neutral-800 hover:bg-black/10 dark:bg-white/10 dark:border-white/20 dark:text-white dark:hover:bg-white/20 ";
     if (cta.textColor) customStyle.color = cta.textColor;
   } else if (activeVariant === "shimmer") {
-    baseClass += "relative overflow-hidden bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-600 text-white hover:shadow-lg hover:scale-[1.02] ";
-    if (cta.textColor) customStyle.color = cta.textColor;
+    // Brand-colored sheen — follows the site's primary in both light and dark.
+    baseClass += "relative overflow-hidden hover:shadow-lg hover:scale-[1.02] ";
+    customStyle.background =
+      "linear-gradient(110deg, var(--ow-primary), color-mix(in srgb, var(--ow-primary) 72%, white), var(--ow-primary))";
+    customStyle.color = cta.textColor || "var(--ow-primary-foreground)";
   } else {
     // solid
     baseClass += "hover:shadow hover:opacity-90 ";
     if (cta.color) {
       customStyle.backgroundColor = cta.color;
+      if (cta.textColor) customStyle.color = cta.textColor;
     } else if (!className.includes("bg-")) {
-      baseClass += "bg-blue-600 text-white ";
+      // Default to the brand primary so buttons blend with the site palette.
+      customStyle.backgroundColor = "var(--ow-primary)";
+      customStyle.color = cta.textColor || "var(--ow-primary-foreground)";
+    } else if (cta.textColor) {
+      customStyle.color = cta.textColor;
     }
-
-    if (cta.textColor) customStyle.color = cta.textColor;
   }
 
   return (

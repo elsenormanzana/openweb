@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, type NavLink, type FooterColumn, type NavConfig, type NavMenuItem } from "@/lib/api";
 import { Trash2, Plus, X } from "lucide-react";
-import { DEFAULT_PALETTE, PALETTE_KEYS, type ColorPalette } from "@/lib/palette";
+import { DEFAULT_PALETTE, DEFAULT_DARK_PALETTE, PALETTE_KEYS, type ColorPalette, type DarkColorPalette } from "@/lib/palette";
 import { MediaPicker } from "@/components/MediaPicker";
 
 type NavVariant = NonNullable<NavConfig["navVariant"]>;
@@ -78,6 +78,67 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
   );
 }
 
+/** Eight-swatch palette editor with a live preview strip. Shared by the light
+    (brand) and dark palettes — both feed the same `--ow-*` semantic tokens. */
+function PaletteEditor({
+  title, description, value, onChange, onReset, dark,
+}: {
+  title: string;
+  description: string;
+  value: ColorPalette;
+  onChange: (next: ColorPalette) => void;
+  onReset: () => void;
+  dark?: boolean;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Live preview strip — rendered on the matching background so the
+            colors read the way visitors will see them. */}
+        <div
+          className="flex rounded-lg overflow-hidden h-8 border p-1 gap-1"
+          style={{ backgroundColor: value.background, borderColor: value.border }}
+        >
+          {PALETTE_KEYS.map(({ key }) => (
+            <div key={key} className="flex-1 rounded" style={{ backgroundColor: value[key] }} title={key} />
+          ))}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          {PALETTE_KEYS.map(({ key, label, hint }) => (
+            <div key={key} className="space-y-1">
+              <Label className="text-xs font-medium">{label}</Label>
+              <p className="text-[10px] text-muted-foreground leading-tight">{hint}</p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={value[key] || "#000000"}
+                  onChange={(e) => onChange({ ...value, [key]: e.target.value })}
+                  className="h-9 w-12 cursor-pointer rounded border border-input p-0.5 shrink-0"
+                />
+                <Input
+                  value={value[key]}
+                  onChange={(e) => onChange({ ...value, [key]: e.target.value })}
+                  placeholder="#000000"
+                  className="text-xs"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <Button size="sm" variant="outline" className="text-xs" onClick={onReset}>
+          Reset to {dark ? "dark" : "default"} colors
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SiteLayout() {
   const [navType, setNavType] = useState("navbar");
   const [navVariant, setNavVariant] = useState<NavVariant>("minimal");
@@ -93,6 +154,7 @@ export function SiteLayout() {
   const [headerTextColor, setHeaderTextColor] = useState("#000000");
   const [themeToggle, setThemeToggle] = useState<"hidden" | "nav" | "actions">("nav");
   const [defaultTheme, setDefaultTheme] = useState<"light" | "dark">("light");
+  const [toggleInitial, setToggleInitial] = useState<"site" | "device">("site");
   const [ctaPrimaryText, setCtaPrimaryText] = useState("");
   const [ctaPrimaryHref, setCtaPrimaryHref] = useState("");
   const [ctaSecondaryText, setCtaSecondaryText] = useState("");
@@ -101,6 +163,7 @@ export function SiteLayout() {
   const [heroHeadline, setHeroHeadline] = useState("");
   const [heroDescription, setHeroDescription] = useState("");
   const [palette, setPalette] = useState<ColorPalette>(DEFAULT_PALETTE);
+  const [darkPalette, setDarkPalette] = useState<DarkColorPalette>(DEFAULT_DARK_PALETTE);
   const [copyright, setCopyright] = useState("");
   const [footerLinks, setFooterLinks] = useState<NavLink[]>([]);
   const [footerColumns, setFooterColumns] = useState<FooterColumn[]>([]);
@@ -127,6 +190,7 @@ export function SiteLayout() {
         setHeaderTextColor(s.navConfig?.headerTextColor ?? "#000000");
         setThemeToggle(s.navConfig?.themeToggle ?? "nav");
         setDefaultTheme(s.navConfig?.defaultTheme ?? "light");
+        setToggleInitial(s.navConfig?.toggleInitial ?? "site");
         setCtaPrimaryText(s.navConfig?.ctaPrimaryText ?? "");
         setCtaPrimaryHref(s.navConfig?.ctaPrimaryHref ?? "");
         setCtaSecondaryText(s.navConfig?.ctaSecondaryText ?? "");
@@ -135,6 +199,7 @@ export function SiteLayout() {
         setHeroHeadline(s.navConfig?.heroHeadline ?? "");
         setHeroDescription(s.navConfig?.heroDescription ?? "");
         setPalette({ ...DEFAULT_PALETTE, ...(s.navConfig?.palette ?? {}) });
+        setDarkPalette({ ...DEFAULT_DARK_PALETTE, ...(s.navConfig?.darkPalette ?? {}) });
         setCopyright(s.footerConfig?.copyright ?? "");
         setFooterLinks(s.footerConfig?.links ?? []);
         setFooterColumns(s.footerConfig?.columns ?? []);
@@ -151,9 +216,9 @@ export function SiteLayout() {
         navType,
         navConfig: {
           logoText, logoImage, logoHref, navLinks, navVariant, navLinkStyle, dropdownStyle, dropdownAnimation, headerStyle, headerBg, headerTextColor,
-          themeToggle, defaultTheme,
+          themeToggle, defaultTheme, toggleInitial,
           ctaPrimaryText, ctaPrimaryHref, ctaSecondaryText, ctaSecondaryHref,
-          heroBadge, heroHeadline, heroDescription, palette,
+          heroBadge, heroHeadline, heroDescription, palette, darkPalette,
         },
         footerConfig: { copyright, links: footerLinks, columns: footerColumns },
       })
@@ -320,55 +385,24 @@ export function SiteLayout() {
         <h1 className="text-2xl font-semibold tracking-tight">Site Layout</h1>
         <p className="text-muted-foreground mt-1 text-sm">Navbar, colors, hero section, and footer.</p>
       </div>
-      {/* Brand Colors */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Brand colors</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            These colors are injected as CSS variables and appear as swatches in every color picker throughout the editor.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Live preview strip */}
-          <div className="flex rounded-lg overflow-hidden h-8 border">
-            {PALETTE_KEYS.map(({ key }) => (
-              <div key={key} className="flex-1" style={{ backgroundColor: palette[key] }} title={key} />
-            ))}
-          </div>
+      {/* Brand colors (light) */}
+      <PaletteEditor
+        title="Brand colors"
+        description="Your light-mode palette. These feed every block on the public site and appear as swatches in the editor's color pickers."
+        value={palette}
+        onChange={setPalette}
+        onReset={() => setPalette(DEFAULT_PALETTE)}
+      />
 
-          <div className="grid grid-cols-2 gap-3">
-            {PALETTE_KEYS.map(({ key, label, hint }) => (
-              <div key={key} className="space-y-1">
-                <Label className="text-xs font-medium">{label}</Label>
-                <p className="text-[10px] text-muted-foreground leading-tight">{hint}</p>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={palette[key] || "#000000"}
-                    onChange={(e) => setPalette((p) => ({ ...p, [key]: e.target.value }))}
-                    className="h-9 w-12 cursor-pointer rounded border border-input p-0.5 shrink-0"
-                  />
-                  <Input
-                    value={palette[key]}
-                    onChange={(e) => setPalette((p) => ({ ...p, [key]: e.target.value }))}
-                    placeholder="#000000"
-                    className="text-xs"
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <Button
-            size="sm"
-            variant="outline"
-            className="text-xs"
-            onClick={() => setPalette(DEFAULT_PALETTE)}
-          >
-            Reset to defaults
-          </Button>
-        </CardContent>
-      </Card>
+      {/* Dark mode colors */}
+      <PaletteEditor
+        dark
+        title="Dark mode colors"
+        description="The palette used when the site renders in dark mode (designed theme or the visitor's toggle). Tune these so dark mode stays on-brand."
+        value={darkPalette}
+        onChange={setDarkPalette}
+        onReset={() => setDarkPalette(DEFAULT_DARK_PALETTE)}
+      />
 
       {/* Navigation */}
       <Card>
@@ -535,7 +569,7 @@ export function SiteLayout() {
       <Card>
         <CardHeader><CardTitle>Dark mode</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          <Field label="Default theme">
+          <Field label="Designed theme">
             <select
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               value={defaultTheme}
@@ -544,7 +578,7 @@ export function SiteLayout() {
               <option value="light">Light</option>
               <option value="dark">Dark</option>
             </select>
-            <p className="text-xs text-muted-foreground mt-1">Applies to every page set to "Auto". A visitor's toggle choice overrides it.</p>
+            <p className="text-xs text-muted-foreground mt-1">The mode your site is designed for. It's always used as the base — the visitor's device setting never changes it unless you show the toggle below.</p>
           </Field>
           <Field label="Dark/Light toggle">
             <select
@@ -556,7 +590,21 @@ export function SiteLayout() {
               <option value="actions">Show — in the button / CTA area</option>
               <option value="hidden">Hidden</option>
             </select>
+            <p className="text-xs text-muted-foreground mt-1">Lets visitors switch modes. With it hidden, the designed theme is locked in for everyone.</p>
           </Field>
+          {themeToggle !== "hidden" && (
+            <Field label="Toggle starts on">
+              <select
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={toggleInitial}
+                onChange={(e) => setToggleInitial(e.target.value as "site" | "device")}
+              >
+                <option value="site">The designed theme</option>
+                <option value="device">The visitor's device setting</option>
+              </select>
+              <p className="text-xs text-muted-foreground mt-1">What a first-time visitor sees before they pick. Device detection only ever happens here — when the toggle is shown.</p>
+            </Field>
+          )}
         </CardContent>
       </Card>
 

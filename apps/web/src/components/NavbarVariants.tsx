@@ -720,12 +720,12 @@ export function NavbarMinimal({ logoText, logoImage, logoHref, navLinks, navLink
         <div className="flex flex-wrap items-center justify-center gap-3 justify-self-end lg:flex-nowrap lg:gap-x-2">
           {themeToggle === "actions" && <ThemeToggle />}
           {ctaSecondaryText && (
-            <NavAnchor href={ctaSecondaryHref ?? "#"} className="hidden lg:flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all px-3 py-2 rounded-[0.625rem] border border-neutral-100 bg-white text-neutral-700 hover:border-neutral-200 hover:bg-neutral-100">
+            <NavAnchor href={ctaSecondaryHref ?? "#"} className="hidden lg:flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all px-3 py-2 rounded-[0.625rem] border border-ow-border bg-ow-surface text-ow-text hover:bg-ow-surface-2">
               {ctaSecondaryText}
             </NavAnchor>
           )}
           {ctaPrimaryText && (
-            <NavAnchor href={ctaPrimaryHref ?? "#"} className="flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all px-3 py-2 rounded-[0.625rem] bg-slate-900 text-white hover:bg-slate-800">
+            <NavAnchor href={ctaPrimaryHref ?? "#"} className="flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all px-3 py-2 rounded-[0.625rem] bg-ow-primary text-ow-primary-foreground hover:opacity-90">
               {ctaPrimaryText}
             </NavAnchor>
           )}
@@ -747,25 +747,25 @@ export function NavbarElevated({ logoText, logoImage, logoHref, navLinks, navLin
     <>
       <header className="fixed top-0 left-0 right-0 z-50 py-3">
         <div className="max-w-7xl mx-auto px-4 xl:px-0">
-          <div className="bg-white flex items-center justify-between gap-x-4 rounded-2xl py-1.5 pl-5 pr-2.5 shadow-[0_2px_10px_0px_rgba(0,0,0,0.15)] lg:grid lg:grid-cols-[1fr_auto_1fr] lg:justify-stretch lg:gap-x-12 lg:rounded-[1.375rem]">
+          <div className="bg-ow-bg border border-ow-border flex items-center justify-between gap-x-4 rounded-2xl py-1.5 pl-5 pr-2.5 shadow-ow-lg lg:grid lg:grid-cols-[1fr_auto_1fr] lg:justify-stretch lg:gap-x-12 lg:rounded-[1.375rem]">
             <div className="flex items-center gap-x-10">
               <LogoBrand logoText={logoText} logoImage={logoImage} logoHref={logoHref} />
-              <span className="hidden h-4 w-[1px] bg-neutral-300 lg:block" />
+              <span className="hidden h-4 w-[1px] bg-ow-border lg:block" />
             </div>
 
             <DesktopNav links={navLinks} navLinkStyle={navLinkStyle} dropdownStyle={dropdownStyle} dropdownAnimation={dropdownAnimation} themeToggle={themeToggle} />
 
             <div className="flex items-center gap-x-10 justify-self-end">
-              <span className="hidden h-4 w-[1px] bg-neutral-300 lg:block" />
+              <span className="hidden h-4 w-[1px] bg-ow-border lg:block" />
               <div className="flex items-center gap-x-3 lg:gap-x-2">
                 {themeToggle === "actions" && <ThemeToggle />}
                 {ctaSecondaryText && (
-                  <NavAnchor href={ctaSecondaryHref ?? "#"} className="hidden lg:flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all shadow-[0_2px_10px_0px_rgba(0,0,0,0.05)] border border-neutral-100 bg-white text-neutral-700 hover:border-neutral-200 hover:bg-neutral-100 px-3 py-2 rounded-[0.625rem]">
+                  <NavAnchor href={ctaSecondaryHref ?? "#"} className="hidden lg:flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all shadow-ow-sm border border-ow-border bg-ow-surface text-ow-text hover:bg-ow-surface-2 px-3 py-2 rounded-[0.625rem]">
                     {ctaSecondaryText}
                   </NavAnchor>
                 )}
                 {ctaPrimaryText && (
-                  <NavAnchor href={ctaPrimaryHref ?? "#"} className="flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all shadow-[0_2px_10px_0px_rgba(0,0,0,0.05)] bg-slate-900 text-white hover:bg-slate-800 px-3 py-2 rounded-[0.625rem]">
+                  <NavAnchor href={ctaPrimaryHref ?? "#"} className="flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all shadow-ow-sm bg-ow-primary text-ow-primary-foreground hover:opacity-90 px-3 py-2 rounded-[0.625rem]">
                     {ctaPrimaryText}
                   </NavAnchor>
                 )}
@@ -777,7 +777,7 @@ export function NavbarElevated({ logoText, logoImage, logoHref, navLinks, navLin
           </div>
 
           {open && (
-            <div className="mt-2 bg-white rounded-2xl shadow-[0_2px_10px_0px_rgba(0,0,0,0.15)] overflow-hidden">
+            <div className="mt-2 bg-ow-bg border border-ow-border rounded-2xl shadow-ow-lg overflow-hidden">
               <MobileDrawer links={navLinks} open={open} navLinkStyle={navLinkStyle} themeToggle={themeToggle} />
             </div>
           )}
@@ -802,12 +802,12 @@ export function HeaderSaasCta({ logoText, logoImage, logoHref, navLinks, navLink
           <div className="flex items-center gap-2">
             {themeToggle === "actions" && <ThemeToggle />}
             {ctaSecondaryText && (
-              <NavAnchor href={ctaSecondaryHref ?? "#"} className="hidden lg:flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all px-3 py-2 rounded-[0.625rem] border border-neutral-100 bg-white text-neutral-700 hover:border-neutral-200 hover:bg-neutral-100">
+              <NavAnchor href={ctaSecondaryHref ?? "#"} className="hidden lg:flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all px-3 py-2 rounded-[0.625rem] border border-ow-border bg-ow-surface text-ow-text hover:bg-ow-surface-2">
                 {ctaSecondaryText}
               </NavAnchor>
             )}
             {ctaPrimaryText && (
-              <NavAnchor href={ctaPrimaryHref ?? "#"} className="flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all px-3 py-2 rounded-[0.625rem] bg-slate-900 text-white hover:bg-slate-800">
+              <NavAnchor href={ctaPrimaryHref ?? "#"} className="flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all px-3 py-2 rounded-[0.625rem] bg-ow-primary text-ow-primary-foreground hover:opacity-90">
                 {ctaPrimaryText}
               </NavAnchor>
             )}
@@ -823,7 +823,7 @@ export function HeaderSaasCta({ logoText, logoImage, logoHref, navLinks, navLink
         <section className="pt-12 pb-16 lg:pt-16">
           <div className="max-w-7xl mx-auto px-4 xl:px-0 flex flex-col items-center">
             {heroBadge && (
-              <div className="inline-flex items-center justify-center rounded-full text-sm font-medium whitespace-nowrap shadow-[0_2px_10px_0px_rgba(0,0,0,0.15)] bg-white text-neutral-700 px-2.5 py-1">
+              <div className="inline-flex items-center justify-center rounded-full text-sm font-medium whitespace-nowrap shadow-ow-lg bg-white text-neutral-700 px-2.5 py-1">
                 {heroBadge}
               </div>
             )}
@@ -840,12 +840,12 @@ export function HeaderSaasCta({ logoText, logoImage, logoHref, navLinks, navLink
             {(ctaPrimaryText || ctaSecondaryText) && (
               <div className="mt-6 flex flex-wrap items-center justify-center gap-3 md:mt-8 xl:mt-9">
                 {ctaSecondaryText && (
-                  <NavAnchor href={ctaSecondaryHref ?? "#"} className="flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all shadow-[0_2px_10px_0px_rgba(0,0,0,0.05)] border border-neutral-100 bg-white text-neutral-700 hover:border-neutral-200 hover:bg-neutral-100 px-4 py-2.5 rounded-[0.625rem]">
+                  <NavAnchor href={ctaSecondaryHref ?? "#"} className="flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all shadow-ow-sm border border-ow-border bg-ow-surface text-ow-text hover:bg-ow-surface-2 px-4 py-2.5 rounded-[0.625rem]">
                     {ctaSecondaryText}
                   </NavAnchor>
                 )}
                 {ctaPrimaryText && (
-                  <NavAnchor href={ctaPrimaryHref ?? "#"} className="flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all shadow-[0_2px_10px_0px_rgba(0,0,0,0.05)] bg-slate-900 text-white hover:bg-slate-800 px-4 py-2.5 rounded-[0.625rem]">
+                  <NavAnchor href={ctaPrimaryHref ?? "#"} className="flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all shadow-ow-sm bg-ow-primary text-ow-primary-foreground hover:opacity-90 px-4 py-2.5 rounded-[0.625rem]">
                     {ctaPrimaryText}
                     <ArrowRight />
                   </NavAnchor>
@@ -884,7 +884,7 @@ export function HeaderSaasEmail({ logoText, logoImage, logoHref, navLinks, navLi
         <section className="pt-8 pb-16 lg:pt-12">
           <div className="max-w-7xl mx-auto px-4 xl:px-0 flex flex-col items-center">
             {heroBadge && (
-              <div className="inline-flex items-center justify-center rounded-full text-sm font-medium whitespace-nowrap shadow-[0_2px_10px_0px_rgba(0,0,0,0.15)] bg-white text-neutral-700 px-2.5 py-1">
+              <div className="inline-flex items-center justify-center rounded-full text-sm font-medium whitespace-nowrap shadow-ow-lg bg-white text-neutral-700 px-2.5 py-1">
                 {heroBadge}
               </div>
             )}
@@ -908,12 +908,12 @@ export function HeaderSaasEmail({ logoText, logoImage, logoHref, navLinks, navLi
                   type="email"
                   aria-label="Email address"
                   autoComplete="email"
-                  className="font-medium w-full rounded-xl bg-transparent shadow-[0_2px_10px_0px_rgba(0,0,0,0.05)] text-sm placeholder:font-medium placeholder:text-sm text-neutral-700 focus-visible:outline-none focus:shadow-[0_0px_0px_2px_rgba(15,23,42,0.25)] pl-10 pr-4 py-3 placeholder:text-neutral-300"
+                  className="font-medium w-full rounded-xl bg-transparent shadow-ow-sm text-sm placeholder:font-medium placeholder:text-sm text-neutral-700 focus-visible:outline-none focus:shadow-[0_0px_0px_2px_rgba(15,23,42,0.25)] pl-10 pr-4 py-3 placeholder:text-neutral-300"
                   placeholder="Enter your email"
                 />
               </div>
               {ctaPrimaryText && (
-                <NavAnchor href={ctaPrimaryHref ?? "#"} className="flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all shadow-[0_2px_10px_0px_rgba(0,0,0,0.05)] bg-slate-900 text-white hover:bg-slate-800 px-5 py-3 rounded-xl">
+                <NavAnchor href={ctaPrimaryHref ?? "#"} className="flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all shadow-ow-sm bg-ow-primary text-ow-primary-foreground hover:opacity-90 px-5 py-3 rounded-xl">
                   {ctaPrimaryText}
                   <ArrowRight />
                 </NavAnchor>

@@ -94,14 +94,19 @@ function assembleHtml(template, headHtml, appHtml, data) {
   let html = template;
   // Resolve the effective theme server-side so dark pages render with no flash.
   // The no-flash script in index.html still lets a visitor override it.
+  const nav = data.settings?.navConfig ?? {};
   const pageTheme = data.page?.theme;
-  const siteDefault = data.settings?.navConfig?.defaultTheme;
+  const siteDefault = nav.defaultTheme;
   const effectiveTheme = pageTheme === "light" || pageTheme === "dark"
     ? pageTheme
     : (siteDefault === "dark" ? "dark" : "light");
-  if (effectiveTheme === "dark") {
-    html = html.replace(/<html(\s|>)/i, '<html class="dark"$1');
-  }
+  // Expose the toggle config so the no-flash script in index.html knows whether
+  // a stored choice / device preference may override the designed theme.
+  const toggle = nav.themeToggle === "hidden" || nav.themeToggle === "actions" ? nav.themeToggle : "nav";
+  const toggleInitial = nav.toggleInitial === "device" ? "device" : "site";
+  let htmlAttrs = ` data-ow-toggle="${toggle}" data-ow-toggle-initial="${toggleInitial}"`;
+  if (effectiveTheme === "dark") htmlAttrs = ' class="dark"' + htmlAttrs;
+  html = html.replace(/<html(\s|>)/i, `<html${htmlAttrs}$1`);
   return html
     .replace(/<title>[\s\S]*?<\/title>/i, "")
     .replace("</head>", `    ${headHtml}\n  </head>`)

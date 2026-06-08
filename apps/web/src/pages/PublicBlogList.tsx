@@ -13,7 +13,7 @@ export function PublicBlogList() {
   const [posts, setPosts] = useState<BlogPost[]>(initial.blogPosts ?? []);
 
   useEffect(() => {
-    applyPageTheme(null, initial.settings?.navConfig?.defaultTheme);
+    applyPageTheme(null, initial.settings?.navConfig);
   }, [initial.settings]);
   const [seoConfig, setSeoConfig] = useState<SeoConfig>(initial.settings?.seoConfig ?? {});
   const [query, setQuery] = useState("");

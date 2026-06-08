@@ -18,7 +18,7 @@ export function PublicBlogPost() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    applyPageTheme(null, initial.settings?.navConfig?.defaultTheme);
+    applyPageTheme(null, initial.settings?.navConfig);
   }, [initial.settings]);
 
   useEffect(() => {

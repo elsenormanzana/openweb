@@ -44,7 +44,8 @@
       "Bash(pkill -f \"node server.js\")",
       "Bash(sed -n '1,12p' PublicBlogList.tsx)",
       "Bash(sed -n '1,12p' PublicBlogPost.tsx)",
-      "Bash(xargs basename -a)"
+      "Bash(xargs basename -a)",
+      "Bash(git checkout *)"
     ]
   },
   "enableAllProjectMcpServers": true,

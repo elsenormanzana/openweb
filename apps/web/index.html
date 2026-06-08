@@ -6,14 +6,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OpenWeb</title>
     <script>
-      // Apply the visitor's saved theme before paint (no flash). With no saved
-      // preference, keep whatever the server rendered (the page's default theme).
+      // Resolve the theme before paint (no flash). The server already rendered
+      // the designed theme (class="dark" or not) and exposed the toggle config
+      // on <html>. Device preference / a stored choice may only override when
+      // the toggle is shown — with it hidden, the designed theme is forced.
       (function () {
         try {
+          var html = document.documentElement;
+          var toggle = html.getAttribute("data-ow-toggle") || "nav";
+          if (toggle === "hidden") return; // forced designed theme
+          var c = html.classList;
           var t = localStorage.getItem("openweb_theme");
-          var c = document.documentElement.classList;
-          if (t === "dark") c.add("dark");
-          else if (t === "light") c.remove("dark");
+          if (t === "dark") { c.add("dark"); return; }
+          if (t === "light") { c.remove("dark"); return; }
+          // No stored choice: follow the device only if the owner opted in.
+          if ((html.getAttribute("data-ow-toggle-initial") || "site") === "device"
+              && window.matchMedia) {
+            c.toggle("dark", window.matchMedia("(prefers-color-scheme: dark)").matches);
+          }
         } catch (e) {}
       })();
     </script>
