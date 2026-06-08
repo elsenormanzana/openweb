@@ -19,7 +19,7 @@ export function PublicPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    applyPageTheme(page?.theme, initial.settings?.navConfig?.defaultTheme);
+    applyPageTheme(page?.theme, initial.settings?.navConfig);
   }, [page?.theme, initial.settings]);
 
   useEffect(() => {

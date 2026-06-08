@@ -30,6 +30,38 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /* ── Public-site semantic palette ──────────────────────────────────────────
+     Blocks consume these (`bg-ow-surface`, `text-ow-text`, `border-ow-border`,
+     `bg-ow-primary text-ow-primary-foreground`, …). The values are injected
+     per-site by paletteToCSS() — derived from the brand palette in light mode
+     and the dark palette in dark mode — so both modes and brand-blending are
+     automatic. The defaults in :root / .dark below are fallbacks. */
+  --color-ow-bg: var(--ow-bg);
+  --color-ow-surface: var(--ow-surface);
+  --color-ow-surface-2: var(--ow-surface-2);
+  --color-ow-text: var(--ow-text);
+  --color-ow-text-muted: var(--ow-text-muted);
+  --color-ow-border: var(--ow-border);
+  --color-ow-primary: var(--ow-primary);
+  --color-ow-primary-foreground: var(--ow-primary-foreground);
+  --color-ow-primary-soft: var(--ow-primary-soft);
+  --color-ow-secondary: var(--ow-secondary);
+  --color-ow-secondary-foreground: var(--ow-secondary-foreground);
+  --color-ow-accent: var(--ow-accent);
+  --color-ow-accent-foreground: var(--ow-accent-foreground);
+  --color-ow-accent-soft: var(--ow-accent-soft);
+  --color-ow-ring: var(--ow-ring);
+
+  /* Apple-grade radius / shadow scale for public blocks */
+  --radius-ow-sm: var(--ow-radius-sm);
+  --radius-ow: var(--ow-radius);
+  --radius-ow-lg: var(--ow-radius-lg);
+  --radius-ow-xl: var(--ow-radius-xl);
+  --shadow-ow-sm: var(--ow-shadow-sm);
+  --shadow-ow-md: var(--ow-shadow-md);
+  --shadow-ow-lg: var(--ow-shadow-lg);
+  --shadow-ow-xl: var(--ow-shadow-xl);
 }
 
 :root {
@@ -54,6 +86,43 @@
   /* System font stacks — zero network requests, instant first paint. */
   --font-geist-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-geist-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* ── Apple-grade scale (mode-independent) ─────────────────────────────────── */
+  --ow-radius-sm: 0.625rem;  /* 10px */
+  --ow-radius: 1rem;         /* 16px — default card radius */
+  --ow-radius-lg: 1.25rem;   /* 20px */
+  --ow-radius-xl: 1.75rem;   /* 28px — hero / large panels */
+  --ow-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ow-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ow-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ow-dur-fast: 150ms;
+  --ow-dur: 300ms;
+  --ow-dur-slow: 500ms;
+
+  /* Semantic token fallbacks — light. Overridden per-site by paletteToCSS()
+     on `.ow-shell`; these keep blocks rendered outside the shell (the editor
+     canvas) looking correct. */
+  --ow-bg: #ffffff;
+  --ow-surface: #f8fafc;
+  --ow-surface-2: #eef2f7;
+  --ow-text: #111827;
+  --ow-text-muted: #6b7280;
+  --ow-border: #e5e7eb;
+  --ow-primary: #2563eb;
+  --ow-primary-foreground: #ffffff;
+  --ow-primary-soft: #eaf1fe;
+  --ow-secondary: #0f172a;
+  --ow-secondary-foreground: #ffffff;
+  --ow-accent: #f59e0b;
+  --ow-accent-foreground: #111827;
+  --ow-accent-soft: #fdf2dd;
+  --ow-ring: #2563eb;
+
+  /* Layered soft shadows — light */
+  --ow-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06);
+  --ow-shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06), 0 2px 4px rgba(15, 23, 42, 0.04);
+  --ow-shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.10), 0 4px 8px rgba(15, 23, 42, 0.04);
+  --ow-shadow-xl: 0 24px 56px rgba(15, 23, 42, 0.14), 0 8px 16px rgba(15, 23, 42, 0.06);
 }
 
 .dark {
@@ -74,6 +143,30 @@
   --border: oklch(0.22 0.03 260);
   --card: oklch(0.15 0.02 260);
   --card-foreground: oklch(0.98 0.01 250);
+
+  /* Semantic token fallbacks — dark (Apple graphite). Overridden per-site by
+     paletteToCSS() on `.dark .ow-shell`. */
+  --ow-bg: #0d1117;
+  --ow-surface: #161b22;
+  --ow-surface-2: #21262d;
+  --ow-text: #e6edf3;
+  --ow-text-muted: #8b949e;
+  --ow-border: #2d333b;
+  --ow-primary: #4493f8;
+  --ow-primary-foreground: #0d1117;
+  --ow-primary-soft: #16263b;
+  --ow-secondary: #e6edf3;
+  --ow-secondary-foreground: #0d1117;
+  --ow-accent: #fbbf24;
+  --ow-accent-foreground: #0d1117;
+  --ow-accent-soft: #2a2415;
+  --ow-ring: #4493f8;
+
+  /* Layered shadows — dark (deeper, since soft light shadows vanish on dark) */
+  --ow-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.40);
+  --ow-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45), 0 2px 4px rgba(0, 0, 0, 0.35);
+  --ow-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55), 0 4px 8px rgba(0, 0, 0, 0.40);
+  --ow-shadow-xl: 0 24px 56px rgba(0, 0, 0, 0.60), 0 8px 16px rgba(0, 0, 0, 0.45);
 }
 
 body {
@@ -87,6 +180,14 @@ body {
 .dark body {
   background-color: var(--background);
   color: var(--foreground);
+}
+
+/* The public shell paints the semantic brand surface in BOTH modes, so dark
+   mode covers the whole page (not just remapped blocks) and the brand
+   background applies even when blocks don't fill the viewport. */
+.ow-shell {
+  background-color: var(--ow-bg);
+  color: var(--ow-text);
 }
 
 /* Responsive section rhythm — one source of truth for a block section's
@@ -215,6 +316,60 @@ html { scroll-behavior: smooth; }
 }
 .hover-lift:hover {
   transform: translateY(-2px);
+}
+
+/* ── Cross-browser / accessibility hardening ────────────────────────────────
+   Glass needs a real solid fallback where backdrop-filter is unsupported
+   (older Firefox, locked-down webviews), or the navbar/overlay becomes an
+   unreadable see-through pane. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass { background: color-mix(in srgb, var(--ow-surface) 88%, transparent); }
+  .dark .glass { background: color-mix(in srgb, var(--ow-surface) 92%, transparent); }
+}
+
+/* Honor reduced-motion everywhere: kill block entrances, hover lift, and any
+   long transition/animation while keeping the UI fully functional. */
+@media (prefers-reduced-motion: reduce) {
+  .hover-lift { transition: none; }
+  .hover-lift:hover { transform: none; }
+  .block-anim-fade-in,
+  .block-anim-slide-up,
+  .block-anim-slide-in-left,
+  .block-anim-slide-in-right {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Stronger borders for users who request higher contrast. */
+@media (prefers-contrast: more) {
+  .ow-shell { --ow-border: color-mix(in srgb, var(--ow-text) 45%, var(--ow-border)); }
+}
+
+/* Respect device safe areas (notches / rounded corners) for the public shell
+   so fixed navbars and edge content aren't clipped in landscape. */
+@supports (padding: max(0px)) {
+  .ow-shell {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* Comfortable, accessible tap targets on touch devices — links and buttons in
+   the public shell get a 44px minimum hit area without affecting layout text. */
+@media (pointer: coarse) {
+  .ow-shell a[role="button"],
+  .ow-shell button,
+  .ow-shell [data-block-id] a.inline-flex {
+    min-height: 44px;
+  }
 }
 
 /* ── Custom Scrollbars (Apple & Google Style) ──────────────────────────────── */

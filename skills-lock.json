@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "skills": {
+    "apple-design": {
+      "source": "diegosouzapw/awesome-omni-skill",
+      "sourceType": "github",
+      "skillPath": "skills/design/apple-design/SKILL.md",
+      "computedHash": "0c5660ae75cefbe1cfad4aadcb2a0391353ac491763f41157bfb92d1f785da55"
+    },
+    "frontend-patterns": {
+      "source": "affaan-m/ECC",
+      "sourceType": "github",
+      "skillPath": "skills/frontend-patterns/SKILL.md",
+      "computedHash": "e9b65d8a706faa23c40145b928d97cd5bc18c27fbe29f17f33fe9e591db20909"
+    },
+    "motion-patterns": {
+      "source": "affaan-m/ECC",
+      "sourceType": "github",
+      "skillPath": "skills/motion-patterns/SKILL.md",
+      "computedHash": "a9ddb0f04b4d0bff27f19d61428d84d5e987594a80b737464197e9279372b2de"
+    },
+    "nextjs-turbopack": {
+      "source": "affaan-m/ECC",
+      "sourceType": "github",
+      "skillPath": "skills/nextjs-turbopack/SKILL.md",
+      "computedHash": "a27022e1e58409153e9e8991e657263fb88f87be23400d3743d97424f03c5590"
+    },
+    "verify": {
+      "source": "facebook/react",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/verify/SKILL.md",
+      "computedHash": "f8b0daa5cb09d875140d1b9fa0440d969506dfba4365a5b40ef1c4d5f4b59112"
+    }
+  }
+}

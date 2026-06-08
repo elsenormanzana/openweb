@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type SiteSettings, type NavMenuItem } from "@/lib/api";
 import { NavbarMinimal, NavbarElevated, HeaderSaasCta, HeaderSaasEmail } from "@/components/NavbarVariants";
-import { paletteToCSS, DEFAULT_PALETTE } from "@/lib/palette";
+import { paletteToCSS, DEFAULT_PALETTE, DEFAULT_DARK_PALETTE } from "@/lib/palette";
 import { useInitialData } from "@/lib/initialData";
 
 // ── GlobalLayout ──────────────────────────────────────────────────────────────
@@ -118,6 +118,7 @@ export function GlobalLayout({ children }: { children: React.ReactNode }) {
   };
 
   const palette = { ...DEFAULT_PALETTE, ...(nav.palette ?? {}) };
+  const darkPalette = { ...DEFAULT_DARK_PALETTE, ...(nav.darkPalette ?? {}) };
 
   // SEO meta, verification tags and JSON-LD are emitted in the server-rendered
   // <head> by entry-server's renderHead(). This effect only handles the things
@@ -175,7 +176,7 @@ export function GlobalLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="ow-shell min-h-screen flex flex-col">
-      <style>{paletteToCSS(palette)}</style>
+      <style>{paletteToCSS(palette, darkPalette)}</style>
       <NavHeader />
 
       {/* overflow-x-clip contains any block that would otherwise cause a
@@ -185,18 +186,18 @@ export function GlobalLayout({ children }: { children: React.ReactNode }) {
       </main>
 
       {hasFooter && (
-        <footer className="border-t bg-gray-900 text-white">
+        <footer className="border-t border-ow-border bg-ow-surface text-ow-text-muted">
           {columns.length > 0 && (
             <div className="max-w-5xl mx-auto px-4 py-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-10">
               {columns.map((col, i) => (
                 <div key={i} className="flex flex-col gap-4">
-                  {col.heading && <p className="text-sm font-semibold uppercase tracking-wider text-gray-300">{col.heading}</p>}
-                  {col.text && <p className="text-sm text-gray-400 leading-relaxed">{col.text}</p>}
+                  {col.heading && <p className="text-sm font-semibold uppercase tracking-wider text-ow-text">{col.heading}</p>}
+                  {col.text && <p className="text-sm text-ow-text-muted leading-relaxed">{col.text}</p>}
                   {col.links.length > 0 && (
                     <ul className="flex flex-col gap-2">
                       {col.links.map((link, li) => (
                         <li key={li}>
-                          <Link to={link.href} className="text-sm text-gray-400 hover:text-white transition-colors">
+                          <Link to={link.href} className="text-sm text-ow-text-muted hover:text-ow-text transition-colors">
                             {link.label}
                           </Link>
                         </li>
@@ -208,15 +209,15 @@ export function GlobalLayout({ children }: { children: React.ReactNode }) {
             </div>
           )}
           {(copyright || footerLinks.length > 0) && (
-            <div className={`border-t border-white/10 ${columns.length > 0 ? "" : "py-4"}`}>
+            <div className={`border-t border-ow-border ${columns.length > 0 ? "" : "py-4"}`}>
               <div className="max-w-5xl mx-auto px-4 py-4 flex flex-wrap items-center justify-between gap-2">
-                {copyright && <p className="text-sm text-gray-400">{copyright}</p>}
+                {copyright && <p className="text-sm text-ow-text-muted">{copyright}</p>}
                 {footerLinks.length > 0 && (
                   <nav>
                     <ul className="flex gap-4">
                       {footerLinks.map((link, i) => (
                         <li key={i}>
-                          <Link to={link.href} className="text-sm text-gray-400 hover:text-white transition-colors">
+                          <Link to={link.href} className="text-sm text-ow-text-muted hover:text-ow-text transition-colors">
                             {link.label}
                           </Link>
                         </li>

@@ -26,7 +26,7 @@ export function PublicFormPage() {
   const settings = initial.settings ?? null;
 
   useEffect(() => {
-    applyPageTheme(null, settings?.navConfig?.defaultTheme);
+    applyPageTheme(null, settings?.navConfig);
   }, [settings]);
 
   useEffect(() => {

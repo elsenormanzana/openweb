@@ -5,6 +5,7 @@ dist
 *.log
 .DS_Store
 .claude/
+.agents/
 AGENTS.md
 CLAUDE.md
 GEMINI.md

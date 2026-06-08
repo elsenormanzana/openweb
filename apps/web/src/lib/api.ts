@@ -360,8 +360,8 @@ export type CrmAnalytics = {
   trend30d: { day: string; leads: string }[];
 };
 
-import type { ColorPalette } from "@/lib/palette";
-export type { ColorPalette };
+import type { ColorPalette, DarkColorPalette } from "@/lib/palette";
+export type { ColorPalette, DarkColorPalette };
 export type NavLink = { label: string; href: string };
 export type NavDropdownChildLink = { label: string; href: string };
 export type NavDropdownLink = { label: string; href: string; title?: string; children?: NavDropdownChildLink[] };
@@ -378,11 +378,17 @@ export type NavConfig = {
   dropdownStyle?: "minimal" | "modern-card" | "gradient-border" | "glassmorphic";
   dropdownAnimation?: "fade" | "slide-up" | "scale-up" | "fade-slide";
   palette?: ColorPalette;
+  /** Brand colors used when the site renders in dark mode (Phase 3 editor). */
+  darkPalette?: DarkColorPalette;
   headerStyle?: "transparent" | "solid";
   headerBg?: string;
   headerTextColor?: string;
   themeToggle?: "hidden" | "nav" | "actions";
   defaultTheme?: "light" | "dark";
+  /** When the toggle is shown, what the visitor starts on before any choice:
+      "site" = the designed default theme; "device" = follow OS preference.
+      Device preference is consulted ONLY when the toggle is shown. */
+  toggleInitial?: "site" | "device";
   ctaPrimaryText?: string;
   ctaPrimaryHref?: string;
   ctaSecondaryText?: string;
